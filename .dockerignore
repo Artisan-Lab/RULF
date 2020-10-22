@@ -50,3 +50,6 @@ Session.vim
 !/src/test/run-make/thumb-none-qemu/example/.cargo
 no_llvm_build
 # Before adding new lines, see the comment at the top.
+docker-build
+docker-run
+

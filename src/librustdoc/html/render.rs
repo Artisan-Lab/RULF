@@ -72,11 +72,13 @@ use crate::html::item_type::ItemType;
 use crate::html::markdown::{self, ErrorCodes, IdMap, Markdown, MarkdownHtml, MarkdownSummaryLine};
 use crate::html::sources;
 use crate::html::{highlight, layout, static_files};
+use crate::fuzz_target::{api_util, api_graph, file_util, impl_util, api_function};
+//use crate::html::afl_util;
 
 #[cfg(test)]
 mod tests;
 
-mod cache;
+pub mod cache;
 
 use cache::Cache;
 crate use cache::ExternalLocation::{self, *};
@@ -248,7 +250,7 @@ pub struct Impl {
 }
 
 impl Impl {
-    fn inner_impl(&self) -> &clean::Impl {
+    pub fn inner_impl(&self) -> &clean::Impl {
         match self.impl_item.inner {
             clean::ImplItem(ref impl_) => impl_,
             _ => panic!("non-impl item found in impl"),
@@ -576,6 +578,158 @@ pub fn run(
     } else {
         Ok(())
     }
+}
+
+pub fn fuzz_target_run_clean_krate(
+    raw_krate: &clean::Crate,
+    raw_options: &RenderOptions,
+    renderinfo: RenderInfo,
+    diag: &rustc_errors::Handler,
+    edition: Edition,)-> Result<(), Error>{
+    let mut krate = raw_krate.clone();
+    let options = raw_options.clone();
+
+    let md_opts = options.clone();
+    let RenderOptions {
+        output,
+        external_html,
+        id_map,
+        playground_url,
+        sort_modules_alphabetically,
+        themes,
+        extension_css,
+        extern_html_root_urls,
+        resource_suffix,
+        static_root_path,
+        generate_search_filter,
+        document_private,
+        ..
+    } = options;
+
+    let src_root = match krate.src {
+        FileName::Real(ref p) => match p.local_path().parent() {
+            Some(p) => p.to_path_buf(),
+            None => PathBuf::new(),
+        },
+        _ => PathBuf::new(),
+    };
+    let mut errors = Arc::new(ErrorStorage::new());
+    // If user passed in `--playground-url` arg, we fill in crate name here
+    let mut playground = None;
+    if let Some(url) = playground_url {
+        playground = Some(markdown::Playground { crate_name: Some(krate.name.clone()), url });
+    }
+    let layout = layout::Layout {
+        logo: String::new(),
+        favicon: String::new(),
+        external_html,
+        krate: krate.name.clone(),
+        css_file_extension: extension_css,
+        generate_search_filter,
+    };
+    let issue_tracker_base_url = None;
+    let include_sources = true;
+
+    let mut scx = SharedContext {
+        collapsed: krate.collapsed,
+        src_root,
+        include_sources,
+        local_sources: Default::default(),
+        issue_tracker_base_url,
+        layout,
+        created_dirs: Default::default(),
+        sort_modules_alphabetically,
+        themes,
+        resource_suffix,
+        static_root_path,
+        fs: DocFS::new(&errors),
+        edition,
+        codes: ErrorCodes::from(UnstableFeatures::from_environment().is_nightly_build()),
+        playground,
+    };
+
+    let dst = output;
+    scx.ensure_dir(&dst)?;
+    krate = sources::render(&dst, &mut scx, krate)?;
+    let (new_crate, index, cache) =
+        Cache::from_krate(renderinfo, document_private, &extern_html_root_urls, &dst, krate);
+
+    let mut api_dependency_graph = api_graph::ApiGraph::new(&new_crate.name);
+    //从cache中提出def_id与full_name的对应关系，存入full_name_map来进行调用
+    //同时提取impl块中的内容，存入api_dependency_graph
+    let mut full_name_map = impl_util::FullNameMap::new();
+    impl_util::extract_impls_from_cache(&cache, &mut full_name_map, &mut api_dependency_graph);
+    //println!("{:?}", full_name_map);
+
+    krate = new_crate;
+    let cache = Arc::new(cache);
+    let mut cx = Context {
+        current: Vec::new(),
+        dst,
+        render_redirect_pages: false,
+        id_map: Rc::new(RefCell::new(id_map)),
+        shared: Arc::new(scx),
+        cache: cache.clone(),
+    };
+
+    // Freeze the cache now that the index has been built. Put an Arc into TLS
+    // for future parallelization opportunities
+    CACHE_KEY.with(|v| *v.borrow_mut() = cache.clone());
+    CURRENT_DEPTH.with(|s| s.set(0));
+
+    // Write shared runs within a flock; disable thread dispatching of IO temporarily.
+    Arc::get_mut(&mut cx.shared).unwrap().fs.set_sync_only(true);
+    write_shared(&cx, &krate, index, &md_opts)?;
+    Arc::get_mut(&mut cx.shared).unwrap().fs.set_sync_only(false);
+
+    //将bare function添加到graph中去
+    let ret = cx.analyse_clean_krate(&krate, &mut api_dependency_graph);
+    //根据mod可见性和预包含类型过滤function
+    api_dependency_graph.filter_functions();
+    //寻找所有依赖，并且构建序列
+    api_dependency_graph.find_all_dependencies();
+    //api_dependency_graph._print_pretty_dependencies();
+
+    let random_strategy = false;
+    if !random_strategy {
+        api_dependency_graph.default_generate_sequences();
+    } else {
+        use crate::fuzz_target::api_graph::GraphTraverseAlgorithm::_RandomWalk;
+        api_dependency_graph.generate_all_possoble_sequences(_RandomWalk);
+    }
+    //api_dependency_graph._print_generated_libfuzzer_file();
+    //api_dependency_graph._print_pretty_functions(false);
+    //api_dependency_graph._print_generated_test_functions();
+    //use crate::fuzz_target::print_message;
+    //print_message::_print_pretty_functions(&api_dependency_graph, true);
+    //print_message::_print_pretty_functions(&api_dependency_graph, true);
+    //print_message::_print_generated_afl_file(&api_dependency_graph);
+    println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
+    //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
+    //use crate::html::afl_util;
+    //afl_util::_AflHelpers::_print_all();
+    if  file_util::can_write_to_file(&api_dependency_graph._crate_name, random_strategy) {
+        //whether to use random strategy
+        let file_helper = file_util::FileHelper::new(&api_dependency_graph, random_strategy);
+        //println!("file_helper:{:?}", file_helper);
+        file_helper.write_files();
+
+        if file_util::can_generate_libfuzzer_target(&api_dependency_graph._crate_name) {
+            file_helper.write_libfuzzer_files();
+        }
+    }
+
+
+    // And finally render the whole crate's documentation
+    let nb_errors = Arc::get_mut(&mut errors).map_or_else(|| 0, |errors| errors.write_errors(diag));
+    if ret.is_err() {
+        ret
+    } else if nb_errors > 0 {
+        Err(Error::new(io::Error::new(io::ErrorKind::Other, "I/O error"), ""))
+    } else {
+        Ok(())
+    }
+    
 }
 
 fn write_shared(
@@ -1403,6 +1557,31 @@ impl Context {
         Ok(())
     }
 
+    fn analyse_clean_krate(&self, raw_krate:&clean::Crate, mut api_dependency_graph: &mut api_graph::ApiGraph)->Result<(), Error>{
+        let mut krate = raw_krate.clone();
+        //println!("analyse clean krate");
+        let mut item = match krate.module.take() {
+            Some(i) => i,
+            None => return Ok(()),
+        };
+        //let span = &item.source;
+        //println!("span = {:?}",span);
+
+        let krate_name = krate.name.clone();
+        item.name = Some(krate_name);
+
+        //let mut all = AllTypes::new();
+        {
+            let mut work = vec![(self.clone(), item)];
+            while let Some((mut cx, item)) = work.pop() {
+                cx.another_analyse_item(item, &mut api_dependency_graph,|cx, item| {
+                    work.push((cx.clone(), item))
+                })?
+            }
+        }
+        Ok(())
+    }
+
     fn render_item(&self, it: &clean::Item, pushname: bool) -> String {
         // A little unfortunate that this is done like this, but it sure
         // does make formatting *a lot* nicer.
@@ -1564,7 +1743,76 @@ impl Context {
             }
         }
         Ok(())
-    }
+    } 
+
+    fn another_analyse_item<F>(&mut self, item: clean::Item, api_dependency_graph: &mut api_graph::ApiGraph,mut f: F) -> Result<(), Error>
+    where
+        F: FnMut(&mut Context, clean::Item), {
+            if item.is_mod() {
+                let name = item.name.as_ref().unwrap().to_string();
+                if name.is_empty() {
+                    panic!("empty name : {:?}", self.current);
+                }
+
+
+                let prev = self.dst.clone();
+                self.dst.push(&name);
+                self.current.push(name);
+
+                let mod_name = self.current.join("::");
+                api_dependency_graph.add_mod_visibility(&mod_name, &item.visibility);
+                
+
+                let m = match item.inner {
+                    clean::StrippedItem(box clean::ModuleItem(m)) | clean::ModuleItem(m) => m,
+                    _ => unreachable!(),
+                };
+
+                for item in m.items {
+                    f(self, item);
+                }
+                self.dst = prev;
+                self.current.pop().unwrap();
+            }else if item.name.is_some(){
+                //item是函数,将函数添加到api_dependency_graph里面去
+                let item_type = item.type_();
+                if item_type == ItemType::Function {
+                    let full_name = full_path(self, &item);
+                    //println!("full_name = {}", full_name);
+                    match item.inner {
+                        clean::FunctionItem(ref func) => {
+                            //println!("func = {:?}",func);
+                            let decl = func.decl.clone();
+                            let clean::FnDecl {inputs, output, ..} = decl;
+                            let generics = func.generics.clone();
+                            let inputs = api_util::_extract_input_types(&inputs);
+                            let output = api_util::_extract_output_type(&output);
+                            let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(&func.header);
+                            let api_fun = api_function::ApiFunction {
+                                full_name,
+                                generics,
+                                inputs,
+                                output,
+                                _trait_full_path: None,
+                                _unsafe_tag: api_unsafety,
+                            };
+                            
+                            //let output_type = api_fun.output.clone().unwrap();
+                            //println!("{:?}", output_type);
+                            //let full_name_map = &api_dependency_graph.full_name_map;
+                            //let preluded_type = prelude_type::PreludeType::from_type(&output_type, full_name_map);
+                            //println!("{:?}", preluded_type);
+                            //println!("preluded_type: {}", preluded_type._to_type_name(full_name_map));
+
+                            api_dependency_graph.add_api_function(api_fun);
+
+                        },
+                        _=> {}
+                    }
+                }   
+            }
+            Ok(())
+        }
 
     fn build_sidebar_items(&self, m: &clean::Module) -> BTreeMap<String, Vec<NameDoc>> {
         // BTreeMap instead of HashMap to get a sorted output

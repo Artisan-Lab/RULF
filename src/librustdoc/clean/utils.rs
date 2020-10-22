@@ -22,7 +22,7 @@ use std::mem;
 pub fn krate(mut cx: &mut DocContext<'_>) -> Crate {
     use crate::visit_lib::LibEmbargoVisitor;
 
-    let krate = cx.tcx.hir().krate();
+    let krate= cx.tcx.hir().krate();
     let module = crate::visit_ast::RustdocVisitor::new(&mut cx).visit(krate);
 
     let mut r = cx.renderinfo.get_mut();

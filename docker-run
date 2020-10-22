@@ -1,0 +1,6 @@
+#! /usr/bin/env bash
+
+set -e
+
+VERSION="v0.1"
+docker run -it --rm fuzz-target-generator:$VERSION

@@ -531,6 +531,88 @@ impl Step for Rustdoc {
     }
 }
 
+
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+pub struct FuzzTargetGenerator {
+    pub compiler: Compiler,
+}
+
+impl Step for FuzzTargetGenerator {
+    type Output = PathBuf;
+    const DEFAULT: bool = true;
+    const ONLY_HOSTS: bool = true;
+
+    fn should_run(run: ShouldRun<'_>) -> ShouldRun<'_> {
+        run.path("src/tools/fuzz-target-generator").path("src/librustdoc")
+    }
+
+    fn make_run(run: RunConfig<'_>) {
+        run.builder
+            .ensure(FuzzTargetGenerator { compiler: run.builder.compiler(run.builder.top_stage, run.host) });
+    }
+
+    fn run(self, builder: &Builder<'_>) -> PathBuf {
+        let target_compiler = self.compiler;
+        if target_compiler.stage == 0 {
+            if !target_compiler.is_snapshot(builder) {
+                panic!("rustdoc in stage 0 must be snapshot rustdoc");
+            }
+            return builder.initial_rustc.with_file_name(exe("rustdoc", &target_compiler.host));
+        }
+        let target = target_compiler.host;
+        // Similar to `compile::Assemble`, build with the previous stage's compiler. Otherwise
+        // we'd have stageN/bin/rustc and stageN/bin/rustdoc be effectively different stage
+        // compilers, which isn't what we want. Rustdoc should be linked in the same way as the
+        // rustc compiler it's paired with, so it must be built with the previous stage compiler.
+        let build_compiler = builder.compiler(target_compiler.stage - 1, builder.config.build);
+
+        // The presence of `target_compiler` ensures that the necessary libraries (codegen backends,
+        // compiler libraries, ...) are built. Rustdoc does not require the presence of any
+        // libraries within sysroot_libdir (i.e., rustlib), though doctests may want it (since
+        // they'll be linked to those libraries). As such, don't explicitly `ensure` any additional
+        // libraries here. The intuition here is that If we've built a compiler, we should be able
+        // to build rustdoc.
+
+        let cargo = prepare_tool_cargo(
+            builder,
+            build_compiler,
+            Mode::ToolRustc,
+            target,
+            "build",
+            "src/tools/fuzz-target-generator",
+            SourceType::InTree,
+            &[],
+        );
+
+        builder.info(&format!(
+            "Building rustdoc for stage{} ({})",
+            target_compiler.stage, target_compiler.host
+        ));
+        builder.run(&mut cargo.into());
+
+        // Cargo adds a number of paths to the dylib search path on windows, which results in
+        // the wrong rustdoc being executed. To avoid the conflicting rustdocs, we name the "tool"
+        // rustdoc a different name.
+        let tool_rustdoc = builder
+            .cargo_out(build_compiler, Mode::ToolRustc, target)
+            .join(exe("fuzz-target-generator", &target_compiler.host));
+
+        // don't create a stage0-sysroot/bin directory.
+        if target_compiler.stage > 0 {
+            let sysroot = builder.sysroot(target_compiler);
+            let bindir = sysroot.join("bin");
+            t!(fs::create_dir_all(&bindir));
+            let bin_rustdoc = bindir.join(exe("fuzz-target-generator", &*target_compiler.host));
+            let _ = fs::remove_file(&bin_rustdoc);
+            builder.copy(&tool_rustdoc, &bin_rustdoc);
+            bin_rustdoc
+        } else {
+            tool_rustdoc
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Cargo {
     pub compiler: Compiler,

@@ -1113,6 +1113,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45dc39533a6cae6da2b56da48edae506bb767ec07370f86f70fc062e9d435869"
 
 [[package]]
+name = "fuzz-target-generator"
+version = "0.1.0"
+dependencies = [
+ "rustdoc",
+]
+
+[[package]]
 name = "fwdansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4020,8 +4027,10 @@ name = "rustdoc"
 version = "0.0.0"
 dependencies = [
  "itertools 0.8.0",
+ "lazy_static",
  "minifier",
  "pulldown-cmark",
+ "rand 0.6.1",
  "rustc-rayon",
  "serde",
  "serde_json",

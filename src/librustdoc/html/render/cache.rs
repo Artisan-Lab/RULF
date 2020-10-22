@@ -34,7 +34,7 @@ pub enum ExternalLocation {
 /// to `Send` so it may be stored in a `Arc` instance and shared among the various
 /// rendering threads.
 #[derive(Default)]
-crate struct Cache {
+pub struct Cache {
     /// Maps a type ID to all known implementations for that type. This is only
     /// recognized for intra-crate `ResolvedPath` types, and is used to print
     /// out extra documentation on the page of an enum/struct.

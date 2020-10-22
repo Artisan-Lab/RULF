@@ -383,7 +383,7 @@ impl<'a, 'tcx> RustdocVisitor<'a, 'tcx> {
     ) {
         debug!("visiting item {:?}", item);
         let ident = renamed.unwrap_or(item.ident);
-
+        
         if item.vis.node.is_pub() {
             let def_id = self.cx.tcx.hir().local_def_id(item.hir_id);
             self.store_path(def_id.to_def_id());
