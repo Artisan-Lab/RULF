@@ -16,13 +16,13 @@ The recommended workflow to use this tool to fuzz a library is as follows:
 ```shell
 WORKDIR=$HOME #you can change this directory based on your own settings
 cd $WORKDIR
-git clone https://github.com/Artisan-Lab/Fuzz-Target-Generator
-cd $WORKDIR/Fuzz-Target-Generator
+git clone https://github.com/Artisan-Lab/RULF
+cd $WORKDIR/RULF
 python ./x.py build --stage 2 # Rustdoc will only be compiled in stage2, so a full stage2 compilation is required.
 ```
 First time to build this tool may cost a long time (maybe 1 hour or more). For Rust supports incremental compilation, the time will be much shorter since the second time (if you made some modification to the source code).
 
-After above instructions, You will get an executable `fuzz-target-generator` in the directory `$WORKDIR/Fuzz-Target-Generator/build/x86_64-unknown-linux-gnu/stage2/bin`. You can add this directory to your environmental variable `$PATH`.
+After above instructions, You will get an executable `fuzz-target-generator` in the directory `$WORKDIR/RULF/build/x86_64-unknown-linux-gnu/stage2/bin`. You can add this directory to your environmental variable `$PATH`.
 
 ### Dockerfile
 We also prepare a dockerfile to manage dependencies of RULF. You can run `./docker_build`  to build a docker image. Build may sometimes fail due to network problems.
@@ -35,7 +35,7 @@ Currently, we don't support pass command line options(for we borrow the options 
 
 You can follow below instuctions:  
 
-1. add the output directory of crate `url` in file `$WORKDIR/Fuzz-Target-Generator//src/librustdoc/fuzz_target/file_util.rs`. 
+1. add the output directory of crate `url` in file `$WORKDIR/RULF/src/librustdoc/fuzz_target/file_util.rs`. 
 For crate `url`, you can change the output directory of `url` in line 10 based on your own settings. Then recompile the tool.
 Suppose the path is `URL_OUTPUT_PATH`.
 
