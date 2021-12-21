@@ -8,6 +8,16 @@ The recommended workflow to use this tool to fuzz a library is as follows:
 1. clone the source and build this tool
 2. select a library for fuzzing, the use this tool to generate targets for the selected library.
 3. fuzz the library with [afl.rs](https://github.com/rust-fuzz/afl.rs). We provide a command line script to partly automate the process. 
+
+```
+@article{jiang2021rulf,
+  title={RULF: Rust library fuzzing via API dependency graph traversal},
+  author={Jianfeng Jiang, Hui Xu, and Yangfan Zhou},
+  journal={Prof. of the 36th IEEE/ACM International Conference on Automated Software Engineering (ASE)},
+  year={2021}
+}
+```
+
 ### How to build this tool? 
 
 1. building dependency: This repository is originated from the [rust project](https://github.com/rust-lang/rust). So, the dependency is the same as the dependency to build rust from source. You can refer to [rust/RAEDME.md](https://github.com/rust-lang/rust/blob/master/README.md) to install dependencies based on your operating system.
