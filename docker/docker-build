@@ -5,17 +5,20 @@ set -x
 
 readonly VERSION="v0.1"
 readonly DOCKER_IMAGE_NAME="fuzz-target-generator"
+readonly DOCKER_FILE="docker/Dockerfile"
 
 readonly DOCKER_UID="${UID:-0}"
 readonly DOCKER_GID="$(id -g)"
-readonly DOCKER_USER="${USER:-root}"
+# We use default user here, since our code hardcode username
+readonly DOCKER_USER="jjf"
+# readonly DOCKER_USER="${USER:-root}"
 
 echo $DOCKER_GID
 
 docker image build \
     --cache-from="$DOCKER_IMAGE_NAME:$VERSION" \
     -t $DOCKER_IMAGE_NAME:$VERSION \
-    -f Dockerfile \
+    -f ${DOCKER_FILE} \
     --build-arg=USERNAME="$DOCKER_USER" \
     --build-arg=USER_UID="$DOCKER_UID" \
     --build-arg=USER_GID="$DOCKER_GID" \

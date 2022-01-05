@@ -1,0 +1,36 @@
+#! /usr/bin/env bash
+
+set -e
+
+# install afl
+cargo install afl
+
+# test afl
+TMP_DIR=${HOME}
+BIN="url-fuzz-target"
+cd ${TMP_DIR}
+# This demo is from https://rust-fuzz.github.io/book/afl/tutorial.html
+cd ${TMP_DIR} && rm -rf ${BIN}
+cargo new --bin ${BIN}
+echo $'afl = \"*\"
+url = \"*\"' >> ${TMP_DIR}/${BIN}/Cargo.toml
+echo $'#[macro_use]
+extern crate afl;
+extern crate url;
+
+fn main() {
+    fuzz!(|data: &[u8]| {
+        if let Ok(s) = std::str::from_utf8(data) {
+            let _ = url::Url::parse(&s);
+        }
+    });
+}' > ${TMP_DIR}/${BIN}/src/main.rs
+
+cd ${TMP_DIR}/${BIN}
+cargo afl build
+mkdir in
+echo "tcp://example.com/" > in/url
+echo "ssh://192.168.1.1" > in/url2
+echo "http://www.example.com:80/foo?hi=bar" > in/url3
+# start fuzzing
+cargo afl fuzz -i in -o out target/debug/url-fuzz-target

@@ -9,6 +9,10 @@ The recommended workflow to use this tool to fuzz a library is as follows:
 2. select a library for fuzzing, the use this tool to generate targets for the selected library.
 3. fuzz the library with [afl.rs](https://github.com/rust-fuzz/afl.rs). We provide a command line script to partly automate the process. 
 
+### Cite Our work
+
+If you want to cite our work, you can cite our ASE'21 paper. The bibtex is as follows:
+
 ```
 @article{jiang2021rulf,
   title={RULF: Rust library fuzzing via API dependency graph traversal},
@@ -17,6 +21,32 @@ The recommended workflow to use this tool to fuzz a library is as follows:
   year={2021}
 }
 ```
+
+### How to use our tool with Docker
+The recommend way to use and develop our tool is through docker.
+We prepare a dockerfile and several scripts to manage dependencies of RULF and afl. 
+
+The first three scripts are executed on host machine.
+1. Run `docker/docker-build`. This script will build an image containing the dependencies of RULF.  
+2. Run `scripts/enable-afl-on-host`. This script will enable afl to run on your machine. Running this script requires logging as root. You can run `sudo su` to switch to root. Then `exit` to normal user.
+3. Run `docker/docker-run`. This script will start a docker container and map the current directory to the container.
+The following scripts are executed in the container.
+4. Run `scripts/build-in-docker`. This script will compile current project and set it as default toolchain with rustup. This scripts may fail several times due to network problem. Just retry it.
+5. Run `scripts/install-and-test-afl`. This script will download afl.rs and test whether afl can run on your machine. You should see the output window of afl to continue. Just type Ctrl+C to exit afl.
+6. Run `scripts/install-fuzzing-scripts`. This script will download our fuzzing scripts from github. It will also download source files of several test crates we use in our paper. **Note**: Sometimes downloading files from github may fail. You can download this project on host and copy it into the container(One example is `docker/docker-cp`). Then run this script again.
+
+Then you can generate targets and fuzz them.
+For example, we want to fuzz url. You can run following commands.
+```shell
+afl_scripts -p url
+afl_scripts -f 500 url
+afl_scripts -b url
+afl_scripts -fuzz url
+```
+More options can see documentation of our fuzzing scripts.
+
+
+**If you don't want to use our tool with docker. You can follow documentation below.**
 
 ### How to build this tool? 
 
@@ -34,8 +64,6 @@ First time to build this tool may cost a long time (maybe 1 hour or more). For R
 
 After above instructions, You will get an executable `fuzz-target-generator` in the directory `$WORKDIR/RULF/build/x86_64-unknown-linux-gnu/stage2/bin`. You can add this directory to your environmental variable `$PATH`.
 
-### Dockerfile
-We also prepare a dockerfile to manage dependencies of RULF. You can run `./docker_build`  to build a docker image. Build may sometimes fail due to network problems.
 
 ### How to use this tool to generate targets for a given library? 
 
@@ -49,7 +77,7 @@ You can follow below instuctions:
 For crate `url`, you can change the output directory of `url` in line 10 based on your own settings. Then recompile the tool.
 Suppose the path is `URL_OUTPUT_PATH`.
 
-2. download the source code of `url`. You can download source code from github or use `cargo`. To use cargo, you can add dependency `url = "2.2.0"` in Cargo.toml of any Rust project and compile the project. `cargo` will download the project automatically. On my PC, the directory of the source is `$HOME/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.2.0`. Use this directory to set environmental variable `URL_SOURCE_PATH`.
+2. download the source code of `url`. You can download source code from github or use `cargo`. To use cargo, you can add dependency `url = "=2.2.0"` in Cargo.toml of any Rust project and compile the project. `cargo` will download the project automatically. On my PC, the directory of the source is `$HOME/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.2.0`. Use this directory to set environmental variable `URL_SOURCE_PATH`.
 
 3. generate fuzz targets for url. You can follow below instructions.
 ```shell
@@ -72,4 +100,4 @@ Currently, we don't support APIs with generics. Macros and async APIs are not su
 
 ### Contributions
 
-Any Contribution to this project is welcome. Don't hesitate to issue a pull request or open an issue if you have any idea to improve the project. Your Contribution will do us a favor.
+Any Contribution to this project is both under MIT and Apache License.

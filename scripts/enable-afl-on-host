@@ -1,0 +1,8 @@
+#! /usr/bin/env bash
+
+set -e
+
+# run on host machine. Login as root
+echo core >/proc/sys/kernel/core_pattern
+cd /sys/devices/system/cpu
+echo performance | tee cpu*/cpufreq/scaling_governor
