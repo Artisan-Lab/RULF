@@ -7,8 +7,8 @@ use rustc_errors::json::JsonEmitter;
 use rustc_feature::UnstableFeatures;
 use rustc_hir::def::Namespace::TypeNS;
 use rustc_hir::def_id::{CrateNum, DefId, DefIndex, LocalDefId, CRATE_DEF_INDEX, LOCAL_CRATE};
-use rustc_hir::HirId;
 use rustc_hir::itemlikevisit::ItemLikeVisitor;
+use rustc_hir::HirId;
 use rustc_interface::interface;
 use rustc_middle::middle::cstore::CrateStore;
 use rustc_middle::middle::privacy::AccessLevels;
@@ -23,9 +23,9 @@ use rustc_span::symbol::sym;
 use rustc_span::DUMMY_SP;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
-use std::collections::HashMap;
 
 use crate::clean;
 use crate::clean::{AttributesExt, MAX_DEF_ID};
@@ -574,15 +574,13 @@ pub fn run_core(options: RustdocOptions) -> (clean::Crate, RenderInfo, RenderOpt
 }
 
 pub struct ApiDependencyVisitor {
-    items: HashMap<String, HirId>
+    items: HashMap<String, HirId>,
 }
 
 impl ApiDependencyVisitor {
     fn new() -> ApiDependencyVisitor {
-        ApiDependencyVisitor{
-            items: HashMap::new()
-        }
-    } 
+        ApiDependencyVisitor { items: HashMap::new() }
+    }
 }
 
 impl<'hir> ItemLikeVisitor<'hir> for ApiDependencyVisitor {
@@ -591,14 +589,14 @@ impl<'hir> ItemLikeVisitor<'hir> for ApiDependencyVisitor {
         //println!("visit: {}", item.ident.to_string());
     }
 
-    fn visit_trait_item(&mut self, _trait_item: &'hir rustc_hir::TraitItem<'hir>) {
-    }
+    fn visit_trait_item(&mut self, _trait_item: &'hir rustc_hir::TraitItem<'hir>) {}
 
-    fn visit_impl_item(&mut self, _impl_item: &'hir rustc_hir::ImplItem<'hir>) {
-    }
+    fn visit_impl_item(&mut self, _impl_item: &'hir rustc_hir::ImplItem<'hir>) {}
 }
 
-pub fn fuzz_target_generator_run_core(options: RustdocOptions) -> (clean::Crate, RenderInfo, RenderOptions) {
+pub fn fuzz_target_generator_run_core(
+    options: RustdocOptions,
+) -> (clean::Crate, RenderInfo, RenderOptions) {
     // Parse, resolve, and typecheck the given crate.
 
     let RustdocOptions {
@@ -763,7 +761,6 @@ pub fn fuzz_target_generator_run_core(options: RustdocOptions) -> (clean::Crate,
                 function_name_list.sort();*/
                 //for ident in function_name_list.into_iter() {
                 //}
-
 
                 // Abort if there were any errors so far
                 sess.abort_if_errors();

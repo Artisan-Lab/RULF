@@ -1466,7 +1466,7 @@ impl<'tcx> LateLintPass<'tcx> for Methods {
                     eq: op.node == hir::BinOpKind::Eq,
                 };
                 lint_binary_expr_with_method_call(cx, &mut info);
-            }
+            },
             _ => (),
         }
     }

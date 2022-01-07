@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::clean::Visibility;
+use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct ModVisibity {
     pub crate_name: String,
@@ -10,17 +10,14 @@ impl ModVisibity {
     pub fn new(crate_name_: &String) -> Self {
         let crate_name = crate_name_.clone();
         let inner = HashMap::new();
-        ModVisibity {
-            crate_name,
-            inner,
-        }
+        ModVisibity { crate_name, inner }
     }
 
     pub fn add_one_mod(&mut self, mod_name: &String, visibility: &Visibility) {
         self.inner.insert(mod_name.clone(), visibility.clone());
     }
 
-    pub fn get_invisible_mods(&self) -> Vec<String>{
+    pub fn get_invisible_mods(&self) -> Vec<String> {
         let mod_number = self.inner.len();
 
         let mut new_mod_visibility = HashMap::new();
@@ -40,7 +37,7 @@ impl ModVisibity {
                 let parent_visibility = new_mod_visibility.get(&parent_mod_name).unwrap();
                 if Visibility::Public == *visibility && *parent_visibility {
                     new_mod_visibility.insert(mod_name.clone(), true);
-                }else {
+                } else {
                     new_mod_visibility.insert(mod_name.clone(), false);
                 }
             }
@@ -58,14 +55,14 @@ impl ModVisibity {
             }
         }
         res
-    } 
+    }
 }
 
 pub fn get_parent_mod_name(mod_name: &String) -> Option<String> {
     if !mod_name.contains("::") {
         return None;
     }
-    let mut mod_split:Vec<&str> = mod_name.as_str().split("::").collect();
+    let mut mod_split: Vec<&str> = mod_name.as_str().split("::").collect();
     mod_split.pop();
     let parent_mod_name = mod_split.join("::");
     Some(parent_mod_name)

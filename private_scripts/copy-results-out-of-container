@@ -1,0 +1,7 @@
+#! /usr/bin/env bash
+
+set -e
+
+CONTAINER_ID="68debb479a3f"
+DOCKER_USER="jjf"
+docker cp ${CONTAINER_ID}:/home/${DOCKER_USER}/afl_fast_work ${HOME}

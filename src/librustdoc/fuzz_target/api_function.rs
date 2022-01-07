@@ -1,12 +1,14 @@
-use rustc_hir::{self,Mutability};
+use std::collections::HashSet;
+
 use crate::fuzz_target::api_util;
-use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableType};
+use crate::fuzz_target::impl_util::FullNameMap;
+use rustc_hir::{self, Mutability};
 
 use crate::clean;
 
-#[derive(Debug,Clone,Copy,Hash,Eq, PartialEq,Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApiUnsafety {
     Unsafe,
     Normal,
@@ -14,24 +16,20 @@ pub enum ApiUnsafety {
 
 #[derive(Clone, Debug)]
 pub struct ApiFunction {
-    pub full_name: String,//函数名，要来比较是否相等
+    pub full_name: String, //函数名，要来比较是否相等
     pub generics: clean::Generics,
     pub inputs: Vec<clean::Type>,
     pub output: Option<clean::Type>,
-    pub _trait_full_path : Option<String>,//Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
-    pub _unsafe_tag: ApiUnsafety
+    pub _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
+    pub _unsafe_tag: ApiUnsafety,
 }
 
 impl ApiUnsafety {
-    pub fn _get_unsafety_from_fnheader(fn_header:&rustc_hir::FnHeader)-> Self {
+    pub fn _get_unsafety_from_fnheader(fn_header: &rustc_hir::FnHeader) -> Self {
         let unsafety = fn_header.unsafety;
         match unsafety {
-            rustc_hir::Unsafety::Unsafe => {
-                ApiUnsafety::Unsafe
-            }
-            rustc_hir::Unsafety::Normal => {
-                ApiUnsafety::Normal
-            }
+            rustc_hir::Unsafety::Unsafe => ApiUnsafety::Unsafe,
+            rustc_hir::Unsafety::Normal => ApiUnsafety::Normal,
         }
     }
 
@@ -44,7 +42,7 @@ impl ApiUnsafety {
 }
 
 impl ApiFunction {
-    pub fn _is_end_function(&self, full_name_map : &FullNameMap) -> bool {
+    pub fn _is_end_function(&self, full_name_map: &FullNameMap) -> bool {
         if self.contains_mut_borrow() {
             return false;
         }
@@ -53,10 +51,10 @@ impl ApiFunction {
             Some(ty) => {
                 if api_util::_is_end_type(&ty, full_name_map) {
                     return true;
-                }else {
+                } else {
                     return false;
                 }
-            },
+            }
             None => true,
         }
         //TODO:考虑可变引用或者是可变裸指针做参数的情况
@@ -69,18 +67,30 @@ impl ApiFunction {
         }
         for input_type in &self.inputs {
             match input_type {
-                clean::Type::BorrowedRef{mutability,..} | clean::Type::RawPointer(mutability,_) => {
+                clean::Type::BorrowedRef { mutability, .. }
+                | clean::Type::RawPointer(mutability, _) => {
                     if let Mutability::Mut = mutability {
                         return true;
                     }
-                },
-                _=> {}
+                }
+                _ => {}
             }
         }
         return false;
     }
 
-    pub fn _is_start_function(&self, full_name_map : &FullNameMap) -> bool {
+    pub fn is_defined_on_prelude_type(&self, prelude_types: &HashSet<String>) -> bool {
+        let function_name_contains_prelude_type =
+            prelude_types.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
+        let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
+            prelude_types.iter().any(|prelude_type| trait_name.starts_with(prelude_type))
+        } else {
+            false
+        };
+        !function_name_contains_prelude_type & !trait_contains_prelude_type
+    }
+
+    pub fn _is_start_function(&self, full_name_map: &FullNameMap) -> bool {
         let input_types = &self.inputs;
         let mut flag = true;
         for ty in input_types {
@@ -109,16 +119,14 @@ impl ApiFunction {
         return false;
     }
 
-    
-
-    pub fn _has_no_output(&self) -> bool{
+    pub fn _has_no_output(&self) -> bool {
         match self.output {
             None => true,
             Some(_) => false,
         }
     }
 
-    pub fn _pretty_print(&self, full_name_map : &FullNameMap) -> String {
+    pub fn _pretty_print(&self, full_name_map: &FullNameMap) -> String {
         let mut fn_line = format!("fn {}(", self.full_name);
         let input_len = self.inputs.len();
         for i in 0..input_len {
@@ -136,16 +144,18 @@ impl ApiFunction {
         fn_line
     }
 
-    pub fn filter_by_fuzzable_type(&self, full_name_map : &FullNameMap) -> bool {
+    pub fn contains_unsupported_fuzzable_type(&self, full_name_map: &FullNameMap) -> bool {
         for input_ty_ in &self.inputs {
             if api_util::is_fuzzable_type(input_ty_, full_name_map) {
-                let fuzzable_call_type = fuzzable_type::fuzzable_call_type(input_ty_, full_name_map);
-                let (fuzzable_type, call_type) = fuzzable_call_type.generate_fuzzable_type_and_call_type();
+                let fuzzable_call_type =
+                    fuzzable_type::fuzzable_call_type(input_ty_, full_name_map);
+                let (fuzzable_type, call_type) =
+                    fuzzable_call_type.generate_fuzzable_type_and_call_type();
 
                 match &fuzzable_type {
                     FuzzableType::NoFuzzable => {
                         return true;
-                    },
+                    }
                     _ => {}
                 }
 
@@ -156,7 +166,7 @@ impl ApiFunction {
                 match &call_type {
                     CallType::_NotCompatible => {
                         return true;
-                    },
+                    }
                     _ => {}
                 }
             }

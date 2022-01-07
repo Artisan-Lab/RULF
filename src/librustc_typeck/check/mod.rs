@@ -3327,10 +3327,13 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         }
 
         let autoborrow_mut = adj.iter().any(|adj| {
-            matches!(adj, &Adjustment {
-                kind: Adjust::Borrow(AutoBorrow::Ref(_, AutoBorrowMutability::Mut { .. })),
-                ..
-            })
+            matches!(
+                adj,
+                &Adjustment {
+                    kind: Adjust::Borrow(AutoBorrow::Ref(_, AutoBorrowMutability::Mut { .. })),
+                    ..
+                }
+            )
         });
 
         match self.tables.borrow_mut().adjustments_mut().entry(expr.hir_id) {
@@ -3344,20 +3347,26 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                     // is a valid NeverToAny adjustment, because it can't
                     // be reached.
                     (&[Adjustment { kind: Adjust::NeverToAny, .. }], _) => return,
-                    (&[
-                        Adjustment { kind: Adjust::Deref(_), .. },
-                        Adjustment { kind: Adjust::Borrow(AutoBorrow::Ref(..)), .. },
-                    ], &[
-                        Adjustment { kind: Adjust::Deref(_), .. },
-                        .. // Any following adjustments are allowed.
-                    ]) => {
+                    (
+                        &[
+                            Adjustment { kind: Adjust::Deref(_), .. },
+                            Adjustment { kind: Adjust::Borrow(AutoBorrow::Ref(..)), .. },
+                        ],
+                        &[
+                            Adjustment { kind: Adjust::Deref(_), .. },
+                            .., // Any following adjustments are allowed.
+                        ],
+                    ) => {
                         // A reborrow has no effect before a dereference.
                     }
                     // FIXME: currently we never try to compose autoderefs
                     // and ReifyFnPointer/UnsafeFnPointer, but we could.
-                    _ =>
-                        bug!("while adjusting {:?}, can't compose {:?} and {:?}",
-                             expr, entry.get(), adj)
+                    _ => bug!(
+                        "while adjusting {:?}, can't compose {:?} and {:?}",
+                        expr,
+                        entry.get(),
+                        adj
+                    ),
                 };
                 *entry.get_mut() = adj;
             }

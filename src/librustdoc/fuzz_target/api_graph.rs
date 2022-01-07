@@ -1,12 +1,12 @@
-use crate::fuzz_target::api_util;
 use crate::fuzz_target::api_function::ApiFunction;
-use crate::fuzz_target::fuzzable_type::FuzzableType;
-use crate::fuzz_target::impl_util::FullNameMap;
-use crate::fuzz_target::prelude_type;
-use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
+use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type;
+use crate::fuzz_target::fuzzable_type::FuzzableType;
+use crate::fuzz_target::impl_util::FullNameMap;
+use crate::fuzz_target::mod_visibility::ModVisibity;
+use crate::fuzz_target::prelude_type;
 
 //use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
@@ -14,6 +14,8 @@ use rand::{self, Rng};
 use std::collections::{HashMap, HashSet};
 
 use crate::clean::Visibility;
+
+use super::generic_function::GenericFunction;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: HashMap<&'static str, usize> = {
@@ -35,21 +37,21 @@ lazy_static! {
     };
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct ApiGraph {
-    pub _crate_name : String, 
-    pub api_functions : Vec<ApiFunction>, 
-    pub api_functions_visited : Vec<bool>, 
-    pub api_dependencies : Vec<ApiDependency>, 
-    pub api_sequences : Vec<ApiSequence>, 
-    pub full_name_map : FullNameMap, //did to full_name
+    pub _crate_name: String,
+    pub api_functions: Vec<ApiFunction>,
+    pub api_functions_visited: Vec<bool>,
+    pub api_dependencies: Vec<ApiDependency>,
+    pub api_sequences: Vec<ApiSequence>,
+    pub full_name_map: FullNameMap,  //did to full_name
     pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
-    pub generic_functions: HashSet<String>,
+    pub generic_functions: Vec<GenericFunction>,
     pub functions_with_unsupported_fuzzable_types: HashSet<String>,
     //pub _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
 }
 
-#[derive(Clone,Copy,Debug,Hash,Eq,PartialEq,Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum GraphTraverseAlgorithm {
     _Bfs,
     _FastBfs,
@@ -61,57 +63,47 @@ pub enum GraphTraverseAlgorithm {
     _DirectBackwardSearch,
 }
 
-#[derive(Debug,Clone,Hash,Eq, PartialEq,Copy)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub enum ApiType {
     BareFunction,
     //GenericFunction, currently not support now
 }
 
 //函数的依赖关系
-#[derive(Debug,Clone,Hash,Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct ApiDependency {
     pub output_fun: (ApiType, usize), //the index of first func
-    pub input_fun: (ApiType, usize), //the index of second func
-    pub input_param_index: usize, 
-    pub call_type: CallType, 
+    pub input_fun: (ApiType, usize),  //the index of second func
+    pub input_param_index: usize,
+    pub call_type: CallType,
 }
 
 impl ApiGraph {
-    pub fn new(_crate_name: &String)->Self {
-        let api_functions = Vec::new();
-        let api_functions_visited = Vec::new();
-        let api_dependencies = Vec::new();
-        let api_sequences = Vec::new();
-        let full_name_map = FullNameMap::new();
-        let mod_visibility = ModVisibity::new(_crate_name);
-        let generic_functions = HashSet::new();
-        let functions_with_unsupported_fuzzable_types = HashSet::new();
+    pub fn new(_crate_name: &String) -> Self {
         //let _sequences_of_all_algorithm = FxHashMap::default();
         ApiGraph {
-            _crate_name: _crate_name.clone(),
-            api_functions, 
-            api_functions_visited, 
-            api_dependencies, 
-            api_sequences, 
-            full_name_map, 
-            mod_visibility,
-            generic_functions,
-            functions_with_unsupported_fuzzable_types,
+            _crate_name: _crate_name.to_owned(),
+            api_functions: Vec::new(),
+            api_functions_visited: Vec::new(),
+            api_dependencies: Vec::new(),
+            api_sequences: Vec::new(),
+            full_name_map: FullNameMap::new(),
+            mod_visibility: ModVisibity::new(_crate_name),
+            generic_functions: Vec::new(),
+            functions_with_unsupported_fuzzable_types: HashSet::new(),
             //_sequences_of_all_algorithm,
         }
     }
 
-    pub fn add_api_function(&mut self, api_fun : ApiFunction) {
-        //TODO: currently, generic functions is simply dropped. 
+    pub fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun._is_generic_function() {
-            self.generic_functions.insert(api_fun.full_name.clone());
-        }else if api_fun.filter_by_fuzzable_type(&self.full_name_map){
+            let generic_function = GenericFunction::from(api_fun);
+            self.generic_functions.push(generic_function);
+        } else if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
             self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
-        }else {
+        } else {
             self.api_functions.push(api_fun);
         }
-        //println!("There are {} generic functions.", generic_functions.len());
-        //println!("There are {} functions with unsupported fuzzable types.", functions_with_unsupported_fuzzable_types.len());
     }
 
     pub fn add_mod_visibility(&mut self, mod_name: &String, visibility: &Visibility) {
@@ -119,39 +111,22 @@ impl ApiGraph {
     }
 
     pub fn filter_functions(&mut self) {
-        self.filter_api_functions_by_prelude_type();
+        self.filter_functions_defined_on_prelude_type();
         self.filter_api_functions_by_mod_visibility();
     }
-    
-    pub fn filter_api_functions_by_prelude_type(&mut self) {
-        let prelude_types = prelude_type::get_all_preluded_type();
 
+    /// functions of prelude type. These functions are not in current crate
+    /// I
+    pub fn filter_functions_defined_on_prelude_type(&mut self) {
+        let prelude_types = prelude_type::get_all_preluded_type();
         if prelude_types.len() <= 0 {
             return;
         }
-
-        let mut new_api_functions = Vec::new();
-        for api_func in &self.api_functions {
-            let api_func_name = &api_func.full_name;
-            let trait_name = &api_func._trait_full_path;
-            let mut prelude_function_flag = false;
-            for one_prelude_type in &prelude_types {
-                if api_func_name.as_str().starts_with(one_prelude_type.as_str()) {
-                    prelude_function_flag = true;
-                    break;
-                }
-                if let Some(trait_name_) = trait_name {
-                    if trait_name_.as_str().starts_with(one_prelude_type) {
-                        prelude_function_flag = true;
-                        break;
-                    }
-                }
-            }
-            if !prelude_function_flag {
-                new_api_functions.push(api_func.clone());
-            }
-        }
-        self.api_functions = new_api_functions;
+        self.api_functions = self
+            .api_functions
+            .drain(..)
+            .filter(|api_function| api_function.is_defined_on_prelude_type(&prelude_types))
+            .collect();
     }
 
     pub fn filter_api_functions_by_mod_visibility(&mut self) {
@@ -185,7 +160,7 @@ impl ApiGraph {
         self.api_functions = new_api_functions;
     }
 
-    pub fn set_full_name_map(&mut self, full_name_map : &FullNameMap) {
+    pub fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {
         self.full_name_map = full_name_map.clone();
     }
 
@@ -213,14 +188,21 @@ impl ApiGraph {
                     let input_params_num = input_params.len();
                     for k in 0..input_params_num {
                         let input_param = &input_params[k];
-                        let call_type = api_util::_same_type(output_type, input_param, true, &self.full_name_map);
+                        let call_type = api_util::_same_type(
+                            output_type,
+                            input_param,
+                            true,
+                            &self.full_name_map,
+                        );
                         match &call_type {
-                            CallType::_NotCompatible => {continue;},
+                            CallType::_NotCompatible => {
+                                continue;
+                            }
                             _ => {
-                                let one_dependency = ApiDependency{
-                                    output_fun : (ApiType::BareFunction, i),
-                                    input_fun : (ApiType::BareFunction, j),
-                                    input_param_index : k,
+                                let one_dependency = ApiDependency {
+                                    output_fun: (ApiType::BareFunction, i),
+                                    input_fun: (ApiType::BareFunction, j),
+                                    input_param_index: k,
                                     call_type: call_type.clone(),
                                 };
                                 self.api_dependencies.push(one_dependency);
@@ -261,19 +243,19 @@ impl ApiGraph {
             GraphTraverseAlgorithm::_Bfs => {
                 println!("using bfs");
                 self.bfs(bfs_max_len, false, false);
-            },
+            }
             GraphTraverseAlgorithm::_FastBfs => {
                 println!("using fastbfs");
                 self.bfs(bfs_max_len, false, true);
-            },
+            }
             GraphTraverseAlgorithm::_BfsEndPoint => {
                 println!("using bfs end point");
                 self.bfs(bfs_max_len, true, false);
-            },
+            }
             GraphTraverseAlgorithm::_FastBfsEndPoint => {
                 println!("using fast bfs end point");
                 self.bfs(bfs_max_len, true, true);
-            },
+            }
             GraphTraverseAlgorithm::_TryDeepBfs => {
                 println!("using try deep bfs");
                 self._try_deep_bfs(max_sequence_number);
@@ -281,7 +263,7 @@ impl ApiGraph {
             GraphTraverseAlgorithm::_RandomWalk => {
                 println!("using random walk");
                 self.random_walk(random_walk_max_size, false, random_walk_max_depth);
-            },
+            }
             GraphTraverseAlgorithm::_RandomWalkEndPoint => {
                 println!("using random walk end point");
                 self.random_walk(random_walk_max_size, true, random_walk_max_depth);
@@ -306,8 +288,7 @@ impl ApiGraph {
     }
 
     //检查是否所有函数都访问过了
-    pub fn check_all_visited(&self)->bool{
-
+    pub fn check_all_visited(&self) -> bool {
         let mut visited_nodes = 0;
         for visited in &self.api_functions_visited {
             if *visited {
@@ -332,11 +313,11 @@ impl ApiGraph {
     }
 
     //已经访问过的节点数量,用来快速判断bfs是否还需要run下去：如果一轮下来，bfs的长度没有发生变化，那么也可直接quit了
-    pub fn _visited_nodes_num(&self)->usize {
-        let visited:Vec<&bool> = (&self.api_functions_visited).into_iter().filter(|x| **x==true).collect();
+    pub fn _visited_nodes_num(&self) -> usize {
+        let visited: Vec<&bool> =
+            (&self.api_functions_visited).into_iter().filter(|x| **x == true).collect();
         visited.len()
     }
-
 
     //生成函数序列，且指定调用的参数
     //加入对fast mode的支持
@@ -347,7 +328,7 @@ impl ApiGraph {
         if max_len < 1 {
             return;
         }
-        
+
         let api_function_num = self.api_functions.len();
 
         //无需加入长度为1的，从空序列开始即可，加入一个长度为0的序列作为初始
@@ -374,7 +355,9 @@ impl ApiGraph {
                     if fast_mode && self.api_functions_visited[api_func_index] {
                         continue;
                     }
-                    if let Some(new_sequence) = self.is_fun_satisfied(&api_type, api_func_index, sequence) {
+                    if let Some(new_sequence) =
+                        self.is_fun_satisfied(&api_type, api_func_index, sequence)
+                    {
                         self.api_sequences.push(new_sequence);
                         self.api_functions_visited[api_func_index] = true;
 
@@ -396,7 +379,7 @@ impl ApiGraph {
 
     //为探索比较深的路径专门进行优化
     //主要还是针对比较大的库,函数比较多的
-    pub fn _try_deep_bfs(&mut self, max_sequence_number:usize) {
+    pub fn _try_deep_bfs(&mut self, max_sequence_number: usize) {
         //清空所有的序列
         self.api_sequences.clear();
         self.reset_visited();
@@ -436,9 +419,9 @@ impl ApiGraph {
                 //长度为len的序列，去匹配每一个函数，如果可以加入的话，就生成一个新的序列
                 let api_type = ApiType::BareFunction;
                 for api_func_index in 0..api_function_num {
-                    
-                    if let Some(new_sequence) = self.is_fun_satisfied(&api_type, api_func_index, sequence) {
-
+                    if let Some(new_sequence) =
+                        self.is_fun_satisfied(&api_type, api_func_index, sequence)
+                    {
                         let covered_nodes = new_sequence._get_contained_api_functions();
                         for covered_node in &covered_nodes {
                             if !already_covered_nodes.contains(covered_node) {
@@ -465,7 +448,6 @@ impl ApiGraph {
                 break;
             }
         }
-
     }
 
     pub fn random_walk(&mut self, max_size: usize, stop_at_end_function: bool, max_depth: usize) {
@@ -473,7 +455,7 @@ impl ApiGraph {
         self.reset_visited();
 
         //没有函数的话，直接return
-        if self.api_functions.len() <=0 {
+        if self.api_functions.len() <= 0 {
             return;
         }
 
@@ -498,8 +480,9 @@ impl ApiGraph {
             let chosen_fun_index = rng.gen_range(0, function_len);
             //let chosen_fun = &self.api_functions[chosen_fun_index];
             let fun_type = ApiType::BareFunction;
-            if let Some(new_sequence) = self.is_fun_satisfied(&fun_type, chosen_fun_index, chosen_sequence) {
-
+            if let Some(new_sequence) =
+                self.is_fun_satisfied(&fun_type, chosen_fun_index, chosen_sequence)
+            {
                 self.api_sequences.push(new_sequence);
                 self.api_functions_visited[chosen_fun_index] = true;
 
@@ -510,8 +493,6 @@ impl ApiGraph {
                 }
             }
         }
-
-
     }
 
     pub fn _choose_candidate_sequence_for_merge(&self) -> Vec<usize> {
@@ -527,11 +508,11 @@ impl ApiGraph {
             }
             if api_sequence_len <= 0 {
                 continue;
-            }else if api_sequence_len == 1 {
+            } else if api_sequence_len == 1 {
                 res.push(i);
-            }else {
+            } else {
                 let mut dead_code_flag = false;
-                for j in 0..api_sequence_len -1 {
+                for j in 0..api_sequence_len - 1 {
                     if dead_code[j] {
                         dead_code_flag = true;
                         break;
@@ -581,7 +562,13 @@ impl ApiGraph {
                         let candidate_sequence = &self.api_sequences[*candidate_sequence_index];
                         let output_index = candidate_sequence._last_api_func_index().unwrap();
 
-                        if let Some(_) = self.check_dependency(&output_type, output_index, &input_type, *unvisited_node, i) {
+                        if let Some(_) = self.check_dependency(
+                            &output_type,
+                            output_index,
+                            &input_type,
+                            *unvisited_node,
+                            i,
+                        ) {
                             can_find_dependency_flag = true;
                             //dependent_sequence_indexes.push(*candidate_sequence_index);
                             tmp_dependent_index = *candidate_sequence_index as i32;
@@ -600,18 +587,22 @@ impl ApiGraph {
                 }
                 if can_be_covered_flag {
                     //println!("{:?} can be covered", unvisited_api_func.full_name);
-                    let dependent_sequences: Vec<ApiSequence> = dependent_sequence_indexes.into_iter().map(|index| self.api_sequences[index].clone()).collect();
+                    let dependent_sequences: Vec<ApiSequence> = dependent_sequence_indexes
+                        .into_iter()
+                        .map(|index| self.api_sequences[index].clone())
+                        .collect();
                     let merged_sequence = ApiSequence::_merge_sequences(&dependent_sequences);
                     let input_type = ApiType::BareFunction;
-                    if let Some(generated_sequence) = self.is_fun_satisfied(&input_type, *unvisited_node, &merged_sequence) {
+                    if let Some(generated_sequence) =
+                        self.is_fun_satisfied(&input_type, *unvisited_node, &merged_sequence)
+                    {
                         //println!("{}", generated_sequence._to_well_written_function(self, 0, 0));
-                        
+
                         self.api_sequences.push(generated_sequence);
                         self.api_functions_visited[*unvisited_node] = true;
                         covered_node_this_iteration.insert(*unvisited_node);
                         apis_covered_by_reverse_search = apis_covered_by_reverse_search + 1;
-                        
-                    }else {
+                    } else {
                         //The possible cause is there is some wrong fuzzable type
                         println!("Should not go to here. Only if algorithm error occurs");
                     }
@@ -620,7 +611,7 @@ impl ApiGraph {
             if covered_node_this_iteration.len() == 0 {
                 println!("reverse search can not cover more nodes");
                 break;
-            }else {
+            } else {
                 for covered_node in &covered_node_this_iteration {
                     unvisited_nodes.remove(covered_node);
                 }
@@ -659,7 +650,7 @@ impl ApiGraph {
         //println!("There are total {} APIs covered by reverse search", apis_covered_by_reverse_search);
     }
 
-    pub fn _naive_choose_sequence(&self, max_sequence_size: usize) -> Vec<ApiSequence>{
+    pub fn _naive_choose_sequence(&self, max_sequence_size: usize) -> Vec<ApiSequence> {
         let mut to_cover_nodes = Vec::new();
         let function_len = self.api_functions.len();
         for i in 0..function_len {
@@ -703,9 +694,12 @@ impl ApiGraph {
             }
             //println!("need_to_cover_nodes:{:?}", to_cover_nodes);
             let next_cover_node = to_cover_nodes.first().unwrap();
-            let candidate_sequences = node_candidate_sequences.get(next_cover_node).unwrap().clone();
-            let unvisited_candidate_sequences = candidate_sequences.into_iter()
-                .filter(|node| chosen_sequence_flag[*node]==false).collect::<Vec<_>>();
+            let candidate_sequences =
+                node_candidate_sequences.get(next_cover_node).unwrap().clone();
+            let unvisited_candidate_sequences = candidate_sequences
+                .into_iter()
+                .filter(|node| chosen_sequence_flag[*node] == false)
+                .collect::<Vec<_>>();
             let candidate_number = unvisited_candidate_sequences.len();
             let random_index = rng.gen_range(0, candidate_number);
             let chosen_index = unvisited_candidate_sequences[random_index];
@@ -714,14 +708,15 @@ impl ApiGraph {
             //println!("{:}",chosen_sequence._to_well_written_function(self, 0, 0));
 
             let covered_nodes = chosen_sequence._get_contained_api_functions();
-            to_cover_nodes = to_cover_nodes.into_iter().filter(|node| !covered_nodes.contains(node)).collect();
+            to_cover_nodes =
+                to_cover_nodes.into_iter().filter(|node| !covered_nodes.contains(node)).collect();
             chosen_sequence_flag[random_index] = true;
             res.push(chosen_sequence.clone());
         }
         res
     }
 
-    pub fn _random_choose(&self, max_size: usize) -> Vec<ApiSequence>{
+    pub fn _random_choose(&self, max_size: usize) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut covered_nodes = HashSet::new();
         let mut covered_edges = HashSet::new();
@@ -765,7 +760,7 @@ impl ApiGraph {
         res
     }
 
-    pub fn _first_choose(&self, max_size: usize) -> Vec<ApiSequence>{
+    pub fn _first_choose(&self, max_size: usize) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut covered_nodes = HashSet::new();
         let mut covered_edges = HashSet::new();
@@ -801,7 +796,11 @@ impl ApiGraph {
         res
     }
 
-    pub fn _heuristic_choose(&self, max_size: usize, stop_at_visit_all_nodes: bool) -> Vec<ApiSequence> {
+    pub fn _heuristic_choose(
+        &self,
+        max_size: usize,
+        stop_at_visit_all_nodes: bool,
+    ) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut to_cover_nodes = Vec::new();
 
@@ -811,8 +810,10 @@ impl ApiGraph {
             //for covered_node in &covered_nodes {
             //    fixed_covered_nodes.insert(*covered_node);
             //}
-            
-            if !fixed_sequence._has_no_fuzzables() && !fixed_sequence._contains_dead_code_except_last_one(self) {
+
+            if !fixed_sequence._has_no_fuzzables()
+                && !fixed_sequence._contains_dead_code_except_last_one(self)
+            {
                 let covered_nodes = fixed_sequence._get_contained_api_functions();
                 for covered_node in &covered_nodes {
                     fixed_covered_nodes.insert(*covered_node);
@@ -833,7 +834,8 @@ impl ApiGraph {
         //println!("There are toatl {} sequences.", total_sequence_number);
         let mut valid_fuzz_sequence_count = 0;
         for sequence in &self.api_sequences {
-            if !sequence._has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self){
+            if !sequence._has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self)
+            {
                 valid_fuzz_sequence_count = valid_fuzz_sequence_count + 1;
             }
         }
@@ -848,9 +850,9 @@ impl ApiGraph {
         let mut sorted_chosen_sequences = Vec::new();
         let mut dynamic_fuzzable_length_sequences_count = 0;
         let mut fixed_fuzzale_length_sequences_count = 0;
-    
+
         let mut try_to_find_dynamic_length_flag = true;
-        for _ in 0..max_size+1 {
+        for _ in 0..max_size + 1 {
             let mut current_chosen_sequence_index = 0;
             let mut current_max_covered_nodes = 0;
             let mut current_max_covered_edges = 0;
@@ -862,7 +864,9 @@ impl ApiGraph {
                 }
                 let api_sequence = &self.api_sequences[j];
 
-                if api_sequence._has_no_fuzzables() || api_sequence._contains_dead_code_except_last_one(self) {
+                if api_sequence._has_no_fuzzables()
+                    || api_sequence._contains_dead_code_except_last_one(self)
+                {
                     continue;
                 }
 
@@ -880,7 +884,8 @@ impl ApiGraph {
                 let mut uncovered_nodes_by_former_sequence_count = 0;
                 for covered_node in &covered_nodes {
                     if !already_covered_nodes.contains(covered_node) {
-                        uncovered_nodes_by_former_sequence_count = uncovered_nodes_by_former_sequence_count + 1;
+                        uncovered_nodes_by_former_sequence_count =
+                            uncovered_nodes_by_former_sequence_count + 1;
                     }
                 }
 
@@ -891,21 +896,28 @@ impl ApiGraph {
                 let mut uncovered_edges_by_former_sequence_count = 0;
                 for covered_edge in covered_edges {
                     if !already_covered_edges.contains(covered_edge) {
-                        uncovered_edges_by_former_sequence_count = uncovered_edges_by_former_sequence_count + 1;
+                        uncovered_edges_by_former_sequence_count =
+                            uncovered_edges_by_former_sequence_count + 1;
                     }
                 }
-                if uncovered_nodes_by_former_sequence_count == current_max_covered_nodes && uncovered_edges_by_former_sequence_count < current_max_covered_edges {
+                if uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
+                    && uncovered_edges_by_former_sequence_count < current_max_covered_edges
+                {
                     continue;
                 }
                 let sequence_len = api_sequence.len();
-                if (uncovered_nodes_by_former_sequence_count > current_max_covered_nodes) ||
-                    (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes && uncovered_edges_by_former_sequence_count > current_max_covered_edges) ||
-                    (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes && uncovered_edges_by_former_sequence_count == current_max_covered_edges && sequence_len < current_chosen_sequence_len) {
-                        current_chosen_sequence_index = j;
-                        current_max_covered_nodes = uncovered_nodes_by_former_sequence_count;
-                        current_max_covered_edges = uncovered_edges_by_former_sequence_count;
-                        current_chosen_sequence_len = sequence_len;
-                    }
+                if (uncovered_nodes_by_former_sequence_count > current_max_covered_nodes)
+                    || (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
+                        && uncovered_edges_by_former_sequence_count > current_max_covered_edges)
+                    || (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
+                        && uncovered_edges_by_former_sequence_count == current_max_covered_edges
+                        && sequence_len < current_chosen_sequence_len)
+                {
+                    current_chosen_sequence_index = j;
+                    current_max_covered_nodes = uncovered_nodes_by_former_sequence_count;
+                    current_max_covered_edges = uncovered_edges_by_former_sequence_count;
+                    current_chosen_sequence_len = sequence_len;
+                }
             }
 
             if try_to_find_dynamic_length_flag && current_max_covered_nodes <= 0 {
@@ -914,21 +926,25 @@ impl ApiGraph {
                 continue;
             }
 
-            if !try_to_find_dynamic_length_flag && current_max_covered_edges <= 0 && current_max_covered_nodes <= 0 {
+            if !try_to_find_dynamic_length_flag
+                && current_max_covered_edges <= 0
+                && current_max_covered_nodes <= 0
+            {
                 //println!("can't cover more edges or nodes");
                 break;
             }
             already_chosen_sequences.insert(current_chosen_sequence_index);
             sorted_chosen_sequences.push(current_chosen_sequence_index);
 
-            if try_to_find_dynamic_length_flag  {
-                dynamic_fuzzable_length_sequences_count = dynamic_fuzzable_length_sequences_count + 1;
+            if try_to_find_dynamic_length_flag {
+                dynamic_fuzzable_length_sequences_count =
+                    dynamic_fuzzable_length_sequences_count + 1;
             } else {
                 fixed_fuzzale_length_sequences_count = fixed_fuzzale_length_sequences_count + 1;
             }
 
             let chosen_sequence = &self.api_sequences[current_chosen_sequence_index];
-            
+
             let covered_nodes = chosen_sequence._get_contained_api_functions();
             for cover_node in covered_nodes {
                 already_covered_nodes.insert(cover_node);
@@ -943,7 +959,9 @@ impl ApiGraph {
                 //println!("all sequence visited");
                 break;
             }
-            if  to_cover_dependency_number != 0 && already_covered_edges.len() == to_cover_dependency_number {
+            if to_cover_dependency_number != 0
+                && already_covered_edges.len() == to_cover_dependency_number
+            {
                 //println!("all edges visited");
                 //should we stop at visit all edges?
                 break;
@@ -961,9 +979,9 @@ impl ApiGraph {
 
         let mut valid_api_number = 0;
         for api_function_ in &self.api_functions {
-            if !api_function_.filter_by_fuzzable_type(&self.full_name_map) {
+            if !api_function_.contains_unsupported_fuzzable_type(&self.full_name_map) {
                 valid_api_number = valid_api_number + 1;
-            }//else {
+            } //else {
             //    println!("{}", api_function_._pretty_print(&self.full_name_map));
             //}
         }
@@ -977,8 +995,9 @@ impl ApiGraph {
         println!("covered nodes: {}", covered_node_num);
         println!("covered edges: {}", covered_edges_num);
 
-        let node_coverage = (already_covered_nodes.len() as f64)/ (valid_api_number as f64);
-        let edge_coverage = (already_covered_edges.len() as f64)/ (total_dependencies_number as f64);
+        let node_coverage = (already_covered_nodes.len() as f64) / (valid_api_number as f64);
+        let edge_coverage =
+            (already_covered_edges.len() as f64) / (total_dependencies_number as f64);
         println!("node coverage: {}", node_coverage);
         println!("edge coverage: {}", edge_coverage);
         //println!("sequence with dynamic fuzzable length: {}", dynamic_fuzzable_length_sequences_count);
@@ -988,7 +1007,7 @@ impl ApiGraph {
         let mut max_length = 0;
         for sequence_index in sorted_chosen_sequences {
             let api_sequence = self.api_sequences[sequence_index].clone();
-            
+
             if api_sequence.len() > 3 {
                 sequnce_covered_by_reverse_search = sequnce_covered_by_reverse_search + 1;
                 if api_sequence.len() > max_length {
@@ -1003,32 +1022,34 @@ impl ApiGraph {
         println!("total targets: {}", res.len());
         println!("max length = {}", max_length);
 
-
         let mut total_length = 0;
         for selected_sequence in &res {
             total_length = total_length + selected_sequence.len();
         }
 
         println!("total length = {}", total_length);
-        let average_time_to_fuzz_each_api = (total_length as f64) / (already_covered_nodes.len() as f64);
+        let average_time_to_fuzz_each_api =
+            (total_length as f64) / (already_covered_nodes.len() as f64);
         println!("average time to fuzz each api = {}", average_time_to_fuzz_each_api);
-
 
         println!("--------------------------------");
 
         res
     }
 
-
-
     //判断一个函数能否加入给定的序列中,如果可以加入，返回Some(new_sequence),new_sequence是将新的调用加进去之后的情况，否则返回None
-    pub fn is_fun_satisfied(&self, input_type: &ApiType, input_fun_index: usize, sequence: &ApiSequence) -> Option<ApiSequence>{
+    pub fn is_fun_satisfied(
+        &self,
+        input_type: &ApiType,
+        input_fun_index: usize,
+        sequence: &ApiSequence,
+    ) -> Option<ApiSequence> {
         //判断一个给定的函数能否加入到一个sequence中去
         match input_type {
             ApiType::BareFunction => {
                 let mut new_sequence = sequence.clone();
                 let mut api_call = ApiCall::_new(input_fun_index);
-                let mut _moved_indexes = HashSet::new();//用来保存发生move的那些语句的index
+                let mut _moved_indexes = HashSet::new(); //用来保存发生move的那些语句的index
                 //用来保存会被多次可变引用的情况
                 let mut _multi_mut = HashSet::new();
                 let mut _immutable_borrow = HashSet::new();
@@ -1055,9 +1076,11 @@ impl ApiGraph {
                     if api_util::is_fuzzable_type(current_ty, &self.full_name_map) {
                         //如果当前参数是fuzzable的
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
-                        let fuzzable_call_type = fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map);
-                        let (fuzzable_type, call_type) = fuzzable_call_type.generate_fuzzable_type_and_call_type();
-                        
+                        let fuzzable_call_type =
+                            fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map);
+                        let (fuzzable_type, call_type) =
+                            fuzzable_call_type.generate_fuzzable_type_and_call_type();
+
                         //如果出现了下面这段话，说明出现了Fuzzable参数但不知道如何参数化的
                         //典型例子是tuple里面出现了引用（&usize），这种情况不再去寻找dependency，直接返回无法添加即可
                         match &fuzzable_type {
@@ -1067,7 +1090,7 @@ impl ApiGraph {
                                 //println!("fuzzable_call_type = {:?}", fuzzable_call_type);
                                 //println!("fuzzable_type = {:?}", fuzzable_type);
                                 return None;
-                            },
+                            }
                             _ => {}
                         }
 
@@ -1078,67 +1101,88 @@ impl ApiGraph {
 
                         //添加到sequence中去
                         new_sequence.fuzzable_params.push(fuzzable_type);
-                        api_call._add_param(ParamType::_FuzzableType, current_fuzzable_index, call_type);
+                        api_call._add_param(
+                            ParamType::_FuzzableType,
+                            current_fuzzable_index,
+                            call_type,
+                        );
                         continue;
                     }
                     //如果当前参数不是fuzzable的，那么就去api sequence寻找是否有这个依赖
                     //TODO:处理move的情况
                     let functions_in_sequence_len = sequence.functions.len();
                     let mut dependency_flag = false;
-    
+
                     for function_index in 0..functions_in_sequence_len {
                         //如果这个sequence里面的该函数返回值已经被move掉了，那么就跳过，不再能被使用了
-                        if new_sequence._is_moved(function_index) || _moved_indexes.contains(&function_index) {
+                        if new_sequence._is_moved(function_index)
+                            || _moved_indexes.contains(&function_index)
+                        {
                             continue;
                         }
                         let found_function = &new_sequence.functions[function_index];
                         let (api_type, index) = &found_function.func;
-                        if let Some(dependency_index) = self.check_dependency(api_type, *index, input_type, 
-                            input_fun_index, i) {
-                                let dependency_ = self.api_dependencies[dependency_index].clone();
-                                //将覆盖到的边加入到新的sequence中去
-                                new_sequence._add_dependency(dependency_index);
-                                //找到了依赖，当前参数是可以被满足的，设置flag并退出循环
-                                dependency_flag = true;
-                                //如果满足move发生的条件，那么
-                                if api_util::_move_condition(current_ty, &dependency_.call_type) {
-                                    if _multi_mut.contains(&function_index) || _immutable_borrow.contains(&function_index){
-                                        dependency_flag = false;
-                                        continue;
-                                    }else {
-                                        _moved_indexes.insert(function_index);
-                                    }
+                        if let Some(dependency_index) =
+                            self.check_dependency(api_type, *index, input_type, input_fun_index, i)
+                        {
+                            let dependency_ = self.api_dependencies[dependency_index].clone();
+                            //将覆盖到的边加入到新的sequence中去
+                            new_sequence._add_dependency(dependency_index);
+                            //找到了依赖，当前参数是可以被满足的，设置flag并退出循环
+                            dependency_flag = true;
+                            //如果满足move发生的条件，那么
+                            if api_util::_move_condition(current_ty, &dependency_.call_type) {
+                                if _multi_mut.contains(&function_index)
+                                    || _immutable_borrow.contains(&function_index)
+                                {
+                                    dependency_flag = false;
+                                    continue;
+                                } else {
+                                    _moved_indexes.insert(function_index);
                                 }
-                                //如果当前调用是可变借用
-                                if api_util::_is_mutable_borrow_occurs(current_ty, &dependency_.call_type) {
-                                    //如果之前已经被借用过了
-                                    if _multi_mut.contains(&function_index) || _immutable_borrow.contains(&function_index){
-                                        dependency_flag = false;
-                                        continue;
-                                    }else {
-                                        _multi_mut.insert(function_index);
-                                    }
-                                }
-                                //如果当前调用是引用，且之前已经被可变引用过，那么这个引用是非法的
-                                if api_util::_is_immutable_borrow_occurs(current_ty, &dependency_.call_type) {
-                                    if _multi_mut.contains(&function_index) {
-                                        dependency_flag = false;
-                                        continue;
-                                    }else {
-                                        _immutable_borrow.insert(function_index);
-                                    }
-                                }
-                                //参数需要加mut 标记的话
-                                if api_util::_need_mut_tag(&dependency_.call_type) {
-                                    new_sequence._insert_function_mut_tag(function_index);
-                                }
-                                //如果call type是unsafe的，那么给sequence加上unsafe标记
-                                if dependency_.call_type.unsafe_call_type()._is_unsafe() {
-                                    new_sequence.set_unsafe();
-                                }
-                                api_call._add_param(ParamType::_FunctionReturn, function_index, dependency_.call_type);
-                                break;
                             }
+                            //如果当前调用是可变借用
+                            if api_util::_is_mutable_borrow_occurs(
+                                current_ty,
+                                &dependency_.call_type,
+                            ) {
+                                //如果之前已经被借用过了
+                                if _multi_mut.contains(&function_index)
+                                    || _immutable_borrow.contains(&function_index)
+                                {
+                                    dependency_flag = false;
+                                    continue;
+                                } else {
+                                    _multi_mut.insert(function_index);
+                                }
+                            }
+                            //如果当前调用是引用，且之前已经被可变引用过，那么这个引用是非法的
+                            if api_util::_is_immutable_borrow_occurs(
+                                current_ty,
+                                &dependency_.call_type,
+                            ) {
+                                if _multi_mut.contains(&function_index) {
+                                    dependency_flag = false;
+                                    continue;
+                                } else {
+                                    _immutable_borrow.insert(function_index);
+                                }
+                            }
+                            //参数需要加mut 标记的话
+                            if api_util::_need_mut_tag(&dependency_.call_type) {
+                                new_sequence._insert_function_mut_tag(function_index);
+                            }
+                            //如果call type是unsafe的，那么给sequence加上unsafe标记
+                            if dependency_.call_type.unsafe_call_type()._is_unsafe() {
+                                new_sequence.set_unsafe();
+                            }
+                            api_call._add_param(
+                                ParamType::_FunctionReturn,
+                                function_index,
+                                dependency_.call_type,
+                            );
+                            break;
+                        }
                     }
                     if !dependency_flag {
                         //如果这个参数没有寻找到依赖，则这个函数不可以被加入到序列中
@@ -1160,29 +1204,35 @@ impl ApiGraph {
     }
 
     //判断一个依赖是否存在,存在的话返回Some(ApiDependency),否则返回None
-    pub fn check_dependency(&self, output_type: &ApiType, output_index: usize, 
-        input_type: &ApiType, input_index: usize, input_param_index_:usize) -> Option<usize> {
-            let dependency_num = self.api_dependencies.len();
-            for index in 0..dependency_num {
-                let dependency = &self.api_dependencies[index];
-                //TODO:直接比较每一项内容是否可以节省点时间？
-                let tmp_dependency = ApiDependency {
-                    output_fun : (*output_type, output_index),
-                    input_fun : (*input_type, input_index),
-                    input_param_index : input_param_index_, 
-                    call_type : dependency.call_type.clone()
-                };
-                if tmp_dependency == *dependency {
-                    //存在依赖
-                    return Some(index);
-                }
+    pub fn check_dependency(
+        &self,
+        output_type: &ApiType,
+        output_index: usize,
+        input_type: &ApiType,
+        input_index: usize,
+        input_param_index_: usize,
+    ) -> Option<usize> {
+        let dependency_num = self.api_dependencies.len();
+        for index in 0..dependency_num {
+            let dependency = &self.api_dependencies[index];
+            //TODO:直接比较每一项内容是否可以节省点时间？
+            let tmp_dependency = ApiDependency {
+                output_fun: (*output_type, output_index),
+                input_fun: (*input_type, input_index),
+                input_param_index: input_param_index_,
+                call_type: dependency.call_type.clone(),
+            };
+            if tmp_dependency == *dependency {
+                //存在依赖
+                return Some(index);
             }
-            //没找到依赖
-            return None;
+        }
+        //没找到依赖
+        return None;
     }
 
     //判断一个调用序列是否已经到达终止端点
-    fn is_sequence_ended(&self, api_sequence:&ApiSequence)->bool {
+    fn is_sequence_ended(&self, api_sequence: &ApiSequence) -> bool {
         let functions = &api_sequence.functions;
         let last_fun = functions.last();
         match last_fun {
@@ -1192,10 +1242,9 @@ impl ApiGraph {
                 match api_type {
                     ApiType::BareFunction => {
                         let last_func = &self.api_functions[*index];
-                        if last_func._is_end_function(&self.full_name_map){
-
+                        if last_func._is_end_function(&self.full_name_map) {
                             return true;
-                        }else {
+                        } else {
                             return false;
                         }
                     }
@@ -1204,4 +1253,3 @@ impl ApiGraph {
         }
     }
 }
-

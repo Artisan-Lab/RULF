@@ -1,0 +1,6 @@
+#! /usr/bin/env bash
+
+set -e
+
+CONTAINER_ID="68debb479a3f"
+docker exec -it ${CONTAINER_ID} /bin/bash

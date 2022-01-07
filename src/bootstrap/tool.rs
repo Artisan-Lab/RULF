@@ -531,8 +531,6 @@ impl Step for Rustdoc {
     }
 }
 
-
-
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct FuzzTargetGenerator {
     pub compiler: Compiler,
@@ -548,8 +546,9 @@ impl Step for FuzzTargetGenerator {
     }
 
     fn make_run(run: RunConfig<'_>) {
-        run.builder
-            .ensure(FuzzTargetGenerator { compiler: run.builder.compiler(run.builder.top_stage, run.host) });
+        run.builder.ensure(FuzzTargetGenerator {
+            compiler: run.builder.compiler(run.builder.top_stage, run.host),
+        });
     }
 
     fn run(self, builder: &Builder<'_>) -> PathBuf {

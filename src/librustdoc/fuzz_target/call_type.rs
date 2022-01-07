@@ -1,27 +1,27 @@
 use crate::clean::{self};
 use crate::fuzz_target::api_function::ApiUnsafety;
-use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::api_util::_type_name;
+use crate::fuzz_target::impl_util::FullNameMap;
 
-#[derive(Clone, Debug,Eq, PartialEq,Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum CallType {
     _NotCompatible,
-    _DirectCall,//直接调用
-    _BorrowedRef(Box<CallType>),//取不可变引用
-    _MutBorrowedRef(Box<CallType>),//取可变引用
-    _ConstRawPointer(Box<CallType>, clean::Type),//转换为不可变裸指针
-    _MutRawPointer(Box<CallType>, clean::Type),//转换为可变裸指针
-    _AsConvert(String),//通过as进行转换
-    _UnsafeDeref(Box<CallType>),//解引用裸指针
-    _Deref(Box<CallType>),//解引用引用
-    _UnwrapResult(Box<CallType>), //获得result变量的ok值
-    _ToResult(Box<CallType>), //产生一个result类型, never used
-    _UnwrapOption(Box<CallType>), //获得option变量的值
-    _ToOption(Box<CallType>), //产生一个option类型
+    _DirectCall,                                  //直接调用
+    _BorrowedRef(Box<CallType>),                  //取不可变引用
+    _MutBorrowedRef(Box<CallType>),               //取可变引用
+    _ConstRawPointer(Box<CallType>, clean::Type), //转换为不可变裸指针
+    _MutRawPointer(Box<CallType>, clean::Type),   //转换为可变裸指针
+    _AsConvert(String),                           //通过as进行转换
+    _UnsafeDeref(Box<CallType>),                  //解引用裸指针
+    _Deref(Box<CallType>),                        //解引用引用
+    _UnwrapResult(Box<CallType>),                 //获得result变量的ok值
+    _ToResult(Box<CallType>),                     //产生一个result类型, never used
+    _UnwrapOption(Box<CallType>),                 //获得option变量的值
+    _ToOption(Box<CallType>),                     //产生一个option类型
 }
 
 impl CallType {
-    pub fn _to_call_string(&self, variable_name: &String, full_name_map : &FullNameMap) -> String {
+    pub fn _to_call_string(&self, variable_name: &String, full_name_map: &FullNameMap) -> String {
         match self {
             CallType::_NotCompatible => String::new(),
             CallType::_DirectCall => variable_name.clone(),
@@ -31,15 +31,15 @@ impl CallType {
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            },
+            }
             CallType::_MutBorrowedRef(inner_) => {
                 let mut call_string = "&mut (".to_string();
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            },
-            CallType::_ConstRawPointer(inner_,ty_) => {
+            }
+            CallType::_ConstRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
@@ -47,8 +47,8 @@ impl CallType {
                 call_string.push_str(") as *const ");
                 call_string.push_str(_type_name(ty_, full_name_map).as_str());
                 call_string
-            },
-            CallType::_MutRawPointer(inner_,ty_) => {
+            }
+            CallType::_MutRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
@@ -56,36 +56,36 @@ impl CallType {
                 call_string.push_str(") as *mut ");
                 call_string.push_str(_type_name(ty_, full_name_map).as_str());
                 call_string
-            },
+            }
             CallType::_AsConvert(str_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = variable_name.to_string();
                 call_string.push_str(" as ");
                 call_string.push_str(str_.as_str());
                 call_string
-            },
-            CallType::_UnsafeDeref(inner_) | CallType::_Deref(inner_)=> {
+            }
+            CallType::_UnsafeDeref(inner_) | CallType::_Deref(inner_) => {
                 //TODO:unsafe deref需要考虑unsafe标记
                 let mut call_string = "*(".to_string();
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            },
+            }
             CallType::_UnwrapResult(inner_) => {
                 //TODO:暂时先unwrap，后面再想办法处理逻辑
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("_unwrap_result({})", inner_call_string)
-            },
+            }
             CallType::_UnwrapOption(inner_) => {
                 //TODO:暂时先unwrap,后面在想办法处理
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("_unwrap_option({})", inner_call_string)
-            },
+            }
             CallType::_ToOption(inner_) => {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("Some({})", inner_call_string)
-            },
+            }
             CallType::_ToResult(inner_) => {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("Ok({})", inner_call_string)
@@ -114,12 +114,14 @@ impl CallType {
         match self {
             CallType::_NotCompatible | CallType::_DirectCall | CallType::_AsConvert(..) => false,
             CallType::_UnwrapOption(..) | CallType::_UnwrapResult(..) => true,
-            CallType::_BorrowedRef(call_type) | CallType::_MutBorrowedRef(call_type) |
-            CallType::_ConstRawPointer(call_type,_) | CallType::_MutRawPointer(call_type,_) | 
-            CallType::_UnsafeDeref(call_type) | CallType::_Deref(call_type) |
-            CallType::_ToOption(call_type) | CallType::_ToResult(call_type) => {
-                call_type._contains_move_call_type()
-            }
+            CallType::_BorrowedRef(call_type)
+            | CallType::_MutBorrowedRef(call_type)
+            | CallType::_ConstRawPointer(call_type, _)
+            | CallType::_MutRawPointer(call_type, _)
+            | CallType::_UnsafeDeref(call_type)
+            | CallType::_Deref(call_type)
+            | CallType::_ToOption(call_type)
+            | CallType::_ToResult(call_type) => call_type._contains_move_call_type(),
         }
     }
 
@@ -127,12 +129,17 @@ impl CallType {
         match self {
             CallType::_NotCompatible | CallType::_DirectCall | CallType::_AsConvert(..) => {
                 vec![self.clone()]
-            },
-            CallType::_UnwrapOption(call_type) | CallType::_UnwrapResult(call_type) |
-            CallType::_BorrowedRef(call_type) | CallType::_MutBorrowedRef(call_type) |
-            CallType::_ConstRawPointer(call_type,_) | CallType::_MutRawPointer(call_type,_) | 
-            CallType::_UnsafeDeref(call_type) | CallType::_Deref(call_type) |
-            CallType::_ToOption(call_type) | CallType::_ToResult(call_type) => {
+            }
+            CallType::_UnwrapOption(call_type)
+            | CallType::_UnwrapResult(call_type)
+            | CallType::_BorrowedRef(call_type)
+            | CallType::_MutBorrowedRef(call_type)
+            | CallType::_ConstRawPointer(call_type, _)
+            | CallType::_MutRawPointer(call_type, _)
+            | CallType::_UnsafeDeref(call_type)
+            | CallType::_Deref(call_type)
+            | CallType::_ToOption(call_type)
+            | CallType::_ToResult(call_type) => {
                 let mut call_types = vec![self.clone()];
                 let mut inner_call_types = call_type._call_type_to_array();
                 call_types.append(&mut inner_call_types);
@@ -158,7 +165,7 @@ impl CallType {
                 if i == raw_array_len - 1 {
                     res.push(one_split.clone());
                 }
-            }else {
+            } else {
                 let one_split_len = one_split.len();
                 if one_split_len > 0 {
                     //注意要在one_split的最后加一个diretc call
@@ -185,11 +192,11 @@ impl CallType {
         call_types
     }
 
-    pub fn _array_to_call_type(call_type_array: &Vec<CallType>)-> Self {
+    pub fn _array_to_call_type(call_type_array: &Vec<CallType>) -> Self {
         CallType::_inner_array_to_call_type(call_type_array, 0)
     }
 
-    fn _inner_array_to_call_type(call_type_array: &Vec<CallType>, start:usize) -> Self {
+    fn _inner_array_to_call_type(call_type_array: &Vec<CallType>, start: usize) -> Self {
         let array_len = call_type_array.len();
         if start >= array_len {
             println!("should not go to here in inner array to call type");
@@ -199,16 +206,20 @@ impl CallType {
             return call_type_array[start].clone();
         }
         let current_type = call_type_array[start].clone();
-        let inner_type = CallType::_inner_array_to_call_type(call_type_array, start+1);
+        let inner_type = CallType::_inner_array_to_call_type(call_type_array, start + 1);
         match current_type {
             CallType::_DirectCall | CallType::_AsConvert(..) | CallType::_NotCompatible => {
                 println!("should not go to here in inner array to call type 2");
                 return CallType::_NotCompatible;
-            },
+            }
             CallType::_BorrowedRef(..) => CallType::_BorrowedRef(Box::new(inner_type)),
             CallType::_MutBorrowedRef(..) => CallType::_MutBorrowedRef(Box::new(inner_type)),
-            CallType::_ConstRawPointer(_, ref type_) => CallType::_ConstRawPointer(Box::new(inner_type), type_.clone()),
-            CallType::_MutRawPointer(_, ref type_) => CallType::_MutRawPointer(Box::new(inner_type), type_.clone()),
+            CallType::_ConstRawPointer(_, ref type_) => {
+                CallType::_ConstRawPointer(Box::new(inner_type), type_.clone())
+            }
+            CallType::_MutRawPointer(_, ref type_) => {
+                CallType::_MutRawPointer(Box::new(inner_type), type_.clone())
+            }
             CallType::_UnsafeDeref(..) => CallType::_UnsafeDeref(Box::new(inner_type)),
             CallType::_Deref(..) => CallType::_Deref(Box::new(inner_type)),
             CallType::_UnwrapOption(..) => CallType::_UnwrapOption(Box::new(inner_type)),

@@ -1427,7 +1427,7 @@ fn make_iterator_snippet(cx: &LateContext<'_>, arg: &Expr<'_>, applic_ref: &mut 
                     sugg::Sugg::hir_with_applicability(cx, &arg_inner, "_", applic_ref).maybe_par(),
                     meth_name,
                 )
-            }
+            },
             _ => format!(
                 "{}.into_iter()",
                 sugg::Sugg::hir_with_applicability(cx, arg, "_", applic_ref).maybe_par()

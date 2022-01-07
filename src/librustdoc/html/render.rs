@@ -63,6 +63,7 @@ use crate::clean::{self, AttributesExt, Deprecation, GetDefId, SelfTy, TypeKind}
 use crate::config::{OutputFormat, RenderOptions};
 use crate::docfs::{DocFS, ErrorStorage, PathError};
 use crate::doctree;
+use crate::fuzz_target::{api_function, api_graph, api_util, file_util, impl_util};
 use crate::html::escape::Escape;
 use crate::html::format::fmt_impl_for_trait_page;
 use crate::html::format::Function;
@@ -72,7 +73,6 @@ use crate::html::item_type::ItemType;
 use crate::html::markdown::{self, ErrorCodes, IdMap, Markdown, MarkdownHtml, MarkdownSummaryLine};
 use crate::html::sources;
 use crate::html::{highlight, layout, static_files};
-use crate::fuzz_target::{api_util, api_graph, file_util, impl_util, api_function};
 //use crate::html::afl_util;
 
 #[cfg(test)]
@@ -585,7 +585,8 @@ pub fn fuzz_target_run_clean_krate(
     raw_options: &RenderOptions,
     renderinfo: RenderInfo,
     diag: &rustc_errors::Handler,
-    edition: Edition,)-> Result<(), Error>{
+    edition: Edition,
+) -> Result<(), Error> {
     let mut krate = raw_krate.clone();
     let options = raw_options.clone();
 
@@ -700,15 +701,16 @@ pub fn fuzz_target_run_clean_krate(
     //api_dependency_graph._print_generated_libfuzzer_file();
     //api_dependency_graph._print_pretty_functions(false);
     //api_dependency_graph._print_generated_test_functions();
-    //use crate::fuzz_target::print_message;
+    use crate::fuzz_target::print_message;
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_generated_afl_file(&api_dependency_graph);
+    print_message::_print_generic_functions(&api_dependency_graph);
     println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
     //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
     //use crate::html::afl_util;
     //afl_util::_AflHelpers::_print_all();
-    if  file_util::can_write_to_file(&api_dependency_graph._crate_name, random_strategy) {
+    if file_util::can_write_to_file(&api_dependency_graph._crate_name, random_strategy) {
         //whether to use random strategy
         let file_helper = file_util::FileHelper::new(&api_dependency_graph, random_strategy);
         //println!("file_helper:{:?}", file_helper);
@@ -719,7 +721,6 @@ pub fn fuzz_target_run_clean_krate(
         }
     }
 
-
     // And finally render the whole crate's documentation
     let nb_errors = Arc::get_mut(&mut errors).map_or_else(|| 0, |errors| errors.write_errors(diag));
     if ret.is_err() {
@@ -729,7 +730,6 @@ pub fn fuzz_target_run_clean_krate(
     } else {
         Ok(())
     }
-    
 }
 
 fn write_shared(
@@ -1557,7 +1557,11 @@ impl Context {
         Ok(())
     }
 
-    fn analyse_clean_krate(&self, raw_krate:&clean::Crate, mut api_dependency_graph: &mut api_graph::ApiGraph)->Result<(), Error>{
+    fn analyse_clean_krate(
+        &self,
+        raw_krate: &clean::Crate,
+        mut api_dependency_graph: &mut api_graph::ApiGraph,
+    ) -> Result<(), Error> {
         let mut krate = raw_krate.clone();
         //println!("analyse clean krate");
         let mut item = match krate.module.take() {
@@ -1574,7 +1578,7 @@ impl Context {
         {
             let mut work = vec![(self.clone(), item)];
             while let Some((mut cx, item)) = work.pop() {
-                cx.another_analyse_item(item, &mut api_dependency_graph,|cx, item| {
+                cx.another_analyse_item(item, &mut api_dependency_graph, |cx, item| {
                     work.push((cx.clone(), item))
                 })?
             }
@@ -1743,76 +1747,80 @@ impl Context {
             }
         }
         Ok(())
-    } 
+    }
 
-    fn another_analyse_item<F>(&mut self, item: clean::Item, api_dependency_graph: &mut api_graph::ApiGraph,mut f: F) -> Result<(), Error>
+    fn another_analyse_item<F>(
+        &mut self,
+        item: clean::Item,
+        api_dependency_graph: &mut api_graph::ApiGraph,
+        mut f: F,
+    ) -> Result<(), Error>
     where
-        F: FnMut(&mut Context, clean::Item), {
-            if item.is_mod() {
-                let name = item.name.as_ref().unwrap().to_string();
-                if name.is_empty() {
-                    panic!("empty name : {:?}", self.current);
-                }
-
-
-                let prev = self.dst.clone();
-                self.dst.push(&name);
-                self.current.push(name);
-
-                let mod_name = self.current.join("::");
-                api_dependency_graph.add_mod_visibility(&mod_name, &item.visibility);
-                
-
-                let m = match item.inner {
-                    clean::StrippedItem(box clean::ModuleItem(m)) | clean::ModuleItem(m) => m,
-                    _ => unreachable!(),
-                };
-
-                for item in m.items {
-                    f(self, item);
-                }
-                self.dst = prev;
-                self.current.pop().unwrap();
-            }else if item.name.is_some(){
-                //item是函数,将函数添加到api_dependency_graph里面去
-                let item_type = item.type_();
-                if item_type == ItemType::Function {
-                    let full_name = full_path(self, &item);
-                    //println!("full_name = {}", full_name);
-                    match item.inner {
-                        clean::FunctionItem(ref func) => {
-                            //println!("func = {:?}",func);
-                            let decl = func.decl.clone();
-                            let clean::FnDecl {inputs, output, ..} = decl;
-                            let generics = func.generics.clone();
-                            let inputs = api_util::_extract_input_types(&inputs);
-                            let output = api_util::_extract_output_type(&output);
-                            let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(&func.header);
-                            let api_fun = api_function::ApiFunction {
-                                full_name,
-                                generics,
-                                inputs,
-                                output,
-                                _trait_full_path: None,
-                                _unsafe_tag: api_unsafety,
-                            };
-                            
-                            //let output_type = api_fun.output.clone().unwrap();
-                            //println!("{:?}", output_type);
-                            //let full_name_map = &api_dependency_graph.full_name_map;
-                            //let preluded_type = prelude_type::PreludeType::from_type(&output_type, full_name_map);
-                            //println!("{:?}", preluded_type);
-                            //println!("preluded_type: {}", preluded_type._to_type_name(full_name_map));
-
-                            api_dependency_graph.add_api_function(api_fun);
-
-                        },
-                        _=> {}
-                    }
-                }   
+        F: FnMut(&mut Context, clean::Item),
+    {
+        if item.is_mod() {
+            let name = item.name.as_ref().unwrap().to_string();
+            if name.is_empty() {
+                panic!("empty name : {:?}", self.current);
             }
-            Ok(())
+
+            let prev = self.dst.clone();
+            self.dst.push(&name);
+            self.current.push(name);
+
+            let mod_name = self.current.join("::");
+            api_dependency_graph.add_mod_visibility(&mod_name, &item.visibility);
+
+            let m = match item.inner {
+                clean::StrippedItem(box clean::ModuleItem(m)) | clean::ModuleItem(m) => m,
+                _ => unreachable!(),
+            };
+
+            for item in m.items {
+                f(self, item);
+            }
+            self.dst = prev;
+            self.current.pop().unwrap();
+        } else if item.name.is_some() {
+            //item是函数,将函数添加到api_dependency_graph里面去
+            let item_type = item.type_();
+            if item_type == ItemType::Function {
+                let full_name = full_path(self, &item);
+                //println!("full_name = {}", full_name);
+                match item.inner {
+                    clean::FunctionItem(ref func) => {
+                        //println!("func = {:?}",func);
+                        let decl = func.decl.clone();
+                        let clean::FnDecl { inputs, output, .. } = decl;
+                        let generics = func.generics.clone();
+                        let inputs = api_util::_extract_input_types(&inputs);
+                        let output = api_util::_extract_output_type(&output);
+                        let api_unsafety =
+                            api_function::ApiUnsafety::_get_unsafety_from_fnheader(&func.header);
+                        let api_fun = api_function::ApiFunction {
+                            full_name,
+                            generics,
+                            inputs,
+                            output,
+                            _trait_full_path: None,
+                            _unsafe_tag: api_unsafety,
+                        };
+
+                        //let output_type = api_fun.output.clone().unwrap();
+                        //println!("{:?}", output_type);
+                        //let full_name_map = &api_dependency_graph.full_name_map;
+                        //let preluded_type = prelude_type::PreludeType::from_type(&output_type, full_name_map);
+                        //println!("{:?}", preluded_type);
+                        //println!("preluded_type: {}", preluded_type._to_type_name(full_name_map));
+
+                        api_dependency_graph.add_api_function(api_fun);
+                    }
+                    _ => {}
+                }
+            }
         }
+        Ok(())
+    }
 
     fn build_sidebar_items(&self, m: &clean::Module) -> BTreeMap<String, Vec<NameDoc>> {
         // BTreeMap instead of HashMap to get a sorted output

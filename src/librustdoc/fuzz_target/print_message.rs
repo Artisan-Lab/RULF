@@ -35,15 +35,8 @@ pub fn _print_pretty_functions(graph: &ApiGraph, check_visited: bool) {
         }
         let api_function = &graph.api_functions[i];
         let fn_line = api_function._pretty_print(&graph.full_name_map);
-        
+
         println!("{}:{}", i, fn_line);
-        //println!("input type");
-        //for type_ in &api_function.inputs {
-         //   println!("{:?}", type_);
-        //}
-        //println!("output");
-        //let output_type_ = api_function.output.as_ref().unwrap();
-        //println!("{:?}", output_type_);
     }
 }
 
@@ -87,7 +80,7 @@ pub fn _print_generated_test_functions(graph: &ApiGraph) {
 
 pub fn _print_generated_afl_file(graph: &ApiGraph) {
     println!("afl_files:");
-    let test_size = graph.api_sequences.len(); 
+    let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
         println!("{}", api_sequence._to_afl_test_file(graph, i));
@@ -103,4 +96,11 @@ pub fn _print_generated_libfuzzer_file(graph: &ApiGraph) {
         let api_sequence = &graph.api_sequences[i];
         println!("{}", api_sequence._to_libfuzzer_test_file(graph, i));
     }
+}
+
+pub fn _print_generic_functions(graph: &ApiGraph) {
+    println!("generic functions");
+    graph.generic_functions.iter().for_each(|generic_function| {
+        println!("{}", generic_function.api_function.full_name);
+    });
 }

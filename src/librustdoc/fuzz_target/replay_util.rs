@@ -1,5 +1,5 @@
 pub fn _read_crash_file_data() -> &'static str {
-"fn _read_data()-> Vec<u8> {
+    "fn _read_data()-> Vec<u8> {
     use std::env;
     use std::process::exit;
     let args:Vec<String> = env::args().collect();

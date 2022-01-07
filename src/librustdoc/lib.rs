@@ -79,20 +79,20 @@ pub mod html {
 }
 
 pub mod fuzz_target {
-    crate mod api_util;
     crate mod afl_util;
+    crate mod api_function;
     crate mod api_graph;
+    crate mod api_sequence;
+    crate mod api_util;
+    crate mod call_type;
     crate mod file_util;
+    crate mod fuzzable_type;
+    crate mod generic_function;
     crate mod impl_util;
     crate mod mod_visibility;
     crate mod prelude_type;
-    crate mod replay_util;
     crate mod print_message;
-    crate mod api_sequence;
-    crate mod api_function;
-    crate mod call_type;
-    crate mod fuzzable_type;
-    crate mod generic_function;
+    crate mod replay_util;
 }
 
 mod markdown;
@@ -142,8 +142,11 @@ pub fn fuzz_target_generator_main() {
         .join()
         .unwrap_or(rustc_driver::EXIT_FAILURE);
 
-    println!("Fuzz Target Generator exits successfully. Total time cost: {:?} ms", start.elapsed().as_millis());
-    
+    println!(
+        "Fuzz Target Generator exits successfully. Total time cost: {:?} ms",
+        start.elapsed().as_millis()
+    );
+
     process::exit(res);
 }
 
@@ -640,7 +643,13 @@ fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
         info!("going to format");
         let (error_format, edition, debugging_options) = diag_opts;
         let diag = core::new_handler(error_format, None, &debugging_options);
-        match html::render::fuzz_target_run_clean_krate(&krate, &renderopts, renderinfo, &diag, edition) {
+        match html::render::fuzz_target_run_clean_krate(
+            &krate,
+            &renderopts,
+            renderinfo,
+            &diag,
+            edition,
+        ) {
             Ok(_) => rustc_driver::EXIT_SUCCESS,
             Err(s) => {
                 println!("Error: {}", s);

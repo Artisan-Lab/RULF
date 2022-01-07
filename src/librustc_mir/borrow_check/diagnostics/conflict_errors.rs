@@ -853,9 +853,7 @@ impl<'cx, 'tcx> MirBorrowckCtxt<'cx, 'tcx> {
                 Some(ref name),
                 BorrowExplanation::MustBeValidFor {
                     category:
-                        category
-                        @
-                        (ConstraintCategory::Return(_)
+                        category @ (ConstraintCategory::Return(_)
                         | ConstraintCategory::CallArgument
                         | ConstraintCategory::OpaqueType),
                     from_closure: false,

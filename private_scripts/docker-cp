@@ -5,7 +5,6 @@ set -e
 # copy Fuzzing Scripts from host to container
 # git clone may sometimes fail, so we copy from host
 
-CONTAINER_ID="9255e0490d49"
-USERNAME="${USER:-root}"
+CONTAINER_ID="68debb479a3f"
 DOCKER_USER="jjf"
-docker cp /home/${USERNAME}/Fuzzing-Scripts ${CONTAINER_ID}:/home/${DOCKER_USER}
+docker cp ${HOME}/Fuzzing-Scripts ${CONTAINER_ID}:/home/${DOCKER_USER}

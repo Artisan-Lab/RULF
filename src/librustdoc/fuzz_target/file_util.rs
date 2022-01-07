@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use crate::fuzz_target::api_graph::ApiGraph;
-use std::path::PathBuf;
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 
-lazy_static!{
+lazy_static! {
     static ref CRATE_TEST_DIR: HashMap<&'static str, &'static str> = {
         let mut m = HashMap::new();
         m.insert("url", "/home/jjf/afl_fast_work/url_afl_work");
@@ -45,7 +45,7 @@ lazy_static! {
     };
 }
 
-lazy_static!{
+lazy_static! {
     static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
         let mut m = HashMap::new();
         m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
@@ -72,7 +72,7 @@ static _LIBFUZZER_DIR_NAME: &'static str = "libfuzzer_files";
 static MAX_TEST_FILE_NUMBER: usize = 300;
 static DEFAULT_RANDOM_FILE_NUMBER: usize = 100;
 
-pub fn can_write_to_file(crate_name: &String, random_strategy: bool)->bool {
+pub fn can_write_to_file(crate_name: &String, random_strategy: bool) -> bool {
     if !random_strategy && CRATE_TEST_DIR.contains_key(crate_name.as_str()) {
         return true;
     }
@@ -80,14 +80,14 @@ pub fn can_write_to_file(crate_name: &String, random_strategy: bool)->bool {
     if random_strategy && RANDOM_TEST_DIR.contains_key(crate_name.as_str()) {
         return true;
     }
-        
+
     return false;
-} 
+}
 
 pub fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
     if LIBFUZZER_FUZZ_TARGET_DIR.contains_key(crate_name.as_str()) {
         return true;
-    }else {
+    } else {
         return false;
     }
 }
@@ -102,12 +102,12 @@ pub struct FileHelper {
 }
 
 impl FileHelper {
-    pub fn new(api_graph: &ApiGraph, random_strategy: bool) -> Self{
+    pub fn new(api_graph: &ApiGraph, random_strategy: bool) -> Self {
         let crate_name = api_graph._crate_name.clone();
         let test_dir = if !random_strategy {
-            CRATE_TEST_DIR.get(crate_name.as_str()).unwrap().to_string() 
+            CRATE_TEST_DIR.get(crate_name.as_str()).unwrap().to_string()
         } else {
-            RANDOM_TEST_DIR.get(crate_name.as_str()).unwrap().to_string() 
+            RANDOM_TEST_DIR.get(crate_name.as_str()).unwrap().to_string()
         };
         let mut sequence_count = 0;
         let mut test_files = Vec::new();
@@ -126,7 +126,7 @@ impl FileHelper {
         };
         //println!("chosen sequences number: {}", chosen_sequences.len());
 
-        for sequence in &chosen_sequences{
+        for sequence in &chosen_sequences {
             if sequence_count >= MAX_TEST_FILE_NUMBER {
                 break;
             }
@@ -138,20 +138,14 @@ impl FileHelper {
             libfuzzer_files.push(libfuzzer_file);
             sequence_count = sequence_count + 1;
         }
-        FileHelper {
-            crate_name,
-            test_dir,
-            test_files,
-            reproduce_files,
-            libfuzzer_files,
-        }
+        FileHelper { crate_name, test_dir, test_files, reproduce_files, libfuzzer_files }
     }
 
     pub fn write_files(&self) {
         let test_path = PathBuf::from(&self.test_dir);
         if test_path.is_file() {
             fs::remove_file(&test_path).unwrap();
-        } 
+        }
         let test_file_path = test_path.clone().join(_TEST_FILE_DIR);
         ensure_empty_dir(&test_file_path);
         let reproduce_file_path = test_path.clone().join(_REPRODUCE_FILE_DIR);
@@ -170,21 +164,26 @@ impl FileHelper {
         }
         let libfuzzer_files_path = libfuzzer_path.join(_LIBFUZZER_DIR_NAME);
         ensure_empty_dir(&libfuzzer_files_path);
-        write_to_files(&self.crate_name, &libfuzzer_files_path, &self.libfuzzer_files, "fuzz_target");
+        write_to_files(
+            &self.crate_name,
+            &libfuzzer_files_path,
+            &self.libfuzzer_files,
+            "fuzz_target",
+        );
     }
 }
 
-fn write_to_files(crate_name: &String, path:&PathBuf, contents: &Vec<String>, prefix: &str) {
+fn write_to_files(crate_name: &String, path: &PathBuf, contents: &Vec<String>, prefix: &str) {
     let file_number = contents.len();
     for i in 0..file_number {
-        let filename = format!("{}_{}{}.rs",prefix, crate_name, i);
+        let filename = format!("{}_{}{}.rs", prefix, crate_name, i);
         let full_filename = path.join(filename);
         let mut file = fs::File::create(full_filename).unwrap();
         file.write_all(contents[i].as_bytes()).unwrap();
     }
 }
 
-fn ensure_empty_dir(path:&PathBuf) {
+fn ensure_empty_dir(path: &PathBuf) {
     if path.is_file() {
         fs::remove_file(path).unwrap();
     }
@@ -193,4 +192,3 @@ fn ensure_empty_dir(path:&PathBuf) {
     }
     fs::create_dir_all(path).unwrap();
 }
-
