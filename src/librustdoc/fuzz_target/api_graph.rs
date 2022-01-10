@@ -112,52 +112,35 @@ impl ApiGraph {
 
     pub fn filter_functions(&mut self) {
         self.filter_functions_defined_on_prelude_type();
-        self.filter_api_functions_by_mod_visibility();
+        self.filter_functions_in_invisible_mods();
     }
 
-    /// functions of prelude type. These functions are not in current crate
-    /// I
+    /// functions of prelude type or trait. These functions are not in current crate.
+    /// We will not try to generate sequences on these functions.
     pub fn filter_functions_defined_on_prelude_type(&mut self) {
         let prelude_types = prelude_type::get_all_preluded_type();
-        if prelude_types.len() <= 0 {
-            return;
-        }
         self.api_functions = self
             .api_functions
             .drain(..)
-            .filter(|api_function| api_function.is_defined_on_prelude_type(&prelude_types))
+            .filter(|api_function| api_function.contains_prefix_in_function_name_or_trait(&prelude_types))
             .collect();
+        self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
+            generic_function.api_function.contains_prefix_in_function_name_or_trait(&prelude_types)
+        }).collect();
     }
 
-    pub fn filter_api_functions_by_mod_visibility(&mut self) {
-        let invisible_mods = self.mod_visibility.get_invisible_mods();
+    /// filter functions defined in invisible mods
+    pub fn filter_functions_in_invisible_mods(&mut self) {
+        let invisible_mods = self.mod_visibility.get_invisible_mods().into_iter().collect();
 
-        if invisible_mods.len() <= 0 {
-            return;
-        }
-
-        let mut new_api_functions = Vec::new();
-        for api_func in &self.api_functions {
-            let api_func_name = &api_func.full_name;
-            let trait_name = &api_func._trait_full_path;
-            let mut invisible_flag = false;
-            for invisible_mod in &invisible_mods {
-                if api_func_name.as_str().starts_with(invisible_mod.as_str()) {
-                    invisible_flag = true;
-                    break;
-                }
-                if let Some(trait_name_) = trait_name {
-                    if trait_name_.as_str().starts_with(invisible_mod) {
-                        invisible_flag = true;
-                        break;
-                    }
-                }
-            }
-            if !invisible_flag {
-                new_api_functions.push(api_func.clone());
-            }
-        }
-        self.api_functions = new_api_functions;
+        self.api_functions = self
+            .api_functions
+            .drain(..)
+            .filter(|api_function| api_function.contains_prefix_in_function_name_or_trait(&invisible_mods))
+            .collect();
+        self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
+            generic_function.api_function.contains_prefix_in_function_name_or_trait(&invisible_mods)
+        }).collect();
     }
 
     pub fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {

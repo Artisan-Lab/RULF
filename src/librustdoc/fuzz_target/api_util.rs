@@ -6,17 +6,14 @@ use crate::fuzz_target::prelude_type::{self, PreludeType};
 use rustc_hir::{self, Mutability};
 
 pub fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
-    let mut input_types = Vec::new();
-    for argument in &inputs.values {
-        let arg_ty = argument.type_.clone();
-        input_types.push(arg_ty);
-    }
-    input_types
+    inputs.values.iter().map(|argument| {
+        argument.type_.clone()
+    }).collect()
 }
 
 pub fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
     match output {
-        clean::FnRetTy::Return(ty) => Some(ty.clone()),
+        clean::FnRetTy::Return(ty) => Some(ty.to_owned()),
         clean::FnRetTy::DefaultReturn => None,
     }
 }

@@ -79,11 +79,11 @@ impl ApiFunction {
         return false;
     }
 
-    pub fn is_defined_on_prelude_type(&self, prelude_types: &HashSet<String>) -> bool {
+    pub fn contains_prefix_in_function_name_or_trait(&self, prefixes: &HashSet<String>) -> bool {
         let function_name_contains_prelude_type =
-            prelude_types.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
+            prefixes.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
         let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
-            prelude_types.iter().any(|prelude_type| trait_name.starts_with(prelude_type))
+            prefixes.iter().any(|prelude_type| trait_name.starts_with(prelude_type))
         } else {
             false
         };

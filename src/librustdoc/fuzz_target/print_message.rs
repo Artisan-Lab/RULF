@@ -102,5 +102,11 @@ pub fn _print_generic_functions(graph: &ApiGraph) {
     println!("generic functions");
     graph.generic_functions.iter().for_each(|generic_function| {
         println!("{}", generic_function.api_function.full_name);
+        println!("input:");
+        generic_function.api_function.inputs.iter().for_each(|input| {
+            println!("{:?}", input);
+        });
+        println!("return: {:?}",generic_function.api_function.output);
+        println!("{:?}", generic_function.api_function.generics);
     });
 }
