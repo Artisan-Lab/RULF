@@ -97,8 +97,9 @@ impl ApiGraph {
 
     pub fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun._is_generic_function() {
-            let generic_function = GenericFunction::from(api_fun);
-            self.generic_functions.push(generic_function);
+            if let Some(generic_function) = GenericFunction::from_api_function(api_fun) {
+                self.generic_functions.push(generic_function);
+            }
         } else if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
             self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
         } else {

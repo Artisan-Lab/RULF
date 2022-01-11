@@ -21,7 +21,8 @@ pub fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
 pub fn _is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
-        clean::Type::Generic(_) => true,
+        // QPath and generic are all generic type
+        clean::Type::Generic(_) | clean::Type::QPath {..}=> true,
         clean::Type::ResolvedPath { path, is_generic, .. } => {
             if *is_generic {
                 return true;
@@ -38,7 +39,7 @@ pub fn _is_generic_type(ty: &clean::Type) -> bool {
                                 }
                             }
                         }
-                    }
+                    },
                     clean::GenericArgs::Parenthesized { inputs, output } => {
                         for input_ty in inputs {
                             if _is_generic_type(input_ty) {
@@ -119,7 +120,7 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
             return _is_end_type(inner_type, full_name_map);
         }
         clean::Type::QPath { .. } => {
-            //TODO: qpathx
+            //TODO: qpath 
             false
         }
         clean::Type::Infer => false,
@@ -158,26 +159,26 @@ pub fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap) -> String {
             res.push(')');
             res
         }
-        _ => "Currently not supported".to_string(),
+        _ => "Currently not supported to get full name.".to_string(),
     }
 }
 
 pub fn _same_type(
     output_type: &clean::Type,
     input_type: &clean::Type,
-    hard_mode: bool,
+    generic_support: bool,
     full_name_map: &FullNameMap,
 ) -> CallType {
-    if hard_mode {
-        _same_type_hard_mode(output_type, input_type, full_name_map)
+    if generic_support {
+        _same_type_without_generic(output_type, input_type, full_name_map)
     } else {
         //TODO:soft mode
         CallType::_NotCompatible
     }
 }
 
-//hard_mode
-pub fn _same_type_hard_mode(
+/// without generic support
+pub fn _same_type_without_generic(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
@@ -202,7 +203,7 @@ pub fn _same_type_hard_mode(
     if prelude_type::_prelude_type_need_special_dealing(input_type, full_name_map) {
         let input_prelude_type = PreludeType::from_type(input_type, full_name_map);
         let final_type = input_prelude_type._get_final_type();
-        let inner_call_type = _same_type_hard_mode(output_type, &final_type, full_name_map);
+        let inner_call_type = _same_type_without_generic(output_type, &final_type, full_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -263,7 +264,7 @@ fn _same_type_resolved_path(
     if prelude_type::_prelude_type_need_special_dealing(output_type, full_name_map) {
         let output_prelude_type = PreludeType::from_type(output_type, full_name_map);
         let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type = _same_type_hard_mode(&final_output_type, input_type, full_name_map);
+        let inner_call_type = _same_type_without_generic(&final_output_type, input_type, full_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -391,7 +392,7 @@ fn _same_type_raw_pointer(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_hard_mode(inner_type, input_type, full_name_map);
+    let inner_compatible = _same_type_without_generic(inner_type, input_type, full_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -409,7 +410,7 @@ fn _same_type_borrowed_ref(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_hard_mode(inner_type, input_type, full_name_map);
+    let inner_compatible = _same_type_without_generic(inner_type, input_type, full_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -435,7 +436,7 @@ pub fn _borrowed_ref_in_same_type(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_hard_mode(output_type, inner_type, full_name_map);
+    let inner_compatible = _same_type_without_generic(output_type, inner_type, full_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -459,7 +460,7 @@ pub fn _raw_pointer_in_same_type(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_hard_mode(output_type, inner_type, full_name_map);
+    let inner_compatible = _same_type_without_generic(output_type, inner_type, full_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;

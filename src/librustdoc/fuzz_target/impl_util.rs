@@ -13,6 +13,8 @@ use std::hash::Hash;
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::prelude_type;
 
+use super::type_util::{get_generics_of_clean_type, get_qpaths_in_clean_type};
+
 #[derive(Debug, Clone)]
 pub struct CrateImplCollection {
     //impl type类型的impl块
@@ -78,17 +80,36 @@ impl FullNameMap {
     }
 }
 
+pub struct TraitsOfType {
+    pub map: HashMap<DefId, HashSet<clean::Type>>,
+}
+
+impl TraitsOfType {
+    pub fn new() -> Self {
+        TraitsOfType { map: HashMap::new() }
+    }
+
+    pub fn add_trait_of_type(&mut self, did: DefId, trait_: &clean::Type) {
+        if self.map.contains_key(&did) {
+            let old_traits = self.map.get_mut(&did).unwrap();
+            old_traits.insert(trait_.to_owned());
+        } else {
+            let mut traits = HashSet::new();
+            traits.insert(trait_.to_owned());
+            self.map.insert(did, traits);
+        }
+    }
+}
+
 pub fn extract_impls_from_cache(
     cache: &Cache,
     full_name_map: &mut FullNameMap,
+    traits_of_type: &mut TraitsOfType,
     mut api_graph: &mut ApiGraph,
 ) {
-    let type_impl_maps = &cache.impls;
-    let _trait_impl_maps = &cache.implementors;
-    let paths = &cache.paths;
 
     let mut crate_impl_collection = CrateImplCollection::new();
-
+    let paths = &cache.paths;
     //construct the map of `did to type`
     for (did, (strings, item_type)) in paths {
         let full_name = full_path(&strings);
@@ -106,9 +127,15 @@ pub fn extract_impls_from_cache(
 
     api_graph.set_full_name_map(&full_name_map);
 
-    //首先提取所有type的impl
-    for (did, impls) in type_impl_maps {
-        //只添加可以在full_name_map中找到对应的did的type
+    // 首先提取所有type的impl
+    for (did, impls) in &cache.impls {
+        impls.iter().for_each(|impl_| {
+            if let Some(ref trait_) = impl_.inner_impl().trait_ {
+                traits_of_type.add_trait_of_type(*did, trait_);
+            }
+        });
+
+        // 只添加可以在full_name_map中找到对应的did的type
         if full_name_map._get_full_name(did) != None {
             for impl_ in impls {
                 //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
@@ -180,6 +207,11 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
         type_name.map(|real_type_name| real_type_name.to_owned())
     }).flatten();
 
+    // check impl generics
+    if where_preidicates_bounds_restrict_generic(impl_generics) {
+        println!("FIXME(where bounds for impl block): impl {} for {}", trait_full_name.clone().unwrap_or_default(), type_full_name.clone().unwrap_or_default());
+    }
+
     // collect associate typedefs
     let mut associate_typedefs = HashMap::new();
     inner_items.iter().for_each(|item| {
@@ -208,8 +240,14 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                 let clean::FnDecl { inputs, output, .. } = method.decl.clone();
                 let mut method_generics = method.generics.clone();
                 let mut inputs = api_util::_extract_input_types(&inputs);
-                let output = api_util::_extract_output_type(&output);
+                let mut output = api_util::_extract_output_type(&output);
 
+                // replace associate types. Replace associate type should be prior to replace self type
+                // Since associate type can be `Self` type itself.
+                inputs = inputs.into_iter().map(|input_type| replace_self_associate_types(&input_type, &impl_.trait_, &associate_typedefs)).collect_vec();
+                output = output.map(|output_type| replace_self_associate_types(&output_type, &impl_.trait_, &associate_typedefs));
+
+                // replace self type
                 let input_contains_self_type = inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
                 let output_contains_self_type = inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
                 let contains_self_type = input_contains_self_type | output_contains_self_type;
@@ -222,7 +260,7 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                     }
                 }).collect();
 
-                let mut output = output.map(|ty_| {
+                output = output.map(|ty_| {
                     if clean_type_contains_self_type(&ty_) {
                         replace_self_type(&ty_, &impl_.for_)
                     } else {
@@ -230,20 +268,19 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                     }
                 });
 
-                // replace associate types
-                inputs = inputs.into_iter().map(|input_type| replace_self_associate_types(&input_type, &impl_.trait_, &associate_typedefs)).collect_vec();
-                output = output.map(|output_type| replace_self_associate_types(&output_type, &impl_.trait_, &associate_typedefs));
-
                 // extend method generics
-                let mut generics_used_in_method = HashSet::new();
+                let mut generics_in_method = HashSet::new();
+                let mut free_qpaths_in_method = HashSet::new();
                 inputs.iter().for_each(|input_type| {
-                    generics_used_in_method.extend(get_generics_of_clean_type(input_type));
+                    generics_in_method.extend(get_generics_of_clean_type(input_type));
+                    free_qpaths_in_method.extend(get_qpaths_in_clean_type(input_type));
                 });
                 output.iter().for_each(|output_type| {
-                    generics_used_in_method.extend(get_generics_of_clean_type(output_type));
+                    generics_in_method.extend(get_generics_of_clean_type(output_type));
+                    free_qpaths_in_method.extend(get_qpaths_in_clean_type(output_type));
                 });
 
-                method_generics = extend_generics(&method_generics, &impl_generics, generics_used_in_method);
+                method_generics = extend_generics(&method_generics, &impl_generics, generics_in_method, free_qpaths_in_method);
 
                 // 使用全限定名称：type::f
                 // 如果函数输入参数中含有self type，则优先使用trait name，如果没有的话，使用type name
@@ -360,12 +397,11 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
 }
 
 // Add generic param appears in `ty_` to generics. These generic should also appears in `other_generics`
-fn extend_generics(generics: &Generics, other_generics: &Generics, generics_used_in_method: HashSet<String>) -> Generics{
+fn extend_generics(generics: &Generics, other_generics: &Generics, generics_in_method: HashSet<String>, free_qpaths_in_method: HashSet<clean::Type>) -> Generics{
     let mut generics = generics.to_owned();
     let Generics { params: other_params , where_predicates: other_where_predicates } = other_generics;
-    // let generic_param_defs_in_type = HashSet::new();
-    // let where_predicates_in_type = HashSet::new();
-    generics_used_in_method.into_iter().for_each(|generic_in_type| {
+    // generics can appear both in params and where_predicates
+    generics_in_method.into_iter().for_each(|generic_in_type| {
         let param_def = other_params.iter().filter(|generic_param_def| 
             generic_param_def.name == generic_in_type
         ).map(|generic_param_def| generic_param_def.to_owned()).collect_vec();
@@ -382,7 +418,22 @@ fn extend_generics(generics: &Generics, other_generics: &Generics, generics_used
                 }
             }
         }).map(|where_predicate| where_predicate.to_owned()).collect_vec();
-        // where_predicates.extend(predicate);
+        generics.where_predicates.extend(predicate);
+    });
+
+    // free qpath can only exist in where predicate
+    free_qpaths_in_method.into_iter().for_each(|free_qpath_in_method| {
+        let predicate = other_where_predicates.iter().filter(|where_predicate| {
+            match where_predicate {
+                WherePredicate::BoundPredicate{ty: where_ty,..} => {
+                    *where_ty == free_qpath_in_method
+                },
+                WherePredicate::RegionPredicate {..} | WherePredicate::EqPredicate { .. }=> {
+                    // We current ignore lifetime bound
+                    false
+                }
+            }
+        }).map(|where_predicate| where_predicate.to_owned()).collect_vec();
         generics.where_predicates.extend(predicate);
     });
 
@@ -391,39 +442,6 @@ fn extend_generics(generics: &Generics, other_generics: &Generics, generics_used
     // remove_duplicate_in_vec(&mut generics.where_predicates);
 
     generics
-}
-
-fn get_generics_of_clean_type(ty_: &clean::Type) -> HashSet<String> {
-    let mut res = HashSet::new();
-    match ty_ {
-        clean::Type::Generic(generic_name) => {
-            res.insert(generic_name.to_owned());
-            return res;
-        },
-        clean::Type::ResolvedPath { .. } => {
-            ty_.generics().iter().for_each(|types| {
-                types.iter().for_each(|type_| {
-                    let generics = get_generics_of_clean_type(type_);
-                    res.extend(generics);
-                });
-            });
-            return res;
-        },
-        clean::Type::BorrowedRef {type_,..} | clean::Type::Slice(type_) 
-        | clean::Type::Array(type_,.. ) | clean::Type::RawPointer(_, type_) => {
-            let generics = get_generics_of_clean_type(&**type_);
-            res.extend(generics);
-            return res;
-        },
-        clean::Type::Tuple(types) => {
-            types.iter().for_each(|type_| {
-                let generics = get_generics_of_clean_type(type_);
-                res.extend(generics);
-            });
-            return res;
-        },
-        _ => res,
-    }
 }
 
 /// determine clean type equals to given generic
@@ -574,3 +592,20 @@ fn replace_types(raw_type: &clean::Type, replace_type_map: &HashMap<clean::Type,
         _ => raw_type.to_owned(),
     }
 }
+
+/// where predicate contains restrict_generic
+pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
+    generics.where_predicates.iter().any(|where_predicate| {
+        if let clean::WherePredicate::BoundPredicate{ty,..} = where_predicate {
+            match ty {
+                // Generic and QPath are free generic
+                clean::Type::Generic(..) | clean::Type::QPath{..} => false,
+                // restrict generic
+                _ => true,
+            }
+        } else {
+            false
+        }
+    })
+}
+

@@ -29,11 +29,14 @@ pub fn is_preluded_type(type_name: &String) -> bool {
 }
 
 pub fn get_all_preluded_type() -> HashSet<String> {
-    let mut res = HashSet::new();
-    for (prelude_type_, _) in PRELUDED_TYPE.iter() {
-        res.insert(prelude_type_.to_string());
-    }
-    res
+    PRELUDED_TYPE.iter().map(|(prelude_type,_)| {
+        prelude_type.to_string()
+    }).collect()
+    // let mut res = HashSet::new();
+    // for (prelude_type_, _) in PRELUDED_TYPE.iter() {
+    //     res.insert(prelude_type_.to_string());
+    // }
+    // res
 }
 
 pub fn preluded_type(type_: &clean::Type, full_name_map: &FullNameMap) -> bool {
@@ -55,8 +58,8 @@ pub fn to_strip_type_name(type_name: &String) -> String {
 }
 
 //TODO:目前只考虑引用、裸指针的情况，元组，切片，数组都暂时不考虑
-//暂时只考虑Result和Option
-//TODO:Box,...
+// 暂时只考虑Result和Option
+// TODO:Box,...
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum PreludeType {
     NotPrelude(clean::Type),

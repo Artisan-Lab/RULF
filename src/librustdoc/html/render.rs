@@ -659,7 +659,8 @@ pub fn fuzz_target_run_clean_krate(
     //从cache中提出def_id与full_name的对应关系，存入full_name_map来进行调用
     //同时提取impl块中的内容，存入api_dependency_graph
     let mut full_name_map = impl_util::FullNameMap::new();
-    impl_util::extract_impls_from_cache(&cache, &mut full_name_map, &mut api_dependency_graph);
+    let mut traits_of_type = impl_util::TraitsOfType::new();
+    impl_util::extract_impls_from_cache(&cache, &mut full_name_map, &mut traits_of_type, &mut api_dependency_graph);
     //println!("{:?}", full_name_map);
 
     krate = new_crate;
@@ -702,10 +703,10 @@ pub fn fuzz_target_run_clean_krate(
     //api_dependency_graph._print_pretty_functions(false);
     //api_dependency_graph._print_generated_test_functions();
     use crate::fuzz_target::print_message;
+    print_message::_print_generic_functions(&api_dependency_graph);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_generated_afl_file(&api_dependency_graph);
-    print_message::_print_generic_functions(&api_dependency_graph);
     println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
     //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
     //use crate::html::afl_util;
