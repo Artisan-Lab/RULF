@@ -7,15 +7,20 @@ use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
+use crate::clean;
+use rustc_hir::def_id::DefId;
 
+use itertools::Itertools;
 //use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use crate::clean::Visibility;
 
 use super::generic_function::GenericFunction;
+use super::impl_util::TraitsOfType;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: HashMap<&'static str, usize> = {
@@ -45,6 +50,7 @@ pub struct ApiGraph {
     pub api_dependencies: Vec<ApiDependency>,
     pub api_sequences: Vec<ApiSequence>,
     pub full_name_map: FullNameMap,  //did to full_name
+    pub types_in_current_crate: TypesInCurrentCrate,
     pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
     pub generic_functions: Vec<GenericFunction>,
     pub functions_with_unsupported_fuzzable_types: HashSet<String>,
@@ -78,6 +84,29 @@ pub struct ApiDependency {
     pub call_type: CallType,
 }
 
+#[derive(Debug, Clone)]
+pub struct TypesInCurrentCrate {
+    pub types: HashMap<DefId, clean::Type>,
+    /// used to add type notation
+    pub type_full_names: HashMap<DefId, String>,
+    pub traits_of_type: HashMap<DefId, HashSet<clean::Type>>,
+}
+
+impl TypesInCurrentCrate {
+    pub fn new() -> Self{
+        TypesInCurrentCrate { types: HashMap::new(), type_full_names: HashMap::new(), traits_of_type: HashMap:: new()}
+    }
+
+    pub fn add_new_type(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
+        self.types.insert(def_id, type_);
+        self.type_full_names.insert(def_id, type_full_name);
+    }
+
+    pub fn set_traits_of_type(&mut self, traits_of_type: TraitsOfType) {
+        self.traits_of_type = traits_of_type.map;
+    }
+}
+
 impl ApiGraph {
     pub fn new(_crate_name: &String) -> Self {
         //let _sequences_of_all_algorithm = FxHashMap::default();
@@ -88,6 +117,7 @@ impl ApiGraph {
             api_dependencies: Vec::new(),
             api_sequences: Vec::new(),
             full_name_map: FullNameMap::new(),
+            types_in_current_crate: TypesInCurrentCrate::new(),
             mod_visibility: ModVisibity::new(_crate_name),
             generic_functions: Vec::new(),
             functions_with_unsupported_fuzzable_types: HashSet::new(),
@@ -96,15 +126,22 @@ impl ApiGraph {
     }
 
     pub fn add_api_function(&mut self, api_fun: ApiFunction) {
-        if api_fun._is_generic_function() {
+        if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
+            self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
+        } else if api_fun._unsafe_tag._is_unsafe() {
+            // filter unsafe function
+            println!("{} is unsafe function.", api_fun.full_name);
+        }else if api_fun._is_generic_function() {
             if let Some(generic_function) = GenericFunction::from_api_function(api_fun) {
                 self.generic_functions.push(generic_function);
             }
-        } else if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
-            self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
-        } else {
+        }else {
             self.api_functions.push(api_fun);
         }
+    }
+
+    pub fn add_type_in_current_crate(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
+        self.types_in_current_crate.add_new_type(def_id, type_, type_full_name);
     }
 
     pub fn add_mod_visibility(&mut self, mod_name: &String, visibility: &Visibility) {
@@ -112,8 +149,14 @@ impl ApiGraph {
     }
 
     pub fn filter_functions(&mut self) {
+        self.filter_functions_containing_unsupported_fuzzable_types();
         self.filter_functions_defined_on_prelude_type();
         self.filter_functions_in_invisible_mods();
+    }
+
+    pub fn filter_functions_containing_unsupported_fuzzable_types(&mut self) {
+        let full_name_map = self.full_name_map.clone();
+        self.api_functions = self.api_functions.drain(..).into_iter().filter(|api_function| !api_function.contains_unsupported_fuzzable_type(&full_name_map)).collect_vec();
     }
 
     /// functions of prelude type or trait. These functions are not in current crate.
@@ -145,7 +188,33 @@ impl ApiGraph {
     }
 
     pub fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {
-        self.full_name_map = full_name_map.clone();
+        self.full_name_map = full_name_map.to_owned();
+    }
+
+    pub fn set_traits_of_type(&mut self, traits_of_type: &TraitsOfType) {
+        self.types_in_current_crate.set_traits_of_type(traits_of_type.to_owned());
+    }
+
+    pub fn eagerly_monomorphic_generic_functions(&mut self) {
+        let mut free_generics = HashSet::new();
+        let mut qpaths = HashSet::new();
+        let mut type_bounds = HashMap::new();
+
+        self.generic_functions.iter().for_each(|generic_function| {
+            free_generics.extend(generic_function.generics.clone());
+            qpaths.extend(generic_function.remaining_qpaths.clone());
+            generic_function.type_bounds.iter().for_each(|(type_, simplified_generic_bound)| {
+                if !type_bounds.contains_key(type_) {
+                    type_bounds.insert(type_.to_owned(), simplified_generic_bound.to_owned());
+                } else {
+                    let old_bound = type_bounds.get_mut(type_).unwrap();
+                    old_bound.merge_other_bound(simplified_generic_bound.to_owned());
+                }
+            });
+        });
+        println!("free generics: {:?}", free_generics);
+        println!("qpaths: {:?}", qpaths);
+        println!("generic bounds: {:?}", type_bounds);
     }
 
     pub fn find_all_dependencies(&mut self) {
@@ -1060,6 +1129,7 @@ impl ApiGraph {
                     if api_util::is_fuzzable_type(current_ty, &self.full_name_map) {
                         //如果当前参数是fuzzable的
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
+                        // println!("current_ty for: {:?}", current_ty);
                         let fuzzable_call_type =
                             fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map);
                         let (fuzzable_type, call_type) =

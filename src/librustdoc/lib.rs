@@ -658,16 +658,6 @@ fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
                 rustc_driver::EXIT_FAILURE
             }
         }
-        /*
-        match html::render::run(krate, renderopts, renderinfo, &diag, edition) {
-            Ok(_) => rustc_driver::EXIT_SUCCESS,
-            Err(e) => {
-                diag.struct_err(&format!("couldn't generate documentation: {}", e.error))
-                    .note(&format!("failed to create or modify \"{}\"", e.file.display()))
-                    .emit();
-                rustc_driver::EXIT_FAILURE
-            }
-        }*/
     });
 
     match result {

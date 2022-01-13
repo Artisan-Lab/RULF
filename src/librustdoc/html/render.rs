@@ -63,6 +63,7 @@ use crate::clean::{self, AttributesExt, Deprecation, GetDefId, SelfTy, TypeKind}
 use crate::config::{OutputFormat, RenderOptions};
 use crate::docfs::{DocFS, ErrorStorage, PathError};
 use crate::doctree;
+use crate::fuzz_target::type_util::{generics_has_no_content, from_struct_to_clean_type, from_enum_to_clean_type};
 use crate::fuzz_target::{api_function, api_graph, api_util, file_util, impl_util};
 use crate::html::escape::Escape;
 use crate::html::format::fmt_impl_for_trait_page;
@@ -688,6 +689,8 @@ pub fn fuzz_target_run_clean_krate(
     let ret = cx.analyse_clean_krate(&krate, &mut api_dependency_graph);
     //根据mod可见性和预包含类型过滤function
     api_dependency_graph.filter_functions();
+    //单态化泛型函数
+    api_dependency_graph.eagerly_monomorphic_generic_functions();
     //寻找所有依赖，并且构建序列
     api_dependency_graph.find_all_dependencies();
     //api_dependency_graph._print_pretty_dependencies();
@@ -703,7 +706,8 @@ pub fn fuzz_target_run_clean_krate(
     //api_dependency_graph._print_pretty_functions(false);
     //api_dependency_graph._print_generated_test_functions();
     use crate::fuzz_target::print_message;
-    print_message::_print_generic_functions(&api_dependency_graph);
+    //print_message::_print_generic_functions(&api_dependency_graph);
+    print_message::_print_type_in_current_crate(&api_dependency_graph);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_generated_afl_file(&api_dependency_graph);
@@ -1787,7 +1791,6 @@ impl Context {
             let item_type = item.type_();
             if item_type == ItemType::Function {
                 let full_name = full_path(self, &item);
-                //println!("full_name = {}", full_name);
                 match item.inner {
                     clean::FunctionItem(ref func) => {
                         //println!("func = {:?}",func);
@@ -1806,17 +1809,25 @@ impl Context {
                             _trait_full_path: None,
                             _unsafe_tag: api_unsafety,
                         };
-
-                        //let output_type = api_fun.output.clone().unwrap();
-                        //println!("{:?}", output_type);
-                        //let full_name_map = &api_dependency_graph.full_name_map;
-                        //let preluded_type = prelude_type::PreludeType::from_type(&output_type, full_name_map);
-                        //println!("{:?}", preluded_type);
-                        //println!("preluded_type: {}", preluded_type._to_type_name(full_name_map));
-
                         api_dependency_graph.add_api_function(api_fun);
                     }
                     _ => {}
+                }
+            } else if item_type == ItemType::Struct {
+                let type_full_name = full_path(&self, &item);
+                if let clean::StructItem(ref struct_) = item.inner {
+                    if generics_has_no_content(&struct_.generics) {
+                        let type_ = from_struct_to_clean_type(item.def_id, item.name.clone().unwrap());
+                        api_dependency_graph.add_type_in_current_crate(item.def_id, type_, type_full_name);
+                    }
+                }
+            } else if item_type == ItemType::Enum {
+                let type_full_name = full_path(&self, &item);
+                if let clean::EnumItem(ref enum_) = item.inner {
+                    if generics_has_no_content(&enum_.generics) {
+                        let type_ = from_enum_to_clean_type(item.def_id, item.name.clone().unwrap());
+                        api_dependency_graph.add_type_in_current_crate(item.def_id, type_, type_full_name);
+                    }
                 }
             }
         }

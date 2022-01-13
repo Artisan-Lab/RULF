@@ -1,5 +1,6 @@
 use std::collections::HashSet;
-
+use rustc_hir::def_id::DefId;
+use rustc_hir::def::{Res, DefKind};
 use crate::clean;
 
 pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type> {
@@ -78,4 +79,27 @@ pub fn get_generics_of_clean_type(ty_: &clean::Type) -> HashSet<String> {
         },
         _ => res,
     }
+}
+
+/// convert clean::struct to clean::Type. We currently don't consider generics
+pub fn from_struct_to_clean_type(did: DefId, name: String) -> clean::Type {
+    let res = Res::Def(DefKind::Struct, did);
+    let args = clean::GenericArgs::AngleBracketed{args: Vec::new(), bindings: Vec::new()};
+    let path_segment = clean::PathSegment{name, args};
+    let segments = vec![path_segment];
+    let path = clean::Path {global:false, res, segments};
+    clean::Type::ResolvedPath{path, param_names: None, did, is_generic: false}
+}
+
+pub fn from_enum_to_clean_type(did: DefId, name: String) -> clean::Type {
+    let res = Res::Def(DefKind::Enum, did);
+    let args = clean::GenericArgs::AngleBracketed{args: Vec::new(), bindings: Vec::new()};
+    let path_segment = clean::PathSegment{name, args};
+    let segments = vec![path_segment];
+    let path = clean::Path {global:false, res, segments};
+    clean::Type::ResolvedPath{path, param_names: None, did, is_generic: false}
+}
+
+pub fn generics_has_no_content(generics: &clean::Generics) -> bool {
+    generics.params.len() == 0 && generics.where_predicates.len() == 0
 }

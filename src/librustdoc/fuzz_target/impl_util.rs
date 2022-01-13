@@ -80,6 +80,7 @@ impl FullNameMap {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TraitsOfType {
     pub map: HashMap<DefId, HashSet<clean::Type>>,
 }
@@ -143,6 +144,8 @@ pub fn extract_impls_from_cache(
             }
         }
     }
+
+    api_graph.set_traits_of_type(traits_of_type);
     //println!("analyse impl Type");
     //分析impl type类型
     for impl_ in &crate_impl_collection.impl_types {

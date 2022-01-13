@@ -111,10 +111,23 @@ pub fn _print_generic_functions(graph: &ApiGraph) {
         // }
         // println!("{}", generic_function.api_function.full_name);
         // println!("input:");
-        // generic_function.api_function.inputs.iter().for_each(|input| {
-        //     println!("{:?}", input);
-        // });
+        generic_function.api_function.inputs.iter().for_each(|input| {
+            println!("{:?}", input);
+        });
         // println!("return: {:?}",generic_function.api_function.output);
         // println!("{:?}", generic_function.api_function.generics);
+    });
+}
+
+pub fn _print_type_in_current_crate(graph: &ApiGraph) {
+    println!("Type in current crate:");
+    graph.types_in_current_crate.type_full_names.iter().for_each(|(did, full_name)| {
+        println!("full name: {}", full_name);
+        if let Some(bounds) = graph.types_in_current_crate.traits_of_type.get(did) {
+            println!("bounds of type: {}", full_name);
+            bounds.iter().for_each(|type_| {
+                println!("{:?}", type_);
+            });
+        }
     });
 }
