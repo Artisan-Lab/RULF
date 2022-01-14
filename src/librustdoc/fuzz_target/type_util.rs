@@ -1,7 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use rustc_hir::def::{Res, DefKind};
 use crate::clean;
+use crate::html::render::cache::Cache;
 
 pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type> {
     let mut res = HashSet::new();
@@ -102,4 +104,20 @@ pub fn from_enum_to_clean_type(did: DefId, name: String) -> clean::Type {
 
 pub fn generics_has_no_content(generics: &clean::Generics) -> bool {
     generics.params.len() == 0 && generics.where_predicates.len() == 0
+}
+
+pub fn collect_traits_in_current_crate(cache: &Cache) -> HashMap<DefId, String> {
+    let mut res = HashMap::new();
+    cache.traits.iter().for_each(|(def_id, _)| {
+        // trait in current crate
+        if let Some(path) = cache.exact_paths.get(&def_id) {
+            let path = path.iter().join("::");
+            res.insert(*def_id, path);
+        }
+        if let Some(path) = cache.external_paths.get(&def_id) {
+            let path = path.0.iter().join("::");
+            res.insert(*def_id, path);
+        }
+    });
+    res
 }

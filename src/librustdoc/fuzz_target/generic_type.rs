@@ -33,6 +33,12 @@ impl SimplifiedGenericBound {
     pub fn merge_other_bound(&mut self, other_bound: SimplifiedGenericBound) {
         self.trait_bounds.extend(other_bound.trait_bounds);
     }
+
+    // // determine whether a bound can be a primitive type
+    // pub fn can_be_primitive_type(&self) -> bool {
+    //     // FIXME: This is a very naive implementation. We only compare if trait names are equal.
+    //     // This is because we may not 
+    // }
 }
 
 /// Test whether generic bounds contains trait with generic

@@ -63,7 +63,7 @@ use crate::clean::{self, AttributesExt, Deprecation, GetDefId, SelfTy, TypeKind}
 use crate::config::{OutputFormat, RenderOptions};
 use crate::docfs::{DocFS, ErrorStorage, PathError};
 use crate::doctree;
-use crate::fuzz_target::type_util::{generics_has_no_content, from_struct_to_clean_type, from_enum_to_clean_type};
+use crate::fuzz_target::type_util::{generics_has_no_content, from_struct_to_clean_type, from_enum_to_clean_type, collect_traits_in_current_crate};
 use crate::fuzz_target::{api_function, api_graph, api_util, file_util, impl_util};
 use crate::html::escape::Escape;
 use crate::html::format::fmt_impl_for_trait_page;
@@ -662,6 +662,8 @@ pub fn fuzz_target_run_clean_krate(
     let mut full_name_map = impl_util::FullNameMap::new();
     let mut traits_of_type = impl_util::TraitsOfType::new();
     impl_util::extract_impls_from_cache(&cache, &mut full_name_map, &mut traits_of_type, &mut api_dependency_graph);
+    let traits_in_current_crate = collect_traits_in_current_crate(&cache);
+    api_dependency_graph.set_traits_in_current_crate(traits_in_current_crate);
     //println!("{:?}", full_name_map);
 
     krate = new_crate;
@@ -707,7 +709,8 @@ pub fn fuzz_target_run_clean_krate(
     //api_dependency_graph._print_generated_test_functions();
     use crate::fuzz_target::print_message;
     //print_message::_print_generic_functions(&api_dependency_graph);
-    print_message::_print_type_in_current_crate(&api_dependency_graph);
+    // print_message::_print_type_in_current_crate(&api_dependency_graph);
+    print_message::_print_traits_in_current_crate(&api_dependency_graph);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_generated_afl_file(&api_dependency_graph);

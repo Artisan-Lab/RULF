@@ -87,6 +87,7 @@ pub struct ApiDependency {
 #[derive(Debug, Clone)]
 pub struct TypesInCurrentCrate {
     pub types: HashMap<DefId, clean::Type>,
+    pub traits: HashMap<DefId, String>,
     /// used to add type notation
     pub type_full_names: HashMap<DefId, String>,
     pub traits_of_type: HashMap<DefId, HashSet<clean::Type>>,
@@ -94,7 +95,7 @@ pub struct TypesInCurrentCrate {
 
 impl TypesInCurrentCrate {
     pub fn new() -> Self{
-        TypesInCurrentCrate { types: HashMap::new(), type_full_names: HashMap::new(), traits_of_type: HashMap:: new()}
+        TypesInCurrentCrate { types: HashMap::new(), traits: HashMap::new(), type_full_names: HashMap::new(), traits_of_type: HashMap:: new()}
     }
 
     pub fn add_new_type(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
@@ -104,6 +105,10 @@ impl TypesInCurrentCrate {
 
     pub fn set_traits_of_type(&mut self, traits_of_type: TraitsOfType) {
         self.traits_of_type = traits_of_type.map;
+    }
+
+    pub fn set_traits_in_current_crate(&mut self, traits: HashMap<DefId, String>) {
+        self.traits = traits;
     }
 }
 
@@ -193,6 +198,10 @@ impl ApiGraph {
 
     pub fn set_traits_of_type(&mut self, traits_of_type: &TraitsOfType) {
         self.types_in_current_crate.set_traits_of_type(traits_of_type.to_owned());
+    }
+
+    pub fn set_traits_in_current_crate(&mut self, traits_in_current_crate: HashMap<DefId, String>) {
+        self.types_in_current_crate.set_traits_in_current_crate(traits_in_current_crate);
     }
 
     pub fn eagerly_monomorphic_generic_functions(&mut self) {

@@ -131,3 +131,12 @@ pub fn _print_type_in_current_crate(graph: &ApiGraph) {
         }
     });
 }
+
+pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
+    println!("traits_in_current_crate:");
+    graph.types_in_current_crate.traits.iter().for_each(|(_, trait_name)| {
+        if trait_name.starts_with(&graph._crate_name) {
+            println!("{}", trait_name);
+        }
+    });
+}
