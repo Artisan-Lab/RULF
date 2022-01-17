@@ -3,6 +3,8 @@
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
 
+/// traits of primitive types
+
 //print generated sequences
 pub fn _print_pretty_sequences(graph: &ApiGraph) {
     println!("sequences:");
@@ -135,8 +137,9 @@ pub fn _print_type_in_current_crate(graph: &ApiGraph) {
 pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
     println!("traits_in_current_crate:");
     graph.types_in_current_crate.traits.iter().for_each(|(_, trait_name)| {
-        if trait_name.starts_with(&graph._crate_name) {
-            println!("{}", trait_name);
-        }
+        println!("{}", trait_name);
+        // if trait_name.starts_with(&graph._crate_name) {
+        //     println!("{}", trait_name);
+        // }
     });
 }

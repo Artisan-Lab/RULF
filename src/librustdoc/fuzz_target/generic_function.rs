@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
+use itertools::Itertools;
+
 use crate::clean::{self, GenericBound};
 
 use super::api_function::ApiFunction;
 use super::impl_util::where_preidicates_bounds_restrict_generic;
-use super::type_util::{get_qpaths_in_clean_type, get_generics_of_clean_type};
+use super::type_util::{get_qpaths_in_clean_type, get_generics_of_clean_type, replace_types};
 use super::generic_type::{generic_bounds_contains_trait_with_generic, SimplifiedGenericBound};
 
 #[derive(Debug, Clone)]
@@ -123,14 +125,39 @@ impl GenericFunction {
         }
     }
 
-    fn _can_be_fully_monomorphized(&self, generic_substitute: &HashMap<String, clean::Type>, qpath_substitute: &HashMap<clean::Type, clean::Type>) -> bool {
+    pub fn can_be_fully_monomorphized(&self, replace_map: &HashMap<clean::Type, clean::Type>) -> bool {
         let generic_fully_monomorphized = self.generics.iter().all(|generic| {
-            generic_substitute.contains_key(generic)
+            replace_map.iter().any(|(type_, ..)| {
+                if let clean::Type::Generic(generic_name) = type_ {
+                    *generic_name == *generic
+                } else {
+                    false
+                }
+            })
         });
         let remaining_qpath_fully_monomorphized= self.remaining_qpaths.iter().all(|remaining_qpath| {
-            qpath_substitute.contains_key(remaining_qpath)
+            replace_map.contains_key(remaining_qpath)
         });
         generic_fully_monomorphized & remaining_qpath_fully_monomorphized
+    }
+
+    pub fn monomorphize(&self, replace_map: &HashMap<clean::Type, clean::Type>) -> ApiFunction {
+        // println!("monomorphize {}.", self.api_function.full_name);
+        let ApiFunction { full_name, mut generics, inputs, output, _trait_full_path, _unsafe_tag } = self.api_function.clone();
+        generics.params.clear();
+        generics.where_predicates.clear();
+        let inputs = inputs.into_iter().map(|type_| {
+            replace_types(&type_, replace_map)
+        }).collect_vec();
+        let output = output.and_then(|type_| Some(replace_types(&type_, replace_map)));
+        ApiFunction {
+            full_name,
+            generics,
+            inputs,
+            output,
+            _trait_full_path,
+            _unsafe_tag,
+        }
     }
 }
 

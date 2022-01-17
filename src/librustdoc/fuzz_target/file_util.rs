@@ -31,6 +31,10 @@ lazy_static! {
         m.insert("fudge_regex", "/home/jjf/fudge_work/regex-work");
         m.insert("fudge_url", "/home/jjf/fudge_work/url-work");
         m.insert("fudge_time", "/home/jjf/fudge_work/time-work");
+
+        // generic test
+        m.insert("yaml_rust", "/home/jjf/afl_fast_work/yaml-rust-afl-work");
+        //regex-syntax
         m
     };
 }

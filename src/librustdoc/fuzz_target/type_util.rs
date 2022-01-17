@@ -121,3 +121,67 @@ pub fn collect_traits_in_current_crate(cache: &Cache) -> HashMap<DefId, String> 
     });
     res
 }
+
+/// replace types in raw_type with replace_type_map
+pub fn replace_types(raw_type: &clean::Type, replace_type_map: &HashMap<clean::Type, clean::Type>) -> clean::Type {
+    if replace_type_map.contains_key(raw_type) {
+        return replace_type_map.get(raw_type).unwrap().to_owned();
+    }
+
+    match raw_type.to_owned() {
+        clean::Type::RawPointer(mutability, inner_type) => {
+            let new_type = replace_types(&*inner_type, replace_type_map);
+            clean::Type::RawPointer(mutability, Box::new(new_type))
+        },
+        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
+            let new_type = replace_types(&*type_, replace_type_map);
+            clean::Type::BorrowedRef{lifetime, mutability, type_:Box::new(new_type)}
+        },
+        clean::Type::Slice(inner_type) => {
+            let new_type = replace_types(&*inner_type, replace_type_map);
+            clean::Type::Slice(Box::new(new_type))
+        }, 
+        clean::Type::Array(inner_type, length) => {
+            let new_type = replace_types(&*inner_type, replace_type_map);
+            clean::Type::Array(Box::new(new_type), length)
+        },
+        clean::Type::Tuple(types) => {
+            let new_types = types.into_iter().map(|type_| {
+                replace_types(&type_, replace_type_map)
+            }).collect_vec();
+            clean::Type::Tuple(new_types)
+        },
+        clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
+            let clean::Path{global, res, segments} = path;
+            let new_segments = segments.into_iter().map(|path_segment| {
+                let clean::PathSegment{name, args} = path_segment;
+                let new_args = match args {
+                    clean::GenericArgs::AngleBracketed {args, bindings} => {
+                        let new_args = args.into_iter().map(|generic_arg| {
+                            if let clean::GenericArg::Type(type_) = generic_arg {
+                                let new_type = replace_types(&type_, replace_type_map);
+                                clean::GenericArg::Type(new_type)
+                            } else {
+                                generic_arg
+                            }
+                        }).collect_vec();
+                        clean::GenericArgs::AngleBracketed {args: new_args, bindings}
+                    },
+                    clean::GenericArgs::Parenthesized{inputs, output} => {
+                        let new_inputs = inputs.into_iter().map(|type_| {
+                            replace_types(&type_, replace_type_map)
+                        }).collect_vec();
+                        let new_output = output.map(|type_| {
+                            replace_types(&type_, replace_type_map)
+                        });
+                        clean::GenericArgs::Parenthesized{inputs: new_inputs, output: new_output}
+                    }
+                };
+                clean::PathSegment{name, args: new_args}
+            }).collect_vec();
+            let new_path = clean::Path{global, res, segments: new_segments};
+            clean::Type::ResolvedPath{path: new_path, param_names, did, is_generic}
+        }
+        _ => raw_type.to_owned(),
+    }
+}
