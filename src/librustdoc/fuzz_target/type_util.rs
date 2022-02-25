@@ -50,15 +50,15 @@ pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type
     }
 }
 
-pub fn get_generics_of_clean_type(ty_: &clean::Type) -> HashSet<String> {
+pub fn get_generics_of_clean_type(clean_type: &clean::Type) -> HashSet<String> {
     let mut res = HashSet::new();
-    match ty_ {
+    match clean_type {
         clean::Type::Generic(generic_name) => {
             res.insert(generic_name.to_owned());
             return res;
         },
         clean::Type::ResolvedPath { .. } => {
-            ty_.generics().iter().for_each(|types| {
+            clean_type.generics().iter().for_each(|types| {
                 types.iter().for_each(|type_| {
                     let generics = get_generics_of_clean_type(type_);
                     res.extend(generics);
@@ -185,3 +185,4 @@ pub fn replace_types(raw_type: &clean::Type, replace_type_map: &HashMap<clean::T
         _ => raw_type.to_owned(),
     }
 }
+

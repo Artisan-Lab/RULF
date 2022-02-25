@@ -9,18 +9,21 @@ use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
 use crate::clean;
 use rustc_hir::def_id::DefId;
+use rustc_hir::Mutability;
 
 use itertools::Itertools;
 //use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::hash::Hash;
 
 use crate::clean::Visibility;
 
 use super::generic_function::GenericFunction;
 use super::impl_util::TraitsOfType;
+use super::type_name::TypeNameMap;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: HashMap<&'static str, usize> = {
@@ -42,8 +45,6 @@ lazy_static! {
     };
 }
 
-const REPLACE_PRIMITIVE_TYPE: clean::Type = clean::Type::Primitive(clean::PrimitiveType::I32);
-
 #[derive(Clone, Debug)]
 pub struct ApiGraph {
     pub _crate_name: String,
@@ -52,6 +53,7 @@ pub struct ApiGraph {
     pub api_dependencies: Vec<ApiDependency>,
     pub api_sequences: Vec<ApiSequence>,
     pub full_name_map: FullNameMap,  //did to full_name
+    pub type_name_map: TypeNameMap,
     pub types_in_current_crate: TypesInCurrentCrate,
     pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
     pub generic_functions: Vec<GenericFunction>,
@@ -124,6 +126,7 @@ impl ApiGraph {
             api_dependencies: Vec::new(),
             api_sequences: Vec::new(),
             full_name_map: FullNameMap::new(),
+            type_name_map: TypeNameMap::new(), // only take place
             types_in_current_crate: TypesInCurrentCrate::new(),
             mod_visibility: ModVisibity::new(_crate_name),
             generic_functions: Vec::new(),
@@ -137,10 +140,12 @@ impl ApiGraph {
             // filter unsafe function
             println!("{} is unsafe function.", api_fun.full_name);
         }else if api_fun._is_generic_function() {
-            if let Some(generic_function) = GenericFunction::from_api_function(api_fun) {
+            println!("{} is generic function.", api_fun.full_name);
+            if let Ok(generic_function) = GenericFunction::try_from(api_fun) {
                 self.generic_functions.push(generic_function);
             }
         }else if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
+            println!("{} contains unsupported fuzzable type.", api_fun.full_name);
             self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
         }else {
             self.api_functions.push(api_fun);
@@ -202,12 +207,16 @@ impl ApiGraph {
         self.types_in_current_crate.set_traits_of_type(traits_of_type.to_owned());
     }
 
+    pub fn set_type_name_map(&mut self, type_name_map: TypeNameMap) {
+        self.type_name_map = type_name_map;
+    }
+
     pub fn set_traits_in_current_crate(&mut self, traits_in_current_crate: HashMap<DefId, String>) {
         self.types_in_current_crate.set_traits_in_current_crate(traits_in_current_crate);
     }
 
     pub fn eagerly_monomorphic_generic_functions(&mut self) {
-        println!("There are {} generic functions in this crate.", self.generic_functions.len());
+        // println!("There are {} generic functions in this crate.", self.generic_functions.len());
         let mut free_generics = HashSet::new();
         let mut qpaths = HashSet::new();
         let mut type_bounds = HashMap::new();
@@ -226,63 +235,97 @@ impl ApiGraph {
             });
         });
 
-        println!("free generics: {:?}", free_generics);
-        println!("qpaths: {:?}", qpaths);
+        // println!("free generics: {:?}", free_generics);
+        // println!("qpaths: {:?}", qpaths);
+
+        let replace_primitive_type = clean::Type::Primitive(clean::PrimitiveType::I32);
+        let replace_u8_slice = clean::Type::BorrowedRef{
+            lifetime: None,
+            mutability: Mutability::Not,
+            type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(clean::PrimitiveType::U8)))),
+        };
+        let replace_str_slice = clean::Type::BorrowedRef {
+            lifetime: None,
+            mutability: Mutability::Not,
+            type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str))
+        };
+
+        let mut replace_with_primitive_type = 0usize;
+        let mut repleace_with_current_crate_type = 0usize;
 
         // Try to determine whether each generic can be replaced with primitive type or types in current in
         free_generics.iter().for_each(|generic| {
             let generic_type = clean::Type::Generic(generic.to_owned());
             if let Some(bounds) = type_bounds.get(&generic_type) {
-                if bounds.can_be_primitive_type(&self.types_in_current_crate.traits) {
+                if bounds.can_be_primitive_type(&self.type_name_map) {
                     println!("{} can be replaced with primitive type.", generic);
-                    replace_map.insert(generic_type, REPLACE_PRIMITIVE_TYPE.clone());
-                } else if let Some(type_) = bounds.can_be_replaced_with_type(
+                    replace_with_primitive_type += 1;
+                    replace_map.insert(generic_type, replace_primitive_type.clone());
+                } else if bounds.can_be_u8_slice(&self.type_name_map) {
+                    println!("{} can be replaced with u8 slice", generic);
+                    replace_with_primitive_type += 1;
+                    replace_map.insert(generic_type, replace_u8_slice.clone());
+                } else if bounds.can_be_str_slice(&self.type_name_map){
+                    println!("{} can be replaced with str slice", generic);
+                    replace_with_primitive_type += 1;
+                    replace_map.insert(generic_type, replace_str_slice.clone());
+                }
+                else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types, 
                     &self.types_in_current_crate.traits_of_type) {
                         println!("{} can be replaced with type {:?}", generic, type_);
+                        repleace_with_current_crate_type += 1;
                         replace_map.insert(generic_type, type_);
                 } else {
                     println!("Can not find sutable type for {}.", generic);
-                    println!("Trait bounds for {}: {}", generic, bounds._format_string_(&self.types_in_current_crate.traits));
+                    println!("Trait bounds for {}: {}", generic, bounds._format_string_(&self.type_name_map));
                 }
             } else {
                 println!("{} has no bounds. So {} can be replaced with primitive type. ", generic, generic);
-                replace_map.insert(generic_type, REPLACE_PRIMITIVE_TYPE.clone());
+                replace_with_primitive_type += 1;
+                replace_map.insert(generic_type, replace_primitive_type.clone());
             }
         });
 
         qpaths.iter().for_each(|qpath| {
             if let Some(bounds) = type_bounds.get(qpath) {
-                if bounds.can_be_primitive_type(&self.types_in_current_crate.traits) {
+                if bounds.can_be_primitive_type(&self.type_name_map) {
                     println!("{:?} can be replaced with primitive type.", qpath);
-                    replace_map.insert(qpath.to_owned(), REPLACE_PRIMITIVE_TYPE.clone());
+                    replace_with_primitive_type += 1;
+                    replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types, 
                     &self.types_in_current_crate.traits_of_type) {
                         println!("{:?} can be replaced with type {:?}", qpath, type_);
+                        repleace_with_current_crate_type += 1;
                         replace_map.insert(qpath.to_owned(), type_);
                 } else {
                     println!("Can not find sutable type for {:?}.", qpath);
-                    println!("Trait bounds for {:?}: {}", qpath, bounds._format_string_(&self.types_in_current_crate.traits));
+                    println!("Trait bounds for {:?}: {}", qpath, bounds._format_string_(&self.type_name_map));
                 }
             } else {
                 println!("{:?} has no bounds. So {:?} can be replaced with primitive type. ", qpath, qpath);
-                replace_map.insert(qpath.to_owned(), REPLACE_PRIMITIVE_TYPE.clone());
+                replace_with_primitive_type +=1;
+                replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
             }
         });
 
         println!("There are totally {} generic parameter in this crate.", free_generics.len() + qpaths.len());
         println!("We can replace {} generic parameters among them. ", replace_map.len());
+        println!("{} are replaced with primitive types. {} are with types in current crate.", replace_with_primitive_type, repleace_with_current_crate_type);
 
         let functions = self.generic_functions.iter().filter(|generic_function| {
             generic_function.can_be_fully_monomorphized(&replace_map)
         }).map(|generic_function| generic_function.monomorphize(&replace_map)).collect_vec();
 
-        println!("We can monomorphize {} generic functions.", functions.len());
+        println!("There are total {} functions(include generic).", self.api_functions.len() + self.generic_functions.len());
+        println!("We can monomorphize {} generic functions among total {} functions.", functions.len(), self.generic_functions.len());
 
+        println!("before add: {}", self.api_functions.len());
         functions.into_iter().for_each(|api_function| {
             self.add_api_function(api_function);
         });
+        println!("after add: {}", self.api_functions.len());
     }
 
     pub fn find_all_dependencies(&mut self) {
@@ -761,12 +804,12 @@ impl ApiGraph {
             }
         }
 
-        println!("after backward search");
-        println!("targets = {}", totol_sequences_number);
-        println!("total length = {}", total_length);
-        let average_visit_time = (total_length as f64) / (covered_nodes.len() as f64);
-        println!("average time to visit = {}", average_visit_time);
-        println!("edge covered by reverse search = {}", covered_edges.len());
+        // println!("after backward search");
+        // println!("targets = {}", totol_sequences_number);
+        // println!("total length = {}", total_length);
+        // let average_visit_time = (total_length as f64) / (covered_nodes.len() as f64);
+        // println!("average time to visit = {}", average_visit_time);
+        // println!("edge covered by reverse search = {}", covered_edges.len());
 
         //println!("There are total {} APIs covered by reverse search", apis_covered_by_reverse_search);
     }

@@ -2,6 +2,8 @@
 
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
+use crate::fuzz_target::type_name::TypeNameLevel;
+use crate::fuzz_target::type_name::type_full_name;
 
 /// traits of primitive types
 
@@ -105,19 +107,9 @@ pub fn _print_generic_functions(graph: &ApiGraph) {
     graph.generic_functions.iter().for_each(|generic_function| {
         println!("{}", generic_function.api_function.full_name);
         println!("{:?}", generic_function.type_bounds);
-        // if generic_function.remaining_qpaths.len() != 0 {
-            
-        //     // generic_function.remaining_qpaths.iter().for_each(|qpath| {
-        //     //     println!("{:?}", qpath);
-        //     // });
-        // }
-        // println!("{}", generic_function.api_function.full_name);
-        // println!("input:");
         generic_function.api_function.inputs.iter().for_each(|input| {
             println!("{:?}", input);
         });
-        // println!("return: {:?}",generic_function.api_function.output);
-        // println!("{:?}", generic_function.api_function.generics);
     });
 }
 
@@ -138,8 +130,18 @@ pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
     println!("traits_in_current_crate:");
     graph.types_in_current_crate.traits.iter().for_each(|(_, trait_name)| {
         println!("{}", trait_name);
-        // if trait_name.starts_with(&graph._crate_name) {
-        //     println!("{}", trait_name);
-        // }
+    });
+}
+
+pub fn _print_type_full_names(graph: &ApiGraph) {
+    println!("type_full_names");
+    graph.api_functions.iter().for_each(|api_func| {
+        println!("Function name: {}", api_func.full_name);
+        api_func.inputs.iter().for_each(|input| {
+            println!("{}", type_full_name(input, &graph.type_name_map, TypeNameLevel::All))
+        });
+        api_func.output.iter().for_each(|output| {
+            println!("{}", type_full_name(output, &graph.type_name_map, TypeNameLevel::All))
+        });
     });
 }

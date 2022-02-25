@@ -1,8 +1,10 @@
-use std::collections::{HashSet, HashMap};
+use std::{collections::{HashSet, HashMap}, convert::TryFrom};
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 
 use crate::clean::{self, GenericBound, GetDefId};
+
+use super::type_name::{TypeNameMap, TypeNameLevel, type_full_name};
 
 // FIXME: Why these are not marker from std?. 
 pub static PRIMITIVE_TRAITS: [&'static str; 10] = ["core::cmp::Ord", 
@@ -15,6 +17,16 @@ pub static PRIMITIVE_TRAITS: [&'static str; 10] = ["core::cmp::Ord",
                                                   "core::cmp::Eq",
                                                   "core::fmt::Debug",
                                                   "core::default::Default"];
+// FIXME: u8 slice cannot contain write trait(Temporary use)
+pub static U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Read"];
+// FIXME：仅仅是为clap库所暂时使用的
+pub static STR_SLICE_TRAITS: [&'static str; 1] = ["core::convert::AsRef<Str>"];
+
+#[derive(Debug, Clone, Copy)]
+pub enum GenericBoundError {
+    Lifetime,
+    Sized,
+}
 
 /// This represents generic bound without `trait with generic`
 #[derive(Debug, Clone)]
@@ -22,24 +34,27 @@ pub struct SimplifiedGenericBound {
     trait_bounds: HashSet<clean::Type>,
 }
 
-impl From<&[GenericBound]> for SimplifiedGenericBound {
-    fn from(bounds: &[GenericBound]) -> Self {
-        let trait_bounds = bounds.iter().filter(|generic_bound| {
+impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
+    type Error = GenericBoundError;
+    fn try_from(bounds: &[GenericBound]) -> Result<Self, Self::Error> {
+        for generic_bound in bounds.iter() {
             if let GenericBound::TraitBound(_, trait_bound_modifier) = generic_bound {
-                // FIXME: We skip ?Sized bound here.
-                // ?Sized is the only case that the modifier is not None currently.
-                *trait_bound_modifier == rustc_hir::TraitBoundModifier::None
+                if !(*trait_bound_modifier == rustc_hir::TraitBoundModifier::None) {
+                    return Err(GenericBoundError::Sized);
+                } 
             } else {
-                false
+                return Err(GenericBoundError::Lifetime);
             }
-        }).map(|generic_bound| {
+        }
+
+        let trait_bounds = bounds.iter().map(|generic_bound| {
             if let GenericBound::TraitBound(poly_trait,..) = generic_bound {
                 poly_trait.trait_.clone()
             } else {
                 unreachable!("Lifetime bounds should be already filtered. Internal Error.");
             }
         }).collect();
-        SimplifiedGenericBound { trait_bounds }
+        Ok(SimplifiedGenericBound { trait_bounds })
     }
 }
 
@@ -49,22 +64,31 @@ impl SimplifiedGenericBound {
     }
 
     // determine whether a bound can be a primitive type
-    pub fn can_be_primitive_type(&self, trait_name_map: &HashMap<DefId, String>) -> bool {
+    pub fn can_be_primitive_type(&self, type_name_map: &TypeNameMap) -> bool {
         // FIXME: This is a very naive implementation. We only compare if trait names are equal.
         self.trait_bounds.iter().all(|trait_bound| {
-            // Safety: trait should always has a def_id, otherwise is a fatal error
-            let trait_def_id = trait_bound.def_id().unwrap();
-            // Safety: trait name should in trait name map
-            let trait_name = trait_name_map.get(&trait_def_id).unwrap().to_owned();
-            // This is 
+            let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
             PRIMITIVE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
         })
     }
 
-    pub fn _format_string_(&self, trait_name_map: &HashMap<DefId, String>) -> String {
+    pub fn can_be_u8_slice(&self, type_name_map: &TypeNameMap) -> bool {
+        self.trait_bounds.iter().all(|trait_bound| {
+            let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
+            U8_SLICE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
+        })
+    }
+
+    pub fn can_be_str_slice(&self, type_name_map: &TypeNameMap) -> bool {
+        self.trait_bounds.iter().all(|trait_bound| {
+            let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
+            STR_SLICE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
+        })
+    }
+
+    pub fn _format_string_(&self, type_name_map: &TypeNameMap) -> String {
         let res = self.trait_bounds.iter().map(|trait_bound| {
-            let trait_def_id = trait_bound.def_id().unwrap();
-            trait_name_map.get(&trait_def_id).unwrap().to_owned()
+            type_full_name(trait_bound, type_name_map, TypeNameLevel::All)
         }).collect_vec();
         res.join(",")
     }
@@ -106,9 +130,4 @@ pub fn generic_bounds_contains_trait_with_generic(bounds: &[GenericBound]) -> bo
 /// We currently skip APIs with such traits.
 pub fn trait_contains_generic(poly_trait: &clean::PolyTrait) -> bool {
     poly_trait.generic_params.len() != 0
-}
-
-fn _trait_name_(trait_: &clean::Type, trait_name_map: &HashMap<DefId, String>) -> String {
-    let trait_did = trait_.def_id().unwrap();
-    trait_name_map.get(&trait_did).unwrap().to_owned()
 }

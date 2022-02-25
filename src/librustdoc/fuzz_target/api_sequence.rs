@@ -746,11 +746,18 @@ impl ApiSequence {
             //如果不是最后一个调用
             let api_function_index = api_call.func.1;
             let api_function = &_api_graph.api_functions[api_function_index];
+            // type notation
+            let return_type_notation = if api_function.return_type_notation {
+                let return_type_name = api_function.return_type_name(&_api_graph.type_name_map).unwrap();
+                format!(":{}", return_type_name)
+            } else {
+                "".to_string()
+            };
             if dead_code[i] || api_function._has_no_output() {
-                res.push_str("let _ = ");
+                res.push_str(format!("let _{} = ", return_type_notation).as_str());
             } else {
                 let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
-                res.push_str(format!("let {}{}{} = ", mut_tag, local_param_prefix, i).as_str());
+                res.push_str(format!("let {}{}{}{} = ", mut_tag, local_param_prefix, i, return_type_notation).as_str());
             }
             let (api_type, function_index) = &api_call.func;
             match api_type {

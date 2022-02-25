@@ -173,30 +173,21 @@ pub fn extract_impls_from_cache(
 }
 
 fn full_path(paths: &Vec<String>) -> String {
-    let mut full = String::new();
-    match paths.first() {
-        None => {
-            return full;
-        }
-        Some(path) => {
-            full.push_str(path.as_str());
-        }
-    }
-    let paths_num = paths.len();
-    for i in 1..paths_num {
-        let current_path = paths[i].as_str();
-        full.push_str("::");
-        full.push_str(current_path);
-    }
-
-    return full;
+    paths.join("::")
 }
 
 pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph: &mut ApiGraph) {
     let inner_items = &impl_.items;
     let impl_generics = &impl_.generics;
 
-    //BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
+    // check where predicate
+    if where_preidicates_bounds_restrict_generic(impl_generics) {
+        return;
+        // println!("{:?}", impl_generics);
+        // println!("FIXME(where bounds for impl block): impl {} for {}", trait_full_name.clone().unwrap_or_default(), type_full_name.clone().unwrap_or_default());
+    }
+
+    // BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
     let trait_full_name = impl_.trait_.as_ref().map(|trait_| {
         let trait_ty_def_id = &trait_.def_id().unwrap();
         let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
@@ -209,11 +200,6 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
         let type_name = full_name_map._get_full_name(def_id);
         type_name.map(|real_type_name| real_type_name.to_owned())
     }).flatten();
-
-    // check impl generics
-    if where_preidicates_bounds_restrict_generic(impl_generics) {
-        println!("FIXME(where bounds for impl block): impl {} for {}", trait_full_name.clone().unwrap_or_default(), type_full_name.clone().unwrap_or_default());
-    }
 
     // collect associate typedefs
     let mut associate_typedefs = HashMap::new();
@@ -319,6 +305,7 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                         output,
                         _trait_full_path: None,
                         _unsafe_tag: api_unsafety,
+                        return_type_notation: false,
                     },
                     Some(_) => {
                         if let Some(ref real_trait_name) = trait_full_name {
@@ -329,6 +316,7 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                                 output,
                                 _trait_full_path: Some(real_trait_name.clone()),
                                 _unsafe_tag: api_unsafety,
+                                return_type_notation: false,
                             }
                         } else {
                             //println!("Trait not found in current crate.");
@@ -540,7 +528,10 @@ pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
                 // Generic and QPath are free generic
                 clean::Type::Generic(..) | clean::Type::QPath{..} => false,
                 // restrict generic
-                _ => true,
+                _ => {
+                    // println!("{:?}", ty);
+                    true
+                }
             }
         } else {
             false

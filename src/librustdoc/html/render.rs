@@ -63,6 +63,7 @@ use crate::clean::{self, AttributesExt, Deprecation, GetDefId, SelfTy, TypeKind}
 use crate::config::{OutputFormat, RenderOptions};
 use crate::docfs::{DocFS, ErrorStorage, PathError};
 use crate::doctree;
+use crate::fuzz_target::type_name::TypeNameMap;
 use crate::fuzz_target::type_util::{generics_has_no_content, from_struct_to_clean_type, from_enum_to_clean_type, collect_traits_in_current_crate};
 use crate::fuzz_target::{api_function, api_graph, api_util, file_util, impl_util};
 use crate::html::escape::Escape;
@@ -657,6 +658,8 @@ pub fn fuzz_target_run_clean_krate(
         Cache::from_krate(renderinfo, document_private, &extern_html_root_urls, &dst, krate);
 
     let mut api_dependency_graph = api_graph::ApiGraph::new(&new_crate.name);
+    let type_name_map = TypeNameMap::from(&cache);
+    api_dependency_graph.set_type_name_map(type_name_map);
     //从cache中提出def_id与full_name的对应关系，存入full_name_map来进行调用
     //同时提取impl块中的内容，存入api_dependency_graph
     let mut full_name_map = impl_util::FullNameMap::new();
@@ -691,6 +694,7 @@ pub fn fuzz_target_run_clean_krate(
     let ret = cx.analyse_clean_krate(&krate, &mut api_dependency_graph);
     //根据mod可见性和预包含类型过滤function
     api_dependency_graph.filter_functions();
+
     //单态化泛型函数
     let enable_generic_function = true;
     if enable_generic_function {
@@ -711,6 +715,8 @@ pub fn fuzz_target_run_clean_krate(
     //api_dependency_graph._print_pretty_functions(false);
     //api_dependency_graph._print_generated_test_functions();
     // use crate::fuzz_target::print_message;
+    // print_message::_print_type_full_names(&api_dependency_graph);
+    // print_message::_print_generated_test_functions(&api_dependency_graph);
     //print_message::_print_generic_functions(&api_dependency_graph);
     // print_message::_print_type_in_current_crate(&api_dependency_graph);
     // print_message::_print_traits_in_current_crate(&api_dependency_graph);
@@ -1815,6 +1821,7 @@ impl Context {
                             output,
                             _trait_full_path: None,
                             _unsafe_tag: api_unsafety,
+                            return_type_notation: false,
                         };
                         api_dependency_graph.add_api_function(api_fun);
                     }

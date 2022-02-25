@@ -95,6 +95,7 @@ pub mod fuzz_target {
     crate mod replay_util;
     crate mod type_util;
     crate mod generic_type;
+    crate mod type_name;
 }
 
 mod markdown;

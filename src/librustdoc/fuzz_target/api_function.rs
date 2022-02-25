@@ -8,6 +8,8 @@ use rustc_hir::{self, Mutability};
 
 use crate::clean;
 
+use super::type_name::{TypeNameMap, type_full_name};
+
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApiUnsafety {
     Unsafe,
@@ -22,6 +24,8 @@ pub struct ApiFunction {
     pub output: Option<clean::Type>,
     pub _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
     pub _unsafe_tag: ApiUnsafety,
+    // 是否需要返回类型的标注
+    pub return_type_notation: bool,
 }
 
 impl ApiUnsafety {
@@ -172,5 +176,9 @@ impl ApiFunction {
             }
         }
         return false;
+    }
+
+    pub fn return_type_name(&self, type_name_map: &TypeNameMap) -> Option<String> {
+        self.output.as_ref().and_then(|ty| Some(type_full_name(ty, type_name_map, super::type_name::TypeNameLevel::All)))
     }
 }

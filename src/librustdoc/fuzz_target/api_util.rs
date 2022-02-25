@@ -72,8 +72,8 @@ pub fn _is_generic_type(ty: &clean::Type) -> bool {
             return _is_generic_type(inner_type);
         }
         _ => {
-            //TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
-            //如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
+            // TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
+            // 如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
             return false;
         }
     }
