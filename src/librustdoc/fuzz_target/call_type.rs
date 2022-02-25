@@ -18,6 +18,7 @@ pub enum CallType {
     _ToResult(Box<CallType>),                     //产生一个result类型, never used
     _UnwrapOption(Box<CallType>),                 //获得option变量的值
     _ToOption(Box<CallType>),                     //产生一个option类型
+    _ToArray(Box<CallType>, String),              //获得一个数组(目前只用在基础类型的情况下)
 }
 
 impl CallType {
@@ -31,14 +32,14 @@ impl CallType {
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            }
+            },
             CallType::_MutBorrowedRef(inner_) => {
                 let mut call_string = "&mut (".to_string();
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            }
+            },
             CallType::_ConstRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
@@ -47,7 +48,7 @@ impl CallType {
                 call_string.push_str(") as *const ");
                 call_string.push_str(_type_name(ty_, full_name_map).as_str());
                 call_string
-            }
+            },
             CallType::_MutRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
@@ -56,14 +57,14 @@ impl CallType {
                 call_string.push_str(") as *mut ");
                 call_string.push_str(_type_name(ty_, full_name_map).as_str());
                 call_string
-            }
+            },
             CallType::_AsConvert(str_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = variable_name.to_string();
                 call_string.push_str(" as ");
                 call_string.push_str(str_.as_str());
                 call_string
-            }
+            },
             CallType::_UnsafeDeref(inner_) | CallType::_Deref(inner_) => {
                 //TODO:unsafe deref需要考虑unsafe标记
                 let mut call_string = "*(".to_string();
@@ -71,25 +72,29 @@ impl CallType {
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
-            }
+            },
             CallType::_UnwrapResult(inner_) => {
                 //TODO:暂时先unwrap，后面再想办法处理逻辑
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("_unwrap_result({})", inner_call_string)
-            }
+            },
             CallType::_UnwrapOption(inner_) => {
                 //TODO:暂时先unwrap,后面在想办法处理
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("_unwrap_option({})", inner_call_string)
-            }
+            },
             CallType::_ToOption(inner_) => {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("Some({})", inner_call_string)
-            }
+            },
             CallType::_ToResult(inner_) => {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
                 format!("Ok({})", inner_call_string)
-            }
+            },
+            CallType::_ToArray(inner_, len) => {
+                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                format!("[{};{}]", inner_call_string, len)
+            },
         }
     }
 
@@ -121,7 +126,8 @@ impl CallType {
             | CallType::_UnsafeDeref(call_type)
             | CallType::_Deref(call_type)
             | CallType::_ToOption(call_type)
-            | CallType::_ToResult(call_type) => call_type._contains_move_call_type(),
+            | CallType::_ToResult(call_type)
+            | CallType::_ToArray(call_type, _) => call_type._contains_move_call_type(),
         }
     }
 
@@ -139,7 +145,8 @@ impl CallType {
             | CallType::_UnsafeDeref(call_type)
             | CallType::_Deref(call_type)
             | CallType::_ToOption(call_type)
-            | CallType::_ToResult(call_type) => {
+            | CallType::_ToResult(call_type) 
+            | CallType::_ToArray(call_type, _)=> {
                 let mut call_types = vec![self.clone()];
                 let mut inner_call_types = call_type._call_type_to_array();
                 call_types.append(&mut inner_call_types);
@@ -226,6 +233,7 @@ impl CallType {
             CallType::_ToOption(..) => CallType::_ToOption(Box::new(inner_type)),
             CallType::_UnwrapResult(..) => CallType::_UnwrapResult(Box::new(inner_type)),
             CallType::_ToResult(..) => CallType::_ToResult(Box::new(inner_type)),
+            CallType::_ToArray(_, ref len) => CallType::_ToArray(Box::new(inner_type), len.to_owned()),
         }
     }
 }

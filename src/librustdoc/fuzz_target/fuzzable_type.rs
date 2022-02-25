@@ -12,7 +12,7 @@ pub enum FuzzableCallType {
     Primitive(PrimitiveType),
     Tuple(Vec<Box<FuzzableCallType>>),
     Slice(Box<FuzzableCallType>),
-    Array(Box<FuzzableCallType>),
+    Array(Box<FuzzableCallType>, String),
     ConstRawPoiner(Box<FuzzableCallType>, clean::Type),
     MutRawPoiner(Box<FuzzableCallType>, clean::Type),
     STR,
@@ -131,7 +131,16 @@ impl FuzzableCallType {
                 }
                 return (fuzzable_type, CallType::_ToOption(Box::new(inner_call_type)));
             }
-            FuzzableCallType::Array(_) | FuzzableCallType::Slice(_) => {
+            FuzzableCallType::Array(inner_fuzzable_call_type, len) => {
+                let (fuzzable_type, inner_call_type) = inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
+                if let FuzzableType::NoFuzzable = fuzzable_type {
+                    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
+                } else if let CallType::_NotCompatible = inner_call_type {
+                    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
+                }
+                return (fuzzable_type, CallType::_ToArray(Box::new(inner_call_type), len.to_owned()));
+            },
+            FuzzableCallType::Slice(_) => {
                 return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
             } //_ => {
               //    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
@@ -352,7 +361,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
                 }
             }
         }
-        clean::Type::Array(inner_type, ..) => {
+        clean::Type::Array(inner_type, len) => {
             let inner_ty_ = &**inner_type;
             let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map);
             match inner_fuzzable {
@@ -360,7 +369,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
                     return FuzzableCallType::NoFuzzable;
                 }
                 _ => {
-                    return FuzzableCallType::Array(Box::new(inner_fuzzable));
+                    return FuzzableCallType::Array(Box::new(inner_fuzzable), len.to_owned());
                 }
             }
         }

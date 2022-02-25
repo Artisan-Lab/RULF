@@ -226,7 +226,8 @@ impl _PreludeHelper {
             | CallType::_Deref(inner_call_type)
             | CallType::_ToOption(inner_call_type)
             | CallType::_ToResult(inner_call_type)
-            | CallType::_UnsafeDeref(inner_call_type) => {
+            | CallType::_UnsafeDeref(inner_call_type)
+            | CallType::_ToArray(inner_call_type, _) => {
                 _PreludeHelper::_from_call_type(&**inner_call_type)
             }
             CallType::_UnwrapOption(inner_call_type) => {
