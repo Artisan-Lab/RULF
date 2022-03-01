@@ -96,6 +96,7 @@ pub mod fuzz_target {
     crate mod type_util;
     crate mod generic_type;
     crate mod type_name;
+    crate mod default_value;
 }
 
 mod markdown;

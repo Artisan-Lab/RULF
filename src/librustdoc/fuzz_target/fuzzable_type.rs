@@ -120,7 +120,7 @@ impl FuzzableCallType {
             }
             FuzzableCallType::STR => {
                 return (FuzzableType::RefStr, CallType::_DirectCall);
-            }
+            },
             FuzzableCallType::ToOption(inner_fuzzable_call_type) => {
                 let (fuzzable_type, inner_call_type) =
                     inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
@@ -163,7 +163,7 @@ impl FuzzableType {
                     }
                 }
                 return true;
-            }
+            },
         }
     }
 
@@ -200,7 +200,7 @@ impl FuzzableType {
                     total_length = total_length + inner_fuzzable._min_length();
                 }
                 total_length
-            }
+            },
         }
     }
 
@@ -405,7 +405,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
                 if let Some(lifetime_) = lifetime {
                     let lifetime_string = lifetime_.0.as_str();
                     if lifetime_string == "'static" {
-                        //如果是static的话，由于无法构造出来，所以只能认为是不可fuzzable的
+                        //如果是static的话，将会进行特殊的处理
                         return FuzzableCallType::NoFuzzable;
                     }
                 }

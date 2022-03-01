@@ -724,7 +724,7 @@ pub fn fuzz_target_run_clean_krate(
     // print_message::_print_pretty_sequences(&api_dependency_graph);
     //print_message::_print_pretty_functions(&api_dependency_graph, true);
     //print_message::_print_generated_afl_file(&api_dependency_graph);
-    println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
+    // println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
     //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
     //use crate::html::afl_util;
     //afl_util::_AflHelpers::_print_all();

@@ -21,6 +21,7 @@ use std::hash::Hash;
 
 use crate::clean::Visibility;
 
+use super::default_value::DefaultValue;
 use super::generic_function::GenericFunction;
 use super::impl_util::TraitsOfType;
 use super::type_name::TypeNameMap;
@@ -1271,6 +1272,11 @@ impl ApiGraph {
                             current_fuzzable_index,
                             call_type,
                         );
+                        continue;
+                    } else if let Ok(default_value) = DefaultValue::try_from(current_ty) {
+                        let current_default_value_index = new_sequence.default_values.len();
+                        new_sequence.default_values.push(default_value);
+                        api_call._add_param(ParamType::_DefaultValue, current_default_value_index, CallType::_DirectCall);
                         continue;
                     }
                     //如果当前参数不是fuzzable的，那么就去api sequence寻找是否有这个依赖

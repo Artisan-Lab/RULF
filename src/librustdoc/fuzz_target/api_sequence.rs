@@ -7,10 +7,17 @@ use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
 use std::collections::{HashMap, HashSet};
 
+use super::default_value::DefaultValue;
+
+const PARAM_PREFIX: &'static str = "_param";
+const LOCAL_PARAM_PREFIX: &'static str = "_local";
+const DEFAULT_VALUE_PREFIX: &'static str = "_default";
+
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum ParamType {
     _FunctionReturn,
     _FuzzableType,
+    _DefaultValue,
 }
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ApiCall {
@@ -22,7 +29,7 @@ impl ApiCall {
     pub fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
         let func = (api_type.clone(), index);
         let params = Vec::new();
-        ApiCall { func, params }
+        ApiCall {func, params}
     }
 
     pub fn _new(fun_index: usize) -> Self {
@@ -43,6 +50,7 @@ pub struct ApiSequence {
     //TODO:如何表示函数调用序列？
     pub functions: Vec<ApiCall>,               //函数调用序列
     pub fuzzable_params: Vec<FuzzableType>,    //需要传入的fuzzable变量
+    pub default_values: Vec<DefaultValue>,     //需要预先提供的具有默认值的变量
     pub _using_traits: Vec<String>,            //需要use引入的traits的路径
     pub _unsafe_tag: bool,                     //标志这个调用序列是否需要加上unsafe标记
     pub _moved: HashSet<usize>,                //表示哪些返回值已经被move掉，不再能被使用
@@ -55,6 +63,7 @@ impl ApiSequence {
     pub fn new() -> Self {
         let functions = Vec::new();
         let fuzzable_params = Vec::new();
+        let default_values = Vec::new();
         let _using_traits = Vec::new();
         let _unsafe_tag = false;
         let _moved = HashSet::new();
@@ -64,6 +73,7 @@ impl ApiSequence {
         ApiSequence {
             functions,
             fuzzable_params,
+            default_values,
             _using_traits,
             _unsafe_tag,
             _moved,
@@ -110,6 +120,7 @@ impl ApiSequence {
         let mut res = self.clone();
         let first_func_number = res.functions.len();
         let first_fuzzable_number = res.fuzzable_params.len();
+        let first_default_values_number = res.default_values.len();
         let mut other_sequence = other.clone();
         //functions
         for other_function in &other_sequence.functions {
@@ -119,6 +130,7 @@ impl ApiSequence {
                 let new_index = match param_type {
                     ParamType::_FuzzableType => *index + first_fuzzable_number,
                     ParamType::_FunctionReturn => *index + first_func_number,
+                    ParamType::_DefaultValue => *index + first_default_values_number,
                 };
                 new_other_params.push((param_type.clone(), new_index, call_type.clone()));
             }
@@ -127,6 +139,8 @@ impl ApiSequence {
         }
         //fuzzable_params
         res.fuzzable_params.append(&mut other_sequence.fuzzable_params);
+        // default_values
+        res.default_values.append(&mut other_sequence.default_values);
         //using_trait
         res._using_traits.append(&mut other_sequence._using_traits);
         //unsafe tag
@@ -541,8 +555,6 @@ impl ApiSequence {
         indent_size: usize,
     ) -> String {
         let test_function_title = "fn test_function";
-        let param_prefix = "_param";
-        let local_param_prefix = "_local";
         let mut res = String::new();
         //生成对trait的引用
         let using_traits = self._generate_using_traits_string(indent_size);
@@ -554,7 +566,6 @@ impl ApiSequence {
             indent_size,
             0,
             test_function_title,
-            param_prefix,
         );
         res.push_str(function_header.as_str());
 
@@ -569,8 +580,6 @@ impl ApiSequence {
             let unsafe_function_body = self._generate_function_body_string(
                 _api_graph,
                 indent_size + 4,
-                param_prefix,
-                local_param_prefix,
             );
             res.push_str(unsafe_function_body.as_str());
             res.push_str(unsafe_indent.as_str());
@@ -579,8 +588,6 @@ impl ApiSequence {
             let function_body = self._generate_function_body_string(
                 _api_graph,
                 indent_size,
-                param_prefix,
-                local_param_prefix,
             );
             res.push_str(function_body.as_str());
         }
@@ -622,7 +629,6 @@ impl ApiSequence {
         outer_indent: usize,
         extra_indent: usize,
         test_function_title: &str,
-        param_prefix: &str,
     ) -> String {
         let indent_size = outer_indent + extra_indent;
         let indent = _generate_indent(indent_size);
@@ -641,7 +647,7 @@ impl ApiSequence {
             if self._is_fuzzable_need_mut_tag(0) {
                 res.push_str("mut ");
             }
-            res.push_str(param_prefix);
+            res.push_str(PARAM_PREFIX);
             res.push('0');
             res.push_str(" :");
             res.push_str(first_param_._to_type_string().as_str());
@@ -654,7 +660,7 @@ impl ApiSequence {
                 res.push_str("mut ");
             }
             let param = &self.fuzzable_params[i];
-            res.push_str(param_prefix);
+            res.push_str(PARAM_PREFIX);
             res.push_str(i.to_string().as_str());
             res.push_str(" :");
             res.push_str(param._to_type_string().as_str());
@@ -667,14 +673,18 @@ impl ApiSequence {
         &self,
         _api_graph: &ApiGraph,
         outer_indent: usize,
-        param_prefix: &str,
-        local_param_prefix: &str,
     ) -> String {
         let extra_indent = 4;
         let mut res = String::new();
         let body_indent = _generate_indent(outer_indent + extra_indent);
-
         let dead_code = self._dead_code(_api_graph);
+
+        // default values
+        (0..self.default_values.len()).into_iter().for_each(|index| {
+            let default_value = unsafe{self.default_values.get_unchecked(index)};
+            let init_default_value = format!("{}let {}{} = {};\n", body_indent, DEFAULT_VALUE_PREFIX, index, default_value.default_value());
+            res.push_str(&init_default_value);
+        });
 
         //api_calls
         let api_calls_num = self.functions.len();
@@ -691,15 +701,14 @@ impl ApiSequence {
                 //println!("call_type_array = {:?}",call_type_array);
                 let param_name = match param_type {
                     ParamType::_FuzzableType => {
-                        let mut s1 = param_prefix.to_string();
-                        s1 += &(index.to_string());
-                        s1
-                    }
+                        format!("{}{}", PARAM_PREFIX, index)
+                    },
                     ParamType::_FunctionReturn => {
-                        let mut s1 = local_param_prefix.to_string();
-                        s1 += &(index.to_string());
-                        s1
-                    }
+                        format!("{}{}", LOCAL_PARAM_PREFIX, index)
+                    },
+                    ParamType::_DefaultValue => {
+                        format!("{}{}", DEFAULT_VALUE_PREFIX, index)
+                    },
                 };
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
@@ -714,7 +723,7 @@ impl ApiSequence {
                         let call_type = &call_type_array[k];
                         let helper_name = format!(
                             "{}{}_param{}_helper{}",
-                            local_param_prefix, i, j, helper_index
+                            LOCAL_PARAM_PREFIX, i, j, helper_index
                         );
                         let helper_line = format!(
                             "{}let mut {} = {};\n",
@@ -757,7 +766,7 @@ impl ApiSequence {
                 res.push_str(format!("let _{} = ", return_type_notation).as_str());
             } else {
                 let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
-                res.push_str(format!("let {}{}{}{} = ", mut_tag, local_param_prefix, i, return_type_notation).as_str());
+                res.push_str(format!("let {}{}{}{} = ", mut_tag, LOCAL_PARAM_PREFIX, i, return_type_notation).as_str());
             }
             let (api_type, function_index) = &api_call.func;
             match api_type {
