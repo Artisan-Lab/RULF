@@ -1,14 +1,13 @@
 use std::collections::HashSet;
 
 use crate::fuzz_target::api_util;
-use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::fuzzable_type::{self, FuzzableType};
 use crate::fuzz_target::impl_util::FullNameMap;
+use itertools::Itertools;
 use rustc_hir::{self, Mutability};
 
 use crate::clean;
 
-use super::type_name::{TypeNameMap, type_full_name};
+use super::type_name::{TypeNameMap, type_full_name, TypeNameLevel};
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApiUnsafety {
@@ -53,11 +52,7 @@ impl ApiFunction {
         let return_type = &self.output;
         match return_type {
             Some(ty) => {
-                if api_util::_is_end_type(&ty, full_name_map) {
-                    return true;
-                } else {
-                    return false;
-                }
+                api_util::_is_end_type(ty, full_name_map)
             }
             None => true,
         }
@@ -83,7 +78,7 @@ impl ApiFunction {
         return false;
     }
 
-    pub fn contains_prefix_in_function_name_or_trait(&self, prefixes: &HashSet<String>) -> bool {
+    pub fn contains_prelude_type_prefix(&self, prefixes: &HashSet<String>) -> bool {
         let function_name_contains_prelude_type =
             prefixes.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
         let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
@@ -130,52 +125,16 @@ impl ApiFunction {
         }
     }
 
-    pub fn _pretty_print(&self, full_name_map: &FullNameMap) -> String {
-        let mut fn_line = format!("fn {}(", self.full_name);
-        let input_len = self.inputs.len();
-        for i in 0..input_len {
-            let input_type = &self.inputs[i];
-            if i != 0 {
-                fn_line.push_str(" ,");
-            }
-            fn_line.push_str(api_util::_type_name(input_type, full_name_map).as_str());
-        }
-        fn_line.push_str(")");
-        if let Some(ref ty_) = self.output {
-            fn_line.push_str("->");
-            fn_line.push_str(api_util::_type_name(ty_, full_name_map).as_str());
-        }
-        fn_line
-    }
-
-    pub fn contains_unsupported_fuzzable_type(&self, full_name_map: &FullNameMap) -> bool {
-        for input_ty_ in &self.inputs {
-            if api_util::is_fuzzable_type(input_ty_, full_name_map) {
-                let fuzzable_call_type =
-                    fuzzable_type::fuzzable_call_type(input_ty_, full_name_map);
-                let (fuzzable_type, call_type) =
-                    fuzzable_call_type.generate_fuzzable_type_and_call_type();
-
-                match &fuzzable_type {
-                    FuzzableType::NoFuzzable => {
-                        return true;
-                    }
-                    _ => {}
-                }
-
-                if fuzzable_type._is_multiple_dynamic_length() {
-                    return true;
-                }
-
-                match &call_type {
-                    CallType::_NotCompatible => {
-                        return true;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        return false;
+    pub fn _pretty_print(&self, type_name_map: &TypeNameMap) -> String {
+        let input_types = self.inputs.iter().map(|input_type| {
+            type_full_name(input_type, type_name_map, TypeNameLevel::All)
+        }).collect_vec().join(" ,");
+        let output_type = if let Some(ref ty_) = self.output {
+            format!(" -> {}", type_full_name(ty_, type_name_map, TypeNameLevel::All))
+        } else {
+            "".to_string()
+        };
+        format!("fn {}({}){}", self.full_name, input_types, output_type)
     }
 
     pub fn return_type_name(&self, type_name_map: &TypeNameMap) -> Option<String> {

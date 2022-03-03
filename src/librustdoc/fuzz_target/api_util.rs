@@ -5,6 +5,8 @@ use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use rustc_hir::{self, Mutability};
 
+use super::fuzzable_type::FuzzableType;
+
 pub fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
     inputs.values.iter().map(|argument| {
         argument.type_.clone()
@@ -83,7 +85,7 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
     match ty {
         clean::Type::ResolvedPath { .. } => {
             //TODO:need more analyse
-            if prelude_type::_prelude_type_need_special_dealing(ty, full_name_map) {
+            if prelude_type::is_prelude_type(ty, full_name_map) {
                 let prelude_type = PreludeType::from_type(ty, full_name_map);
                 let final_type = prelude_type._get_final_type();
                 if _is_end_type(&final_type, full_name_map) {
@@ -163,22 +165,8 @@ pub fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap) -> String {
     }
 }
 
-pub fn _same_type(
-    output_type: &clean::Type,
-    input_type: &clean::Type,
-    generic_support: bool,
-    full_name_map: &FullNameMap,
-) -> CallType {
-    if generic_support {
-        _same_type_without_generic(output_type, input_type, full_name_map)
-    } else {
-        //TODO:soft mode
-        CallType::_NotCompatible
-    }
-}
-
-/// without generic support
-pub fn _same_type_without_generic(
+/// determine whether output_type and input type can be same type
+pub fn same_type(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
@@ -200,10 +188,10 @@ pub fn _same_type_without_generic(
     }
 
     //考虑输入类型是prelude type的情况，后面就不再考虑
-    if prelude_type::_prelude_type_need_special_dealing(input_type, full_name_map) {
+    if prelude_type::is_prelude_type(input_type, full_name_map) {
         let input_prelude_type = PreludeType::from_type(input_type, full_name_map);
         let final_type = input_prelude_type._get_final_type();
-        let inner_call_type = _same_type_without_generic(output_type, &final_type, full_name_map);
+        let inner_call_type = same_type(output_type, &final_type, full_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -261,10 +249,10 @@ fn _same_type_resolved_path(
     full_name_map: &FullNameMap,
 ) -> CallType {
     //处理output type 是 prelude type的情况
-    if prelude_type::_prelude_type_need_special_dealing(output_type, full_name_map) {
+    if prelude_type::is_prelude_type(output_type, full_name_map) {
         let output_prelude_type = PreludeType::from_type(output_type, full_name_map);
         let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type = _same_type_without_generic(&final_output_type, input_type, full_name_map);
+        let inner_call_type = same_type(&final_output_type, input_type, full_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -392,7 +380,7 @@ fn _same_type_raw_pointer(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_without_generic(inner_type, input_type, full_name_map);
+    let inner_compatible = same_type(inner_type, input_type, full_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -410,7 +398,7 @@ fn _same_type_borrowed_ref(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_without_generic(inner_type, input_type, full_name_map);
+    let inner_compatible = same_type(inner_type, input_type, full_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -436,7 +424,7 @@ pub fn _borrowed_ref_in_same_type(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_without_generic(output_type, inner_type, full_name_map);
+    let inner_compatible = same_type(output_type, inner_type, full_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -460,7 +448,7 @@ pub fn _raw_pointer_in_same_type(
     full_name_map: &FullNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = _same_type_without_generic(output_type, inner_type, full_name_map);
+    let inner_compatible = same_type(output_type, inner_type, full_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -583,11 +571,15 @@ pub fn _move_condition(input_type: &clean::Type, call_type: &CallType) -> bool {
 }
 
 pub fn is_fuzzable_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> bool {
-    let fuzzable = fuzzable_type::fuzzable_call_type(ty_, full_name_map);
-    match fuzzable {
-        FuzzableCallType::NoFuzzable => false,
-        _ => true,
+    let fuzzable_call_type = fuzzable_type::fuzzable_call_type(ty_, full_name_map);
+    if fuzzable_call_type == FuzzableCallType::NoFuzzable {
+        return false;
     }
+    let (fuzzable_type, call_type) = fuzzable_call_type.generate_fuzzable_type_and_call_type();
+    if fuzzable_type == FuzzableType::NoFuzzable || call_type == CallType::_NotCompatible {
+        return false;
+    } 
+    return true;
 }
 
 pub fn _is_mutable_borrow_occurs(input_type_: &clean::Type, call_type: &CallType) -> bool {

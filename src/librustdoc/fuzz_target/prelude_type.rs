@@ -198,7 +198,7 @@ fn extract_result(path: &clean::Path, type_: &clean::Type) -> PreludeType {
     return PreludeType::NotPrelude(type_.clone());
 }
 
-pub fn _prelude_type_need_special_dealing(
+pub fn is_prelude_type(
     type_: &clean::Type,
     full_name_map: &FullNameMap,
 ) -> bool {

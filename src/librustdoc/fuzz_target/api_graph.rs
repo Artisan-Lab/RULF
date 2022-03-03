@@ -145,9 +145,6 @@ impl ApiGraph {
             if let Ok(generic_function) = GenericFunction::try_from(api_fun) {
                 self.generic_functions.push(generic_function);
             }
-        }else if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map) {
-            println!("{} contains unsupported fuzzable type.", api_fun.full_name);
-            self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
         }else {
             self.api_functions.push(api_fun);
         }
@@ -162,15 +159,15 @@ impl ApiGraph {
     }
 
     pub fn filter_functions(&mut self) {
-        self.filter_functions_containing_unsupported_fuzzable_types();
+        // self.filter_functions_containing_unsupported_fuzzable_types();
         self.filter_functions_defined_on_prelude_type();
         self.filter_functions_in_invisible_mods();
     }
 
-    pub fn filter_functions_containing_unsupported_fuzzable_types(&mut self) {
-        let full_name_map = self.full_name_map.clone();
-        self.api_functions = self.api_functions.drain(..).into_iter().filter(|api_function| !api_function.contains_unsupported_fuzzable_type(&full_name_map)).collect_vec();
-    }
+    // pub fn filter_functions_containing_unsupported_fuzzable_types(&mut self) {
+    //     let full_name_map = self.full_name_map.clone();
+    //     self.api_functions = self.api_functions.drain(..).into_iter().filter(|api_function| !api_function.contains_unsupported_fuzzable_type(&full_name_map)).collect_vec();
+    // }
 
     /// functions of prelude type or trait. These functions are not in current crate.
     /// We will not try to generate sequences on these functions.
@@ -179,10 +176,10 @@ impl ApiGraph {
         self.api_functions = self
             .api_functions
             .drain(..)
-            .filter(|api_function| api_function.contains_prefix_in_function_name_or_trait(&prelude_types))
+            .filter(|api_function| api_function.contains_prelude_type_prefix(&prelude_types))
             .collect();
         self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
-            generic_function.api_function.contains_prefix_in_function_name_or_trait(&prelude_types)
+            generic_function.api_function.contains_prelude_type_prefix(&prelude_types)
         }).collect();
     }
 
@@ -193,10 +190,10 @@ impl ApiGraph {
         self.api_functions = self
             .api_functions
             .drain(..)
-            .filter(|api_function| api_function.contains_prefix_in_function_name_or_trait(&invisible_mods))
+            .filter(|api_function| api_function.contains_prelude_type_prefix(&invisible_mods))
             .collect();
         self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
-            generic_function.api_function.contains_prefix_in_function_name_or_trait(&invisible_mods)
+            generic_function.api_function.contains_prelude_type_prefix(&invisible_mods)
         }).collect();
     }
 
@@ -353,10 +350,9 @@ impl ApiGraph {
                     let input_params_num = input_params.len();
                     for k in 0..input_params_num {
                         let input_param = &input_params[k];
-                        let call_type = api_util::_same_type(
+                        let call_type = api_util::same_type(
                             output_type,
                             input_param,
-                            true,
                             &self.full_name_map,
                         );
                         match &call_type {
@@ -761,15 +757,13 @@ impl ApiGraph {
                     if let Some(generated_sequence) =
                         self.is_fun_satisfied(&input_type, *unvisited_node, &merged_sequence)
                     {
-                        //println!("{}", generated_sequence._to_well_written_function(self, 0, 0));
-
                         self.api_sequences.push(generated_sequence);
                         self.api_functions_visited[*unvisited_node] = true;
                         covered_node_this_iteration.insert(*unvisited_node);
                         apis_covered_by_reverse_search = apis_covered_by_reverse_search + 1;
                     } else {
                         //The possible cause is there is some wrong fuzzable type
-                        println!("Should not go to here. Only if algorithm error occurs");
+                        println!("Found unsupported fuzzable type.");
                     }
                 }
             }
@@ -1142,14 +1136,7 @@ impl ApiGraph {
         println!("-----------STATISTICS-----------");
         println!("total nodes: {}", total_functions_number);
 
-        let mut valid_api_number = 0;
-        for api_function_ in &self.api_functions {
-            if !api_function_.contains_unsupported_fuzzable_type(&self.full_name_map) {
-                valid_api_number = valid_api_number + 1;
-            } //else {
-            //    println!("{}", api_function_._pretty_print(&self.full_name_map));
-            //}
-        }
+        let valid_api_number = self.api_functions.len();
         //println!("total valid nodes: {}", valid_api_number);
 
         let total_dependencies_number = self.api_dependencies.len();
@@ -1251,10 +1238,10 @@ impl ApiGraph {
                         //典型例子是tuple里面出现了引用（&usize），这种情况不再去寻找dependency，直接返回无法添加即可
                         match &fuzzable_type {
                             FuzzableType::NoFuzzable => {
-                                //println!("Fuzzable Type Error Occurs!");
-                                //println!("type = {:?}", current_ty);
-                                //println!("fuzzable_call_type = {:?}", fuzzable_call_type);
-                                //println!("fuzzable_type = {:?}", fuzzable_type);
+                                println!("Fuzzable Type Error Occurs!");
+                                println!("type = {:?}", current_ty);
+                                println!("fuzzable_call_type = {:?}", fuzzable_call_type);
+                                println!("fuzzable_type = {:?}", fuzzable_type);
                                 return None;
                             }
                             _ => {}
@@ -1275,8 +1262,8 @@ impl ApiGraph {
                         continue;
                     } else if let Ok(default_value) = DefaultValue::try_from(current_ty) {
                         let current_default_value_index = new_sequence.default_values.len();
+                        api_call._add_param(ParamType::_DefaultValue, current_default_value_index, default_value.call_type());
                         new_sequence.default_values.push(default_value);
-                        api_call._add_param(ParamType::_DefaultValue, current_default_value_index, CallType::_DirectCall);
                         continue;
                     }
                     //如果当前参数不是fuzzable的，那么就去api sequence寻找是否有这个依赖

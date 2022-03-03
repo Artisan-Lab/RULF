@@ -682,7 +682,17 @@ impl ApiSequence {
         // default values
         (0..self.default_values.len()).into_iter().for_each(|index| {
             let default_value = unsafe{self.default_values.get_unchecked(index)};
-            let init_default_value = format!("{}let {}{} = {};\n", body_indent, DEFAULT_VALUE_PREFIX, index, default_value.default_value());
+            let mut_tag = if default_value.requires_mut_tag() {
+                "mut "
+            } else {
+                ""
+            };
+            let type_notation = if default_value.requies_type_notation() {
+                format!(":{}", default_value.type_notation(&_api_graph.type_name_map))
+            } else {
+                "".to_string()
+            };
+            let init_default_value = format!("{}let {}{}{}{} = {};\n", body_indent, mut_tag, DEFAULT_VALUE_PREFIX, index, type_notation, default_value.default_value());
             res.push_str(&init_default_value);
         });
 
