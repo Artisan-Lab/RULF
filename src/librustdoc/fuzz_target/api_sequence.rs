@@ -29,7 +29,7 @@ impl ApiCall {
     pub fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
         let func = (api_type.clone(), index);
         let params = Vec::new();
-        ApiCall {func, params}
+        ApiCall { func, params }
     }
 
     pub fn _new(fun_index: usize) -> Self {
@@ -577,18 +577,13 @@ impl ApiSequence {
             let unsafe_indent = _generate_indent(indent_size + 4);
             res.push_str(unsafe_indent.as_str());
             res.push_str("unsafe {\n");
-            let unsafe_function_body = self._generate_function_body_string(
-                _api_graph,
-                indent_size + 4,
-            );
+            let unsafe_function_body =
+                self._generate_function_body_string(_api_graph, indent_size + 4);
             res.push_str(unsafe_function_body.as_str());
             res.push_str(unsafe_indent.as_str());
             res.push_str("}\n");
         } else {
-            let function_body = self._generate_function_body_string(
-                _api_graph,
-                indent_size,
-            );
+            let function_body = self._generate_function_body_string(_api_graph, indent_size);
             res.push_str(function_body.as_str());
         }
 
@@ -681,18 +676,22 @@ impl ApiSequence {
 
         // default values
         (0..self.default_values.len()).into_iter().for_each(|index| {
-            let default_value = unsafe{self.default_values.get_unchecked(index)};
-            let mut_tag = if default_value.requires_mut_tag() {
-                "mut "
-            } else {
-                ""
-            };
+            let default_value = unsafe { self.default_values.get_unchecked(index) };
+            let mut_tag = if default_value.requires_mut_tag() { "mut " } else { "" };
             let type_notation = if default_value.requies_type_notation() {
                 format!(":{}", default_value.type_notation(&_api_graph.type_name_map))
             } else {
                 "".to_string()
             };
-            let init_default_value = format!("{}let {}{}{}{} = {};\n", body_indent, mut_tag, DEFAULT_VALUE_PREFIX, index, type_notation, default_value.default_value());
+            let init_default_value = format!(
+                "{}let {}{}{}{} = {};\n",
+                body_indent,
+                mut_tag,
+                DEFAULT_VALUE_PREFIX,
+                index,
+                type_notation,
+                default_value.default_value()
+            );
             res.push_str(&init_default_value);
         });
 
@@ -712,13 +711,13 @@ impl ApiSequence {
                 let param_name = match param_type {
                     ParamType::_FuzzableType => {
                         format!("{}{}", PARAM_PREFIX, index)
-                    },
+                    }
                     ParamType::_FunctionReturn => {
                         format!("{}{}", LOCAL_PARAM_PREFIX, index)
-                    },
+                    }
                     ParamType::_DefaultValue => {
                         format!("{}{}", DEFAULT_VALUE_PREFIX, index)
-                    },
+                    }
                 };
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
@@ -767,7 +766,8 @@ impl ApiSequence {
             let api_function = &_api_graph.api_functions[api_function_index];
             // type notation
             let return_type_notation = if api_function.return_type_notation {
-                let return_type_name = api_function.return_type_name(&_api_graph.type_name_map).unwrap();
+                let return_type_name =
+                    api_function.return_type_name(&_api_graph.type_name_map).unwrap();
                 format!(":{}", return_type_name)
             } else {
                 "".to_string()
@@ -776,7 +776,13 @@ impl ApiSequence {
                 res.push_str(format!("let _{} = ", return_type_notation).as_str());
             } else {
                 let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
-                res.push_str(format!("let {}{}{}{} = ", mut_tag, LOCAL_PARAM_PREFIX, i, return_type_notation).as_str());
+                res.push_str(
+                    format!(
+                        "let {}{}{}{} = ",
+                        mut_tag, LOCAL_PARAM_PREFIX, i, return_type_notation
+                    )
+                    .as_str(),
+                );
             }
             let (api_type, function_index) = &api_call.func;
             match api_type {

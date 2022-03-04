@@ -120,7 +120,7 @@ impl FuzzableCallType {
             }
             FuzzableCallType::STR => {
                 return (FuzzableType::RefStr, CallType::_DirectCall);
-            },
+            }
             FuzzableCallType::ToOption(inner_fuzzable_call_type) => {
                 let (fuzzable_type, inner_call_type) =
                     inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
@@ -132,14 +132,18 @@ impl FuzzableCallType {
                 return (fuzzable_type, CallType::_ToOption(Box::new(inner_call_type)));
             }
             FuzzableCallType::Array(inner_fuzzable_call_type, len) => {
-                let (fuzzable_type, inner_call_type) = inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
+                let (fuzzable_type, inner_call_type) =
+                    inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
                 if let FuzzableType::NoFuzzable = fuzzable_type {
                     return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
                 } else if let CallType::_NotCompatible = inner_call_type {
                     return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
                 }
-                return (fuzzable_type, CallType::_ToArray(Box::new(inner_call_type), len.to_owned()));
-            },
+                return (
+                    fuzzable_type,
+                    CallType::_ToArray(Box::new(inner_call_type), len.to_owned()),
+                );
+            }
             FuzzableCallType::Slice(_) => {
                 return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
             } //_ => {
@@ -163,7 +167,7 @@ impl FuzzableType {
                     }
                 }
                 return true;
-            },
+            }
         }
     }
 
@@ -200,7 +204,7 @@ impl FuzzableType {
                     total_length = total_length + inner_fuzzable._min_length();
                 }
                 total_length
-            },
+            }
         }
     }
 

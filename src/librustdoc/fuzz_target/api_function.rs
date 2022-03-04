@@ -7,7 +7,7 @@ use rustc_hir::{self, Mutability};
 
 use crate::clean;
 
-use super::type_name::{TypeNameMap, type_full_name, TypeNameLevel};
+use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApiUnsafety {
@@ -51,9 +51,7 @@ impl ApiFunction {
         }
         let return_type = &self.output;
         match return_type {
-            Some(ty) => {
-                api_util::_is_end_type(ty, full_name_map)
-            }
+            Some(ty) => api_util::_is_end_type(ty, full_name_map),
             None => true,
         }
         //TODO:考虑可变引用或者是可变裸指针做参数的情况
@@ -105,13 +103,13 @@ impl ApiFunction {
     pub fn _is_generic_function(&self) -> bool {
         let input_types = &self.inputs;
         for ty in input_types {
-            if api_util::_is_generic_type(&ty) {
+            if api_util::is_generic_type(&ty) {
                 return true;
             }
         }
         let output_type = &self.output;
         if let Some(ty) = output_type {
-            if api_util::_is_generic_type(&ty) {
+            if api_util::is_generic_type(&ty) {
                 return true;
             }
         }
@@ -126,9 +124,12 @@ impl ApiFunction {
     }
 
     pub fn _pretty_print(&self, type_name_map: &TypeNameMap) -> String {
-        let input_types = self.inputs.iter().map(|input_type| {
-            type_full_name(input_type, type_name_map, TypeNameLevel::All)
-        }).collect_vec().join(" ,");
+        let input_types = self
+            .inputs
+            .iter()
+            .map(|input_type| type_full_name(input_type, type_name_map, TypeNameLevel::All))
+            .collect_vec()
+            .join(" ,");
         let output_type = if let Some(ref ty_) = self.output {
             format!(" -> {}", type_full_name(ty_, type_name_map, TypeNameLevel::All))
         } else {
@@ -138,6 +139,8 @@ impl ApiFunction {
     }
 
     pub fn return_type_name(&self, type_name_map: &TypeNameMap) -> Option<String> {
-        self.output.as_ref().and_then(|ty| Some(type_full_name(ty, type_name_map, super::type_name::TypeNameLevel::All)))
+        self.output.as_ref().and_then(|ty| {
+            Some(type_full_name(ty, type_name_map, super::type_name::TypeNameLevel::All))
+        })
     }
 }

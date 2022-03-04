@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
+use std::collections::HashMap;
 
+use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path};
 use crate::html::render::cache::Cache;
-use crate::clean::{self, GenericBound, Lifetime, Path, GenericArg};
 use rustc_hir::Mutability;
 
 use super::prelude_type::is_preluded_type;
@@ -39,20 +39,27 @@ pub enum TypeNameKind {
 #[derive(Debug, Clone, Hash, Copy, PartialEq, Eq)]
 pub enum TypeNameLevel {
     // type/trait defined in current crate
-    _Crate, 
+    _Crate,
     // type/trait defined in current crate or prelude
-    _Prelude, 
+    _Prelude,
     // all types/traits
-    All, 
+    All,
 }
 
 impl TypeNameLevel {
     fn type_kinds(&self) -> Vec<TypeNameKind> {
         match self {
             TypeNameLevel::_Crate => vec![TypeNameKind::Type, TypeNameKind::Trait],
-            TypeNameLevel::_Prelude => vec![TypeNameKind::Type, TypeNameKind::Trait, TypeNameKind::Prelude],
-            TypeNameLevel::All => vec![TypeNameKind::Type, TypeNameKind::Trait, TypeNameKind::Prelude, 
-                                    TypeNameKind::ExternType, TypeNameKind::ExternTrait],
+            TypeNameLevel::_Prelude => {
+                vec![TypeNameKind::Type, TypeNameKind::Trait, TypeNameKind::Prelude]
+            }
+            TypeNameLevel::All => vec![
+                TypeNameKind::Type,
+                TypeNameKind::Trait,
+                TypeNameKind::Prelude,
+                TypeNameKind::ExternType,
+                TypeNameKind::ExternTrait,
+            ],
         }
     }
 }
@@ -60,7 +67,7 @@ impl TypeNameLevel {
 /// map def_id to full-qulified type_name
 #[derive(Debug, Clone)]
 pub struct TypeNameMap {
-    pub map: HashMap<DefId, (String, TypeNameKind)>
+    pub map: HashMap<DefId, (String, TypeNameKind)>,
 }
 
 impl TypeNameMap {
@@ -76,11 +83,7 @@ impl TypeNameMap {
         // safety: all type should
         let (type_name, type_name_kind) = self.map.get(def_id).unwrap();
         let valid_type_kinds = type_name_level.type_kinds();
-        if valid_type_kinds.contains(type_name_kind) {
-            Some(type_name.to_owned())
-        } else {
-            None
-        }
+        if valid_type_kinds.contains(type_name_kind) { Some(type_name.to_owned()) } else { None }
     }
 }
 
@@ -120,76 +123,119 @@ impl From<&Cache> for TypeNameMap {
 /// The main difference between type_name and type_full_name is that
 /// type_full_name will also try to get names of all type parameters, while type_name only get the current type name.
 /// FIXME：We will lose keyword `dyn` of trait object; We skip all lifetime parameters.
-pub fn type_full_name(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+pub fn type_full_name(
+    type_: &clean::Type,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     let type_name = match type_ {
-        clean::Type::ResolvedPath{path, did, ..} => {
+        clean::Type::ResolvedPath { path, did, .. } => {
             let type_name = type_name_map.get_type_name(did, type_name_level).unwrap();
             let striped_type_name = strip_prelude_type_name(&type_name);
-            let type_parameter_name = type_parameters_full_name(path, type_name_map, type_name_level);
+            let type_parameter_name =
+                type_parameters_full_name(path, type_name_map, type_name_level);
             format!("{}{}", striped_type_name, type_parameter_name)
-        },
+        }
         clean::Type::Tuple(types) => {
-            let type_full_names = types.iter().map(|ty| type_full_name(ty, type_name_map, type_name_level)).collect_vec();
+            let type_full_names = types
+                .iter()
+                .map(|ty| type_full_name(ty, type_name_map, type_name_level))
+                .collect_vec();
             format!("({})", type_full_names.join(","))
-        },
-        clean::Type::Slice(ty) => format!("[{}]", type_full_name(&**ty, type_name_map, type_name_level)),
-        clean::Type::Array(ty, len) => format!("[{};{}]", type_full_name(&**ty, type_name_map, type_name_level), len),
+        }
+        clean::Type::Slice(ty) => {
+            format!("[{}]", type_full_name(&**ty, type_name_map, type_name_level))
+        }
+        clean::Type::Array(ty, len) => {
+            format!("[{};{}]", type_full_name(&**ty, type_name_map, type_name_level), len)
+        }
         clean::Type::RawPointer(mutability, ty) => {
             let modifier = raw_pointer_modifier(mutability);
             format!("*{}{}", modifier, type_full_name(&**ty, type_name_map, type_name_level))
-        },
-        clean::Type::BorrowedRef {lifetime, mutability, type_} => {
+        }
+        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
             let lifetime = lifetime_name(lifetime);
             let modifier = borrowed_ref_modifier(mutability);
-            format!("&{}{}{}", lifetime, modifier, type_full_name(type_, type_name_map, type_name_level))
-        },
-        clean::Type::QPath {name, self_type, trait_} => {
-            format!("<{} as {}>::{}", type_full_name(&**self_type, type_name_map, type_name_level), 
-                            type_full_name(&**trait_, type_name_map, type_name_level), name)
-        },
+            format!(
+                "&{}{}{}",
+                lifetime,
+                modifier,
+                type_full_name(type_, type_name_map, type_name_level)
+            )
+        }
+        clean::Type::QPath { name, self_type, trait_ } => {
+            format!(
+                "<{} as {}>::{}",
+                type_full_name(&**self_type, type_name_map, type_name_level),
+                type_full_name(&**trait_, type_name_map, type_name_level),
+                name
+            )
+        }
         clean::Type::ImplTrait(generic_bounds) => {
-            let traits = generic_bounds.iter().map(|generic_bound| {
-                generic_bound_full_name(generic_bound, type_name_map, type_name_level)
-            }).collect_vec();
+            let traits = generic_bounds
+                .iter()
+                .map(|generic_bound| {
+                    generic_bound_full_name(generic_bound, type_name_map, type_name_level)
+                })
+                .collect_vec();
             format!("impl {}", traits.join("+"))
-        },
+        }
         _ => type_name(type_, type_name_map, type_name_level),
     };
     strip_prelude_type_name(&type_name)
 }
 
-pub fn type_name(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+pub fn type_name(
+    type_: &clean::Type,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     let type_name = match type_ {
-        clean::Type::ResolvedPath{did, ..} => type_name_map.get_type_name(did, type_name_level).unwrap(),
+        clean::Type::ResolvedPath { did, .. } => {
+            type_name_map.get_type_name(did, type_name_level).unwrap()
+        }
         clean::Type::Generic(generic_name) => generic_name.to_owned(),
         clean::Type::Primitive(primitive_type) => primitive_type.as_str().to_string(),
         clean::Type::Tuple(types) => {
-            let type_names = types.iter().map(|ty| type_name(ty, type_name_map, type_name_level)).collect_vec();
+            let type_names =
+                types.iter().map(|ty| type_name(ty, type_name_map, type_name_level)).collect_vec();
             format!("({})", type_names.join(","))
-        },
+        }
         clean::Type::Slice(ty) => format!("[{}]", type_name(&**ty, type_name_map, type_name_level)),
-        clean::Type::Array(ty, len) => format!("[{};{}]", type_name(&**ty, type_name_map, type_name_level), len),
+        clean::Type::Array(ty, len) => {
+            format!("[{};{}]", type_name(&**ty, type_name_map, type_name_level), len)
+        }
         clean::Type::Never => "!".to_string(),
         clean::Type::RawPointer(mutability, ty) => {
             let modifier = raw_pointer_modifier(mutability);
             format!("*{}{}", modifier, type_name(&**ty, type_name_map, type_name_level))
-        },
-        clean::Type::BorrowedRef {lifetime, mutability, type_} => {
+        }
+        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
             let lifetime = lifetime_name(lifetime);
             let modifier = borrowed_ref_modifier(mutability);
             format!("&{}{}{}", lifetime, modifier, type_name(type_, type_name_map, type_name_level))
-        },
-        clean::Type::QPath {name, self_type, trait_} => {
-            format!("<{} as {}>::{}", type_name(&**self_type, type_name_map, type_name_level), type_name(&**trait_, type_name_map, type_name_level), name)
-        },
+        }
+        clean::Type::QPath { name, self_type, trait_ } => {
+            format!(
+                "<{} as {}>::{}",
+                type_name(&**self_type, type_name_map, type_name_level),
+                type_name(&**trait_, type_name_map, type_name_level),
+                name
+            )
+        }
         clean::Type::Infer => "_".to_string(),
         clean::Type::ImplTrait(generic_bounds) => {
-            let traits = generic_bounds.iter().map(|generic_bound| {
-                generic_bound_name(generic_bound, type_name_map, type_name_level)
-            }).collect_vec();
+            let traits = generic_bounds
+                .iter()
+                .map(|generic_bound| {
+                    generic_bound_name(generic_bound, type_name_map, type_name_level)
+                })
+                .collect_vec();
             format!("impl {}", traits.join("+"))
-        },
-        clean::Type::BareFunction(..) => unreachable!("Internal Error. We won't try to get type name of these types."),
+        }
+        clean::Type::BareFunction(..) => {
+            unreachable!("Internal Error. We won't try to get type name of these types.")
+        }
     };
     strip_prelude_type_name(&type_name)
 }
@@ -220,72 +266,88 @@ fn lifetime_name(lifetime: &Option<Lifetime>) -> String {
     }
 }
 
-pub fn generic_bound_name(generic_bound: &GenericBound, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+pub fn generic_bound_name(
+    generic_bound: &GenericBound,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     match generic_bound {
         GenericBound::TraitBound(poly_trait, ..) => {
             type_name(&poly_trait.trait_, type_name_map, type_name_level)
-        },
-        GenericBound::Outlives(lifetime) => {
-            lifetime.get_ref().to_string()
         }
+        GenericBound::Outlives(lifetime) => lifetime.get_ref().to_string(),
     }
 }
 
-fn generic_bound_full_name(generic_bound: &GenericBound, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+fn generic_bound_full_name(
+    generic_bound: &GenericBound,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     match generic_bound {
         GenericBound::TraitBound(poly_trait, ..) => {
             type_full_name(&poly_trait.trait_, type_name_map, type_name_level)
-        },
-        GenericBound::Outlives(lifetime) => {
-            lifetime.get_ref().to_string()
         }
+        GenericBound::Outlives(lifetime) => lifetime.get_ref().to_string(),
     }
 }
 
-fn type_parameters_full_name(path: &Path, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+fn type_parameters_full_name(
+    path: &Path,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     let segments = &path.segments;
-    let segment_names = segments.iter().map(|path_segment| {
-        // We don't need segment name, we get full name by type name
-        // if path_segment.name.len() > 0 {
-        //     todo!("path segment has name {}", path_segment.name);
-        // }
-        match path_segment.args {
-            clean::GenericArgs::AngleBracketed {ref args, ref bindings} => {
-                if bindings.len() != 0 {
-                    todo!("deal with type bindings");
-                }
-                // args.iter().for_each(|generic_arg| println!("{:?}", generic_arg));
-                let arg_names = args.iter().filter(|generic_arg| {
-                    if let GenericArg::Type(..) = generic_arg {
-                        true
-                    } else {
-                        false
+    let segment_names = segments
+        .iter()
+        .map(|path_segment| {
+            // We don't need segment name, we get full name by type name
+            // if path_segment.name.len() > 0 {
+            //     todo!("path segment has name {}", path_segment.name);
+            // }
+            match path_segment.args {
+                clean::GenericArgs::AngleBracketed { ref args, ref bindings } => {
+                    if bindings.len() != 0 {
+                        todo!("deal with type bindings");
                     }
-                }).map(|generic_arg| {
-                    if let GenericArg::Type(ty) = generic_arg {
-                        type_full_name(ty, type_name_map, type_name_level)
+                    // args.iter().for_each(|generic_arg| println!("{:?}", generic_arg));
+                    let arg_names =
+                        args.iter()
+                            .filter(|generic_arg| {
+                                if let GenericArg::Type(..) = generic_arg { true } else { false }
+                            })
+                            .map(|generic_arg| {
+                                if let GenericArg::Type(ty) = generic_arg {
+                                    type_full_name(ty, type_name_map, type_name_level)
+                                } else {
+                                    // This line is used to pass compilation
+                                    unreachable!("Internal Error. Code should not reach this arm.")
+                                }
+                            })
+                            .collect_vec();
+                    if arg_names.len() > 0 {
+                        format!("<{}>", arg_names.join(","))
                     } else {
-                        // This line is used to pass compilation
-                        unreachable!("Internal Error. Code should not reach this arm.")
+                        "".to_string()
                     }
-                }).collect_vec();
-                if arg_names.len() > 0 {
-                    format!("<{}>", arg_names.join(","))
-                } else {
-                    "".to_string()
                 }
-            },
-            clean::GenericArgs::Parenthesized{ref inputs, ref output} => {
-                let input_names = inputs.iter().map(|input| type_full_name(input, type_name_map, type_name_level)).collect_vec();
-                let output_name = output.as_ref().map(|ty| type_full_name(ty, type_name_map, type_name_level));
-                if let Some(output_name) = output_name {
-                    format!("({})->{}", input_names.join(","), output_name)
-                } else {
-                    format!("({})", input_names.join(","))
+                clean::GenericArgs::Parenthesized { ref inputs, ref output } => {
+                    let input_names = inputs
+                        .iter()
+                        .map(|input| type_full_name(input, type_name_map, type_name_level))
+                        .collect_vec();
+                    let output_name = output
+                        .as_ref()
+                        .map(|ty| type_full_name(ty, type_name_map, type_name_level));
+                    if let Some(output_name) = output_name {
+                        format!("({})->{}", input_names.join(","), output_name)
+                    } else {
+                        format!("({})", input_names.join(","))
+                    }
                 }
             }
-        }
-    }).collect_vec();
+        })
+        .collect_vec();
     segment_names.join("::")
 }
 

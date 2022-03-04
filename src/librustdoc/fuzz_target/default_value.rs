@@ -4,7 +4,10 @@ use crate::clean::{self, Lifetime, PrimitiveType};
 
 use rustc_hir::Mutability;
 
-use super::{call_type::CallType, type_name::{TypeNameMap, type_full_name, TypeNameLevel}};
+use super::{
+    call_type::CallType,
+    type_name::{type_full_name, TypeNameLevel, TypeNameMap},
+};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum DefaultValue {
@@ -13,7 +16,7 @@ pub enum DefaultValue {
 }
 
 impl DefaultValue {
-    pub const fn default_value(&self) -> &'static str {
+    pub fn default_value(&self) -> &'static str {
         match self {
             DefaultValue::StaticStr => "\"42\"",
             DefaultValue::MutableSlice(_) => "Vec::new()",
@@ -23,7 +26,9 @@ impl DefaultValue {
     pub fn call_type(&self) -> CallType {
         match self {
             DefaultValue::StaticStr => CallType::_DirectCall,
-            DefaultValue::MutableSlice(_) => CallType::_MutBorrowedRef(Box::new(CallType::_DirectCall)),
+            DefaultValue::MutableSlice(_) => {
+                CallType::_MutBorrowedRef(Box::new(CallType::_DirectCall))
+            }
         }
     }
 
@@ -42,7 +47,7 @@ impl DefaultValue {
     }
 
     pub fn type_notation(&self, type_name_map: &TypeNameMap) -> String {
-        match self{
+        match self {
             DefaultValue::StaticStr => "&'static str".to_string(),
             DefaultValue::MutableSlice(ty) => {
                 let primitive_type_name = type_full_name(ty, type_name_map, TypeNameLevel::All);
@@ -56,12 +61,14 @@ impl TryFrom<&clean::Type> for DefaultValue {
     type Error = ();
     fn try_from(ty: &clean::Type) -> Result<Self, Self::Error> {
         match ty {
-            clean::Type::BorrowedRef {lifetime, mutability, type_} => {
+            clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
                 if let Some(lifetime_) = lifetime {
-                    if *lifetime_ == Lifetime::statik() && *mutability == Mutability::Not 
-                        && **type_ == clean::Type::Primitive(PrimitiveType::Str) {
-                            return Ok(DefaultValue::StaticStr);
-                        }
+                    if *lifetime_ == Lifetime::statik()
+                        && *mutability == Mutability::Not
+                        && **type_ == clean::Type::Primitive(PrimitiveType::Str)
+                    {
+                        return Ok(DefaultValue::StaticStr);
+                    }
                 }
                 if *mutability == Mutability::Mut {
                     if let clean::Type::Slice(ty_) = &**type_ {
@@ -72,7 +79,7 @@ impl TryFrom<&clean::Type> for DefaultValue {
                     }
                 }
                 Err(())
-            },
+            }
             _ => Err(()),
         }
     }

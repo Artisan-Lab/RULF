@@ -29,9 +29,7 @@ pub fn is_preluded_type(type_name: &String) -> bool {
 }
 
 pub fn get_all_preluded_type() -> HashSet<String> {
-    PRELUDED_TYPE.iter().map(|(prelude_type,_)| {
-        prelude_type.to_string()
-    }).collect()
+    PRELUDED_TYPE.iter().map(|(prelude_type, _)| prelude_type.to_string()).collect()
     // let mut res = HashSet::new();
     // for (prelude_type_, _) in PRELUDED_TYPE.iter() {
     //     res.insert(prelude_type_.to_string());
@@ -198,10 +196,7 @@ fn extract_result(path: &clean::Path, type_: &clean::Type) -> PreludeType {
     return PreludeType::NotPrelude(type_.clone());
 }
 
-pub fn is_prelude_type(
-    type_: &clean::Type,
-    full_name_map: &FullNameMap,
-) -> bool {
+pub fn is_prelude_type(type_: &clean::Type, full_name_map: &FullNameMap) -> bool {
     let prelude_type = PreludeType::from_type(type_, full_name_map);
     let final_type = prelude_type._get_final_type();
     if final_type == *type_ { false } else { true }

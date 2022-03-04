@@ -85,18 +85,18 @@ pub mod fuzz_target {
     crate mod api_sequence;
     crate mod api_util;
     crate mod call_type;
+    crate mod default_value;
     crate mod file_util;
     crate mod fuzzable_type;
     crate mod generic_function;
+    crate mod generic_type;
     crate mod impl_util;
     crate mod mod_visibility;
     crate mod prelude_type;
     crate mod print_message;
     crate mod replay_util;
-    crate mod type_util;
-    crate mod generic_type;
     crate mod type_name;
-    crate mod default_value;
+    crate mod type_util;
 }
 
 mod markdown;

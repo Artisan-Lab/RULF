@@ -1,3 +1,4 @@
+use crate::clean;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
@@ -7,7 +8,6 @@ use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
-use crate::clean;
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
 
@@ -53,7 +53,7 @@ pub struct ApiGraph {
     pub api_functions_visited: Vec<bool>,
     pub api_dependencies: Vec<ApiDependency>,
     pub api_sequences: Vec<ApiSequence>,
-    pub full_name_map: FullNameMap,  //did to full_name
+    pub full_name_map: FullNameMap, //did to full_name
     pub type_name_map: TypeNameMap,
     pub types_in_current_crate: TypesInCurrentCrate,
     pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
@@ -99,8 +99,13 @@ pub struct TypesInCurrentCrate {
 }
 
 impl TypesInCurrentCrate {
-    pub fn new() -> Self{
-        TypesInCurrentCrate { types: HashMap::new(), traits: HashMap::new(), type_full_names: HashMap::new(), traits_of_type: HashMap:: new()}
+    pub fn new() -> Self {
+        TypesInCurrentCrate {
+            types: HashMap::new(),
+            traits: HashMap::new(),
+            type_full_names: HashMap::new(),
+            traits_of_type: HashMap::new(),
+        }
     }
 
     pub fn add_new_type(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
@@ -140,17 +145,22 @@ impl ApiGraph {
         if api_fun._unsafe_tag._is_unsafe() {
             // filter unsafe function
             println!("{} is unsafe function.", api_fun.full_name);
-        }else if api_fun._is_generic_function() {
+        } else if api_fun._is_generic_function() {
             println!("{} is generic function.", api_fun.full_name);
             if let Ok(generic_function) = GenericFunction::try_from(api_fun) {
                 self.generic_functions.push(generic_function);
             }
-        }else {
+        } else {
             self.api_functions.push(api_fun);
         }
     }
 
-    pub fn add_type_in_current_crate(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
+    pub fn add_type_in_current_crate(
+        &mut self,
+        def_id: DefId,
+        type_: clean::Type,
+        type_full_name: String,
+    ) {
         self.types_in_current_crate.add_new_type(def_id, type_, type_full_name);
     }
 
@@ -178,9 +188,13 @@ impl ApiGraph {
             .drain(..)
             .filter(|api_function| api_function.contains_prelude_type_prefix(&prelude_types))
             .collect();
-        self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
-            generic_function.api_function.contains_prelude_type_prefix(&prelude_types)
-        }).collect();
+        self.generic_functions = self
+            .generic_functions
+            .drain(..)
+            .filter(|generic_function| {
+                generic_function.api_function.contains_prelude_type_prefix(&prelude_types)
+            })
+            .collect();
     }
 
     /// filter functions defined in invisible mods
@@ -192,9 +206,13 @@ impl ApiGraph {
             .drain(..)
             .filter(|api_function| api_function.contains_prelude_type_prefix(&invisible_mods))
             .collect();
-        self.generic_functions = self.generic_functions.drain(..).filter(|generic_function| {
-            generic_function.api_function.contains_prelude_type_prefix(&invisible_mods)
-        }).collect();
+        self.generic_functions = self
+            .generic_functions
+            .drain(..)
+            .filter(|generic_function| {
+                generic_function.api_function.contains_prelude_type_prefix(&invisible_mods)
+            })
+            .collect();
     }
 
     pub fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {
@@ -237,15 +255,17 @@ impl ApiGraph {
         // println!("qpaths: {:?}", qpaths);
 
         let replace_primitive_type = clean::Type::Primitive(clean::PrimitiveType::I32);
-        let replace_u8_slice = clean::Type::BorrowedRef{
+        let replace_u8_slice = clean::Type::BorrowedRef {
             lifetime: None,
             mutability: Mutability::Not,
-            type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(clean::PrimitiveType::U8)))),
+            type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(
+                clean::PrimitiveType::U8,
+            )))),
         };
         let replace_str_slice = clean::Type::BorrowedRef {
             lifetime: None,
             mutability: Mutability::Not,
-            type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str))
+            type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str)),
         };
 
         let mut replace_with_primitive_type = 0usize;
@@ -263,23 +283,30 @@ impl ApiGraph {
                     println!("{} can be replaced with u8 slice", generic);
                     replace_with_primitive_type += 1;
                     replace_map.insert(generic_type, replace_u8_slice.clone());
-                } else if bounds.can_be_str_slice(&self.type_name_map){
+                } else if bounds.can_be_str_slice(&self.type_name_map) {
                     println!("{} can be replaced with str slice", generic);
                     replace_with_primitive_type += 1;
                     replace_map.insert(generic_type, replace_str_slice.clone());
-                }
-                else if let Some(type_) = bounds.can_be_replaced_with_type(
-                    &self.types_in_current_crate.types, 
-                    &self.types_in_current_crate.traits_of_type) {
-                        println!("{} can be replaced with type {:?}", generic, type_);
-                        repleace_with_current_crate_type += 1;
-                        replace_map.insert(generic_type, type_);
+                } else if let Some(type_) = bounds.can_be_replaced_with_type(
+                    &self.types_in_current_crate.types,
+                    &self.types_in_current_crate.traits_of_type,
+                ) {
+                    println!("{} can be replaced with type {:?}", generic, type_);
+                    repleace_with_current_crate_type += 1;
+                    replace_map.insert(generic_type, type_);
                 } else {
                     println!("Can not find sutable type for {}.", generic);
-                    println!("Trait bounds for {}: {}", generic, bounds._format_string_(&self.type_name_map));
+                    println!(
+                        "Trait bounds for {}: {}",
+                        generic,
+                        bounds._format_string_(&self.type_name_map)
+                    );
                 }
             } else {
-                println!("{} has no bounds. So {} can be replaced with primitive type. ", generic, generic);
+                println!(
+                    "{} has no bounds. So {} can be replaced with primitive type. ",
+                    generic, generic
+                );
                 replace_with_primitive_type += 1;
                 replace_map.insert(generic_type, replace_primitive_type.clone());
             }
@@ -292,32 +319,56 @@ impl ApiGraph {
                     replace_with_primitive_type += 1;
                     replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
-                    &self.types_in_current_crate.types, 
-                    &self.types_in_current_crate.traits_of_type) {
-                        println!("{:?} can be replaced with type {:?}", qpath, type_);
-                        repleace_with_current_crate_type += 1;
-                        replace_map.insert(qpath.to_owned(), type_);
+                    &self.types_in_current_crate.types,
+                    &self.types_in_current_crate.traits_of_type,
+                ) {
+                    println!("{:?} can be replaced with type {:?}", qpath, type_);
+                    repleace_with_current_crate_type += 1;
+                    replace_map.insert(qpath.to_owned(), type_);
                 } else {
                     println!("Can not find sutable type for {:?}.", qpath);
-                    println!("Trait bounds for {:?}: {}", qpath, bounds._format_string_(&self.type_name_map));
+                    println!(
+                        "Trait bounds for {:?}: {}",
+                        qpath,
+                        bounds._format_string_(&self.type_name_map)
+                    );
                 }
             } else {
-                println!("{:?} has no bounds. So {:?} can be replaced with primitive type. ", qpath, qpath);
-                replace_with_primitive_type +=1;
+                println!(
+                    "{:?} has no bounds. So {:?} can be replaced with primitive type. ",
+                    qpath, qpath
+                );
+                replace_with_primitive_type += 1;
                 replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
             }
         });
 
-        println!("There are totally {} generic parameter in this crate.", free_generics.len() + qpaths.len());
+        println!(
+            "There are totally {} generic parameter in this crate.",
+            free_generics.len() + qpaths.len()
+        );
         println!("We can replace {} generic parameters among them. ", replace_map.len());
-        println!("{} are replaced with primitive types. {} are with types in current crate.", replace_with_primitive_type, repleace_with_current_crate_type);
+        println!(
+            "{} are replaced with primitive types. {} are with types in current crate.",
+            replace_with_primitive_type, repleace_with_current_crate_type
+        );
 
-        let functions = self.generic_functions.iter().filter(|generic_function| {
-            generic_function.can_be_fully_monomorphized(&replace_map)
-        }).map(|generic_function| generic_function.monomorphize(&replace_map)).collect_vec();
+        let functions = self
+            .generic_functions
+            .iter()
+            .filter(|generic_function| generic_function.can_be_fully_monomorphized(&replace_map))
+            .map(|generic_function| generic_function.monomorphize(&replace_map))
+            .collect_vec();
 
-        println!("There are total {} functions(include generic).", self.api_functions.len() + self.generic_functions.len());
-        println!("We can monomorphize {} generic functions among total {} functions.", functions.len(), self.generic_functions.len());
+        println!(
+            "There are total {} functions(include generic).",
+            self.api_functions.len() + self.generic_functions.len()
+        );
+        println!(
+            "We can monomorphize {} generic functions among total {} functions.",
+            functions.len(),
+            self.generic_functions.len()
+        );
 
         println!("before add: {}", self.api_functions.len());
         functions.into_iter().for_each(|api_function| {
@@ -350,11 +401,8 @@ impl ApiGraph {
                     let input_params_num = input_params.len();
                     for k in 0..input_params_num {
                         let input_param = &input_params[k];
-                        let call_type = api_util::same_type(
-                            output_type,
-                            input_param,
-                            &self.full_name_map,
-                        );
+                        let call_type =
+                            api_util::same_type(output_type, input_param, &self.full_name_map);
                         match &call_type {
                             CallType::_NotCompatible => {
                                 continue;
@@ -1262,7 +1310,11 @@ impl ApiGraph {
                         continue;
                     } else if let Ok(default_value) = DefaultValue::try_from(current_ty) {
                         let current_default_value_index = new_sequence.default_values.len();
-                        api_call._add_param(ParamType::_DefaultValue, current_default_value_index, default_value.call_type());
+                        api_call._add_param(
+                            ParamType::_DefaultValue,
+                            current_default_value_index,
+                            default_value.call_type(),
+                        );
                         new_sequence.default_values.push(default_value);
                         continue;
                     }

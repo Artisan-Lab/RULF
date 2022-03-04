@@ -1,22 +1,27 @@
-use std::{collections::{HashSet, HashMap}, convert::TryFrom};
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+};
 
 use crate::clean::{self, GenericBound, GetDefId};
 
-use super::type_name::{TypeNameMap, TypeNameLevel, type_full_name};
+use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
-// FIXME: Why these are not marker from std?. 
-pub static PRIMITIVE_TRAITS: [&'static str; 10] = ["core::cmp::Ord", 
-                                                  "core::cmp::PartialEq",
-                                                  "core::clone::Clone", 
-                                                  "core::marker::Copy", 
-                                                  "core::hash::Hash",
-                                                  "core::fmt::Display",
-                                                  "core::cmp::PartialOrd",
-                                                  "core::cmp::Eq",
-                                                  "core::fmt::Debug",
-                                                  "core::default::Default"];
+// FIXME: Why these are not marker from std?.
+pub static PRIMITIVE_TRAITS: [&'static str; 10] = [
+    "core::cmp::Ord",
+    "core::cmp::PartialEq",
+    "core::clone::Clone",
+    "core::marker::Copy",
+    "core::hash::Hash",
+    "core::fmt::Display",
+    "core::cmp::PartialOrd",
+    "core::cmp::Eq",
+    "core::fmt::Debug",
+    "core::default::Default",
+];
 // FIXME: u8 slice cannot contain write trait(Temporary use)
 pub static U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Read"];
 // FIXME：仅仅是为clap库所暂时使用的
@@ -41,19 +46,22 @@ impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
             if let GenericBound::TraitBound(_, trait_bound_modifier) = generic_bound {
                 if !(*trait_bound_modifier == rustc_hir::TraitBoundModifier::None) {
                     return Err(GenericBoundError::Sized);
-                } 
+                }
             } else {
                 return Err(GenericBoundError::Lifetime);
             }
         }
 
-        let trait_bounds = bounds.iter().map(|generic_bound| {
-            if let GenericBound::TraitBound(poly_trait,..) = generic_bound {
-                poly_trait.trait_.clone()
-            } else {
-                unreachable!("Lifetime bounds should be already filtered. Internal Error.");
-            }
-        }).collect();
+        let trait_bounds = bounds
+            .iter()
+            .map(|generic_bound| {
+                if let GenericBound::TraitBound(poly_trait, ..) = generic_bound {
+                    poly_trait.trait_.clone()
+                } else {
+                    unreachable!("Lifetime bounds should be already filtered. Internal Error.");
+                }
+            })
+            .collect();
         Ok(SimplifiedGenericBound { trait_bounds })
     }
 }
@@ -87,13 +95,19 @@ impl SimplifiedGenericBound {
     }
 
     pub fn _format_string_(&self, type_name_map: &TypeNameMap) -> String {
-        let res = self.trait_bounds.iter().map(|trait_bound| {
-            type_full_name(trait_bound, type_name_map, TypeNameLevel::All)
-        }).collect_vec();
+        let res = self
+            .trait_bounds
+            .iter()
+            .map(|trait_bound| type_full_name(trait_bound, type_name_map, TypeNameLevel::All))
+            .collect_vec();
         res.join(",")
     }
 
-    pub fn can_be_replaced_with_type(&self, types: &HashMap<DefId, clean::Type>, traits_of_type: &HashMap<DefId, HashSet<clean::Type>>) -> Option<clean::Type> {
+    pub fn can_be_replaced_with_type(
+        &self,
+        types: &HashMap<DefId, clean::Type>,
+        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+    ) -> Option<clean::Type> {
         for (def_id, type_) in types {
             if let Some(traits) = traits_of_type.get(def_id) {
                 let all_traits_satisified = self.trait_bounds.iter().all(|trait_bound| {

@@ -64,7 +64,10 @@ use crate::config::{OutputFormat, RenderOptions};
 use crate::docfs::{DocFS, ErrorStorage, PathError};
 use crate::doctree;
 use crate::fuzz_target::type_name::TypeNameMap;
-use crate::fuzz_target::type_util::{generics_has_no_content, from_struct_to_clean_type, from_enum_to_clean_type, collect_traits_in_current_crate};
+use crate::fuzz_target::type_util::{
+    collect_traits_in_current_crate, from_enum_to_clean_type, from_struct_to_clean_type,
+    generics_has_no_content,
+};
 use crate::fuzz_target::{api_function, api_graph, api_util, file_util, impl_util};
 use crate::html::escape::Escape;
 use crate::html::format::fmt_impl_for_trait_page;
@@ -664,7 +667,12 @@ pub fn fuzz_target_run_clean_krate(
     //同时提取impl块中的内容，存入api_dependency_graph
     let mut full_name_map = impl_util::FullNameMap::new();
     let mut traits_of_type = impl_util::TraitsOfType::new();
-    impl_util::extract_impls_from_cache(&cache, &mut full_name_map, &mut traits_of_type, &mut api_dependency_graph);
+    impl_util::extract_impls_from_cache(
+        &cache,
+        &mut full_name_map,
+        &mut traits_of_type,
+        &mut api_dependency_graph,
+    );
     let traits_in_current_crate = collect_traits_in_current_crate(&cache);
     api_dependency_graph.set_traits_in_current_crate(traits_in_current_crate);
     //println!("{:?}", full_name_map);
@@ -1831,16 +1839,26 @@ impl Context {
                 let type_full_name = full_path(&self, &item);
                 if let clean::StructItem(ref struct_) = item.inner {
                     if generics_has_no_content(&struct_.generics) {
-                        let type_ = from_struct_to_clean_type(item.def_id, item.name.clone().unwrap());
-                        api_dependency_graph.add_type_in_current_crate(item.def_id, type_, type_full_name);
+                        let type_ =
+                            from_struct_to_clean_type(item.def_id, item.name.clone().unwrap());
+                        api_dependency_graph.add_type_in_current_crate(
+                            item.def_id,
+                            type_,
+                            type_full_name,
+                        );
                     }
                 }
             } else if item_type == ItemType::Enum {
                 let type_full_name = full_path(&self, &item);
                 if let clean::EnumItem(ref enum_) = item.inner {
                     if generics_has_no_content(&enum_.generics) {
-                        let type_ = from_enum_to_clean_type(item.def_id, item.name.clone().unwrap());
-                        api_dependency_graph.add_type_in_current_crate(item.def_id, type_, type_full_name);
+                        let type_ =
+                            from_enum_to_clean_type(item.def_id, item.name.clone().unwrap());
+                        api_dependency_graph.add_type_in_current_crate(
+                            item.def_id,
+                            type_,
+                            type_full_name,
+                        );
                     }
                 }
             }

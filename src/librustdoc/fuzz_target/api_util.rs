@@ -8,9 +8,7 @@ use rustc_hir::{self, Mutability};
 use super::fuzzable_type::FuzzableType;
 
 pub fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
-    inputs.values.iter().map(|argument| {
-        argument.type_.clone()
-    }).collect()
+    inputs.values.iter().map(|argument| argument.type_.clone()).collect()
 }
 
 pub fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
@@ -20,11 +18,11 @@ pub fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
     }
 }
 
-pub fn _is_generic_type(ty: &clean::Type) -> bool {
+pub fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
         // QPath and generic are all generic type
-        clean::Type::Generic(_) | clean::Type::QPath {..}=> true,
+        clean::Type::Generic(_) | clean::Type::QPath { .. } => true,
         clean::Type::ResolvedPath { path, is_generic, .. } => {
             if *is_generic {
                 return true;
@@ -36,20 +34,20 @@ pub fn _is_generic_type(ty: &clean::Type) -> bool {
                     clean::GenericArgs::AngleBracketed { args, .. } => {
                         for generic_arg in args {
                             if let clean::GenericArg::Type(inner_ty) = generic_arg {
-                                if _is_generic_type(inner_ty) {
+                                if is_generic_type(inner_ty) {
                                     return true;
                                 }
                             }
                         }
-                    },
+                    }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
                         for input_ty in inputs {
-                            if _is_generic_type(input_ty) {
+                            if is_generic_type(input_ty) {
                                 return true;
                             }
                         }
                         if let Some(output_ty) = output {
-                            if _is_generic_type(output_ty) {
+                            if is_generic_type(output_ty) {
                                 return true;
                             }
                         }
@@ -60,7 +58,7 @@ pub fn _is_generic_type(ty: &clean::Type) -> bool {
         }
         clean::Type::Tuple(types) => {
             for ty_ in types {
-                if _is_generic_type(ty_) {
+                if is_generic_type(ty_) {
                     return true;
                 }
             }
@@ -71,7 +69,7 @@ pub fn _is_generic_type(ty: &clean::Type) -> bool {
         | clean::Type::RawPointer(_, type_)
         | clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
-            return _is_generic_type(inner_type);
+            return is_generic_type(inner_type);
         }
         _ => {
             // TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
@@ -122,7 +120,7 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
             return _is_end_type(inner_type, full_name_map);
         }
         clean::Type::QPath { .. } => {
-            //TODO: qpath 
+            //TODO: qpath
             false
         }
         clean::Type::Infer => false,
@@ -578,7 +576,7 @@ pub fn is_fuzzable_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> bool 
     let (fuzzable_type, call_type) = fuzzable_call_type.generate_fuzzable_type_and_call_type();
     if fuzzable_type == FuzzableType::NoFuzzable || call_type == CallType::_NotCompatible {
         return false;
-    } 
+    }
     return true;
 }
 

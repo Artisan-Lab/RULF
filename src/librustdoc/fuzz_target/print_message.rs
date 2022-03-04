@@ -2,8 +2,8 @@
 
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
-use crate::fuzz_target::type_name::TypeNameLevel;
 use crate::fuzz_target::type_name::type_full_name;
+use crate::fuzz_target::type_name::TypeNameLevel;
 
 /// traits of primitive types
 

@@ -1,5 +1,5 @@
-use crate::clean::{Generics, WherePredicate};
 use crate::clean::{self, types::GetDefId};
+use crate::clean::{Generics, WherePredicate};
 use crate::fuzz_target::api_function::{ApiFunction, ApiUnsafety};
 use crate::fuzz_target::api_util;
 use crate::html::item_type::ItemType;
@@ -108,7 +108,6 @@ pub fn extract_impls_from_cache(
     traits_of_type: &mut TraitsOfType,
     mut api_graph: &mut ApiGraph,
 ) {
-
     let mut crate_impl_collection = CrateImplCollection::new();
     let paths = &cache.paths;
     //construct the map of `did to type`
@@ -188,18 +187,24 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
     }
 
     // BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
-    let trait_full_name = impl_.trait_.as_ref().map(|trait_| {
-        let trait_ty_def_id = &trait_.def_id().unwrap();
-        let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
-        trait_full_name.map(|trait_full_name| trait_full_name.to_owned())
-    }).flatten();
+    let trait_full_name = impl_
+        .trait_
+        .as_ref()
+        .map(|trait_| {
+            let trait_ty_def_id = &trait_.def_id().unwrap();
+            let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
+            trait_full_name.map(|trait_full_name| trait_full_name.to_owned())
+        })
+        .flatten();
 
     let impl_ty_def_id = &impl_.for_.def_id();
 
-    let type_full_name = impl_ty_def_id.map(|ref def_id| {
-        let type_name = full_name_map._get_full_name(def_id);
-        type_name.map(|real_type_name| real_type_name.to_owned())
-    }).flatten();
+    let type_full_name = impl_ty_def_id
+        .map(|ref def_id| {
+            let type_name = full_name_map._get_full_name(def_id);
+            type_name.map(|real_type_name| real_type_name.to_owned())
+        })
+        .flatten();
 
     // collect associate typedefs
     let mut associate_typedefs = HashMap::new();
@@ -218,7 +223,8 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
         match &item.inner {
             //这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
             clean::FunctionItem(_function) => {
-                let function_name = format!("{:?}::{:?}", type_full_name, item.name.as_ref().unwrap());
+                let function_name =
+                    format!("{:?}::{:?}", type_full_name, item.name.as_ref().unwrap());
                 //使用全限定名称：type::f
                 //function_name.push_str(type_full_name.as_str());
                 //function_name.push_str("::");
@@ -233,21 +239,37 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
 
                 // replace associate types. Replace associate type should be prior to replace self type
                 // Since associate type can be `Self` type itself.
-                inputs = inputs.into_iter().map(|input_type| replace_self_associate_types(&input_type, &impl_.trait_, &associate_typedefs)).collect_vec();
-                output = output.map(|output_type| replace_self_associate_types(&output_type, &impl_.trait_, &associate_typedefs));
+                inputs = inputs
+                    .into_iter()
+                    .map(|input_type| {
+                        replace_self_associate_types(
+                            &input_type,
+                            &impl_.trait_,
+                            &associate_typedefs,
+                        )
+                    })
+                    .collect_vec();
+                output = output.map(|output_type| {
+                    replace_self_associate_types(&output_type, &impl_.trait_, &associate_typedefs)
+                });
 
                 // replace self type
-                let input_contains_self_type = inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
-                let output_contains_self_type = inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
+                let input_contains_self_type =
+                    inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
+                let output_contains_self_type =
+                    inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
                 let contains_self_type = input_contains_self_type | output_contains_self_type;
 
-                inputs = inputs.into_iter().map(|ty_| {
-                    if clean_type_contains_self_type(&ty_) {
-                        replace_self_type(&ty_, &impl_.for_)
-                    } else {
-                        ty_
-                    }
-                }).collect();
+                inputs = inputs
+                    .into_iter()
+                    .map(|ty_| {
+                        if clean_type_contains_self_type(&ty_) {
+                            replace_self_type(&ty_, &impl_.for_)
+                        } else {
+                            ty_
+                        }
+                    })
+                    .collect();
 
                 output = output.map(|ty_| {
                     if clean_type_contains_self_type(&ty_) {
@@ -269,7 +291,12 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                     free_qpaths_in_method.extend(get_qpaths_in_clean_type(output_type));
                 });
 
-                method_generics = extend_generics(&method_generics, &impl_generics, generics_in_method, free_qpaths_in_method);
+                method_generics = extend_generics(
+                    &method_generics,
+                    &impl_generics,
+                    generics_in_method,
+                    free_qpaths_in_method,
+                );
 
                 // 使用全限定名称：type::f
                 // 如果函数输入参数中含有self type，则优先使用trait name，如果没有的话，使用type name
@@ -388,43 +415,60 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
 }
 
 // Add generic param appears in `ty_` to generics. These generic should also appears in `other_generics`
-fn extend_generics(generics: &Generics, other_generics: &Generics, generics_in_method: HashSet<String>, free_qpaths_in_method: HashSet<clean::Type>) -> Generics{
+fn extend_generics(
+    generics: &Generics,
+    other_generics: &Generics,
+    generics_in_method: HashSet<String>,
+    free_qpaths_in_method: HashSet<clean::Type>,
+) -> Generics {
     let mut generics = generics.to_owned();
-    let Generics { params: other_params , where_predicates: other_where_predicates } = other_generics;
+    let Generics { params: other_params, where_predicates: other_where_predicates } =
+        other_generics;
     // generics can appear both in params and where_predicates
     generics_in_method.into_iter().for_each(|generic_in_type| {
-        let param_def = other_params.iter().filter(|generic_param_def| 
-            generic_param_def.name == generic_in_type
-        ).map(|generic_param_def| generic_param_def.to_owned()).collect_vec();
+        let param_def = other_params
+            .iter()
+            .filter(|generic_param_def| generic_param_def.name == generic_in_type)
+            .map(|generic_param_def| generic_param_def.to_owned())
+            .collect_vec();
         // generic_param_defs_in_type.extend(param_def);
         generics.params.extend(param_def);
-        let predicate = other_where_predicates.iter().filter(|where_predicate| {
-            match where_predicate {
-                WherePredicate::BoundPredicate{ty: where_ty,..} | WherePredicate::EqPredicate{lhs: where_ty,..} => {
-                    type_is_given_generic(where_ty, &generic_in_type)
-                },
-                WherePredicate::RegionPredicate {..} => {
-                    // We current ignore lifetime bound
-                    false
+        let predicate = other_where_predicates
+            .iter()
+            .filter(|where_predicate| {
+                match where_predicate {
+                    WherePredicate::BoundPredicate { ty: where_ty, .. }
+                    | WherePredicate::EqPredicate { lhs: where_ty, .. } => {
+                        type_is_given_generic(where_ty, &generic_in_type)
+                    }
+                    WherePredicate::RegionPredicate { .. } => {
+                        // We current ignore lifetime bound
+                        false
+                    }
                 }
-            }
-        }).map(|where_predicate| where_predicate.to_owned()).collect_vec();
+            })
+            .map(|where_predicate| where_predicate.to_owned())
+            .collect_vec();
         generics.where_predicates.extend(predicate);
     });
 
     // free qpath can only exist in where predicate
     free_qpaths_in_method.into_iter().for_each(|free_qpath_in_method| {
-        let predicate = other_where_predicates.iter().filter(|where_predicate| {
-            match where_predicate {
-                WherePredicate::BoundPredicate{ty: where_ty,..} => {
-                    *where_ty == free_qpath_in_method
-                },
-                WherePredicate::RegionPredicate {..} | WherePredicate::EqPredicate { .. }=> {
-                    // We current ignore lifetime bound
-                    false
+        let predicate = other_where_predicates
+            .iter()
+            .filter(|where_predicate| {
+                match where_predicate {
+                    WherePredicate::BoundPredicate { ty: where_ty, .. } => {
+                        *where_ty == free_qpath_in_method
+                    }
+                    WherePredicate::RegionPredicate { .. } | WherePredicate::EqPredicate { .. } => {
+                        // We current ignore lifetime bound
+                        false
+                    }
                 }
-            }
-        }).map(|where_predicate| where_predicate.to_owned()).collect_vec();
+            })
+            .map(|where_predicate| where_predicate.to_owned())
+            .collect_vec();
         generics.where_predicates.extend(predicate);
     });
 
@@ -437,85 +481,112 @@ fn extend_generics(generics: &Generics, other_generics: &Generics, generics_in_m
 
 /// determine clean type equals to given generic
 fn type_is_given_generic(ty_: &clean::Type, given_generic: &str) -> bool {
-    if let clean::Type::Generic(generic) = ty_ {
-        generic == given_generic
-    } else {
-        false
-    }
+    if let clean::Type::Generic(generic) = ty_ { generic == given_generic } else { false }
 }
 
-fn remove_duplicate_in_vec<T>(input: &mut Vec<T>) where T: Hash + Eq{
+fn remove_duplicate_in_vec<T>(input: &mut Vec<T>)
+where
+    T: Hash + Eq,
+{
     let hashset: HashSet<_> = input.drain(..).into_iter().collect();
     input.extend(hashset);
 }
 
 /// Assocaite type is defined with trait. So we should use self_trait as a parameter
-fn replace_self_associate_types(raw_type: &clean::Type, self_trait: &Option<clean::Type>, associate_type_map: &HashMap<String, clean::Type>) -> clean::Type {
+fn replace_self_associate_types(
+    raw_type: &clean::Type,
+    self_trait: &Option<clean::Type>,
+    associate_type_map: &HashMap<String, clean::Type>,
+) -> clean::Type {
     if *self_trait == None {
         return raw_type.to_owned();
     }
     match raw_type.to_owned() {
-        clean::Type::QPath {name, trait_: raw_self_trait,..} => {
+        clean::Type::QPath { name, trait_: raw_self_trait, .. } => {
             let self_trait = self_trait.as_ref().unwrap().to_owned();
-            if *raw_self_trait == self_trait && associate_type_map.contains_key(&name){
+            if *raw_self_trait == self_trait && associate_type_map.contains_key(&name) {
                 associate_type_map.get(&name).unwrap().to_owned()
             } else {
                 raw_type.to_owned()
             }
-        }, 
+        }
         clean::Type::RawPointer(mutability, inner_type) => {
-            let new_type = replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
             clean::Type::RawPointer(mutability, Box::new(new_type))
-        },
+        }
         clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
             let new_type = replace_self_associate_types(&*type_, self_trait, associate_type_map);
-            clean::Type::BorrowedRef{lifetime, mutability, type_:Box::new(new_type)}
-        },
+            clean::Type::BorrowedRef { lifetime, mutability, type_: Box::new(new_type) }
+        }
         clean::Type::Slice(inner_type) => {
-            let new_type = replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
             clean::Type::Slice(Box::new(new_type))
-        }, 
+        }
         clean::Type::Array(inner_type, length) => {
-            let new_type = replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
             clean::Type::Array(Box::new(new_type), length)
-        },
+        }
         clean::Type::Tuple(types) => {
-            let new_types = types.into_iter().map(|type_| {
-                replace_self_associate_types(&type_, self_trait, associate_type_map)
-            }).collect_vec();
+            let new_types = types
+                .into_iter()
+                .map(|type_| replace_self_associate_types(&type_, self_trait, associate_type_map))
+                .collect_vec();
             clean::Type::Tuple(new_types)
-        },
+        }
         clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
-            let clean::Path{global, res, segments} = path;
-            let new_segments = segments.into_iter().map(|path_segment| {
-                let clean::PathSegment{name, args} = path_segment;
-                let new_args = match args {
-                    clean::GenericArgs::AngleBracketed {args, bindings} => {
-                        let new_args = args.into_iter().map(|generic_arg| {
-                            if let clean::GenericArg::Type(type_) = generic_arg {
-                                let new_type = replace_self_associate_types(&type_, self_trait, associate_type_map);
-                                clean::GenericArg::Type(new_type)
-                            } else {
-                                generic_arg
+            let clean::Path { global, res, segments } = path;
+            let new_segments = segments
+                .into_iter()
+                .map(|path_segment| {
+                    let clean::PathSegment { name, args } = path_segment;
+                    let new_args = match args {
+                        clean::GenericArgs::AngleBracketed { args, bindings } => {
+                            let new_args = args
+                                .into_iter()
+                                .map(|generic_arg| {
+                                    if let clean::GenericArg::Type(type_) = generic_arg {
+                                        let new_type = replace_self_associate_types(
+                                            &type_,
+                                            self_trait,
+                                            associate_type_map,
+                                        );
+                                        clean::GenericArg::Type(new_type)
+                                    } else {
+                                        generic_arg
+                                    }
+                                })
+                                .collect_vec();
+                            clean::GenericArgs::AngleBracketed { args: new_args, bindings }
+                        }
+                        clean::GenericArgs::Parenthesized { inputs, output } => {
+                            let new_inputs = inputs
+                                .into_iter()
+                                .map(|type_| {
+                                    replace_self_associate_types(
+                                        &type_,
+                                        self_trait,
+                                        associate_type_map,
+                                    )
+                                })
+                                .collect_vec();
+                            let new_output = output.map(|type_| {
+                                replace_self_associate_types(&type_, self_trait, associate_type_map)
+                            });
+                            clean::GenericArgs::Parenthesized {
+                                inputs: new_inputs,
+                                output: new_output,
                             }
-                        }).collect_vec();
-                        clean::GenericArgs::AngleBracketed {args: new_args, bindings}
-                    },
-                    clean::GenericArgs::Parenthesized{inputs, output} => {
-                        let new_inputs = inputs.into_iter().map(|type_| {
-                            replace_self_associate_types(&type_, self_trait, associate_type_map)
-                        }).collect_vec();
-                        let new_output = output.map(|type_| {
-                            replace_self_associate_types(&type_, self_trait, associate_type_map)
-                        });
-                        clean::GenericArgs::Parenthesized{inputs: new_inputs, output: new_output}
-                    }
-                };
-                clean::PathSegment{name, args: new_args}
-            }).collect_vec();
-            let new_path = clean::Path{global, res, segments: new_segments};
-            clean::Type::ResolvedPath{path: new_path, param_names, did, is_generic}
-        },
+                        }
+                    };
+                    clean::PathSegment { name, args: new_args }
+                })
+                .collect_vec();
+            let new_path = clean::Path { global, res, segments: new_segments };
+            clean::Type::ResolvedPath { path: new_path, param_names, did, is_generic }
+        }
         _ => raw_type.to_owned(),
     }
 }
@@ -523,10 +594,10 @@ fn replace_self_associate_types(raw_type: &clean::Type, self_trait: &Option<clea
 /// where predicate contains restrict_generic
 pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
     generics.where_predicates.iter().any(|where_predicate| {
-        if let clean::WherePredicate::BoundPredicate{ty,..} = where_predicate {
+        if let clean::WherePredicate::BoundPredicate { ty, .. } = where_predicate {
             match ty {
                 // Generic and QPath are free generic
-                clean::Type::Generic(..) | clean::Type::QPath{..} => false,
+                clean::Type::Generic(..) | clean::Type::QPath { .. } => false,
                 // restrict generic
                 _ => {
                     // println!("{:?}", ty);
@@ -538,4 +609,3 @@ pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
         }
     })
 }
-

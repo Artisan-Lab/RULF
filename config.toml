@@ -202,22 +202,22 @@ targets = "X86"
 # which are used to install Rust and Cargo together. This is disabled by
 # default. The `tools` option (immediately below) specifies which tools should
 # be built if `extended = true`.
-#extended = false
+extended = true
 
 # Installs chosen set of extended tools if `extended = true`. By default builds all.
 # If chosen tool failed to build the installation fails. If `extended = false`, this
 # option is ignored.
-#tools = ["cargo", "rls", "clippy", "rustfmt", "analysis", "src"]
+tools = ["cargo", "rls", "clippy", "rustfmt", "analysis", "src"]
 
 # Verbosity level: 0 == not verbose, 1 == verbose, 2 == very verbose
 #verbose = 0
 
 # Build the sanitizer runtimes
-#sanitizers = false
+sanitizers = false
 
 # Build the profiler runtime (required when compiling with options that depend
 # on this runtime, such as `-C profile-generate` or `-Z instrument-coverage`).
-#profiler = false
+profiler = false
 
 # Indicates whether the native libraries linked into Cargo will be statically
 # linked or not.
