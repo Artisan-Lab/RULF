@@ -3,7 +3,8 @@
 set -e
 
 # install afl
-cargo install afl
+# 0.11.1 is the newest version that rulf supports now
+cargo install afl --version =0.11.1
 
 # test afl
 TMP_DIR=${HOME}
@@ -12,7 +13,7 @@ cd ${TMP_DIR}
 # This demo is from https://rust-fuzz.github.io/book/afl/tutorial.html
 cd ${TMP_DIR} && rm -rf ${BIN}
 cargo new --bin ${BIN}
-echo $'afl = \"*\"
+echo $'afl = \"=0.11.1\"
 url = \"*\"' >> ${TMP_DIR}/${BIN}/Cargo.toml
 echo $'#[macro_use]
 extern crate afl;

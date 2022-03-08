@@ -5,7 +5,7 @@ use std::{
     convert::TryFrom,
 };
 
-use crate::clean::{self, GenericBound, GetDefId};
+use crate::clean::{self, GenericBound};
 
 use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
@@ -106,14 +106,17 @@ impl SimplifiedGenericBound {
     pub fn can_be_replaced_with_type(
         &self,
         types: &HashMap<DefId, clean::Type>,
+        type_name_map: &TypeNameMap,
         traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
     ) -> Option<clean::Type> {
         for (def_id, type_) in types {
             if let Some(traits) = traits_of_type.get(def_id) {
                 let all_traits_satisified = self.trait_bounds.iter().all(|trait_bound| {
-                    // FIXME: This only check whether trait points to the same type
                     // We don't care about trait generics here
-                    traits.iter().any(|trait_| trait_.def_id() == trait_bound.def_id())
+                    traits.iter().any(|trait_| {
+                        type_full_name(trait_, type_name_map, TypeNameLevel::All)
+                            == type_full_name(trait_bound, type_name_map, TypeNameLevel::All)
+                    })
                 });
                 if all_traits_satisified {
                     return Some(type_.to_owned());

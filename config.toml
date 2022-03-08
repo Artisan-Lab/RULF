@@ -213,11 +213,11 @@ tools = ["cargo", "rls", "clippy", "rustfmt", "analysis", "src"]
 #verbose = 0
 
 # Build the sanitizer runtimes
-sanitizers = false
+sanitizers = true
 
 # Build the profiler runtime (required when compiling with options that depend
 # on this runtime, such as `-C profile-generate` or `-Z instrument-coverage`).
-profiler = false
+profiler = true
 
 # Indicates whether the native libraries linked into Cargo will be statically
 # linked or not.

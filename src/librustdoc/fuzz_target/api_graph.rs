@@ -275,6 +275,11 @@ impl ApiGraph {
         free_generics.iter().for_each(|generic| {
             let generic_type = clean::Type::Generic(generic.to_owned());
             if let Some(bounds) = type_bounds.get(&generic_type) {
+                println!(
+                    "Trait bounds for {}: {}",
+                    generic,
+                    bounds._format_string_(&self.type_name_map)
+                );
                 if bounds.can_be_primitive_type(&self.type_name_map) {
                     println!("{} can be replaced with primitive type.", generic);
                     replace_with_primitive_type += 1;
@@ -289,6 +294,7 @@ impl ApiGraph {
                     replace_map.insert(generic_type, replace_str_slice.clone());
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types,
+                    &self.type_name_map,
                     &self.types_in_current_crate.traits_of_type,
                 ) {
                     println!("{} can be replaced with type {:?}", generic, type_);
@@ -296,11 +302,6 @@ impl ApiGraph {
                     replace_map.insert(generic_type, type_);
                 } else {
                     println!("Can not find sutable type for {}.", generic);
-                    println!(
-                        "Trait bounds for {}: {}",
-                        generic,
-                        bounds._format_string_(&self.type_name_map)
-                    );
                 }
             } else {
                 println!(
@@ -320,6 +321,7 @@ impl ApiGraph {
                     replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types,
+                    &self.type_name_map,
                     &self.types_in_current_crate.traits_of_type,
                 ) {
                     println!("{:?} can be replaced with type {:?}", qpath, type_);

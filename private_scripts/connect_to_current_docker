@@ -2,5 +2,5 @@
 
 set -e
 
-CONTAINER_ID="68debb479a3f"
+CONTAINER_ID="104533e6f629"
 docker exec -it ${CONTAINER_ID} /bin/bash

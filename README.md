@@ -33,7 +33,7 @@ The first three scripts are executed on host machine.
 The following scripts are executed in the container.
 4. Run `scripts/build-in-docker`. This script will compile current project and set it as default toolchain with rustup. This scripts may fail several times due to network problem. Just retry it.
 5. Run `scripts/install-and-test-afl`. This script will download afl.rs and test whether afl can run on your machine. You should see the output window of afl to continue. Just type Ctrl+C to exit afl.
-6. Run `scripts/install-fuzzing-scripts`. This script will download our fuzzing scripts from github. It will also download source files of several test crates we use in our paper. **Note**: Sometimes downloading files from github may fail. You can download this project on host and copy it into the container(One example is `docker/docker-cp`). Then run this script again.
+6. Run `scripts/install-fuzzing-scripts`. This script will download our fuzzing scripts from github. It will also download source files of several test crates we use in our paper. **Note**: Sometimes downloading files from github may fail. You can download this project on host and copy it into the container(One example is `private_scriptes/docker-cp`). Then run this script again.
 
 Then you can generate targets and fuzz them.
 For example, we want to fuzz url. You can run following commands.
