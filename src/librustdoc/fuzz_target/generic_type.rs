@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
+use rustc_hir::Mutability;
 use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
@@ -7,7 +8,8 @@ use std::{
 
 use crate::clean::{self, GenericBound};
 
-use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
+use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
+use super::type_util::extract_as_ref;
 
 // FIXME: Why these are not marker from std?.
 pub static PRIMITIVE_TRAITS: [&'static str; 10] = [
@@ -92,6 +94,26 @@ impl SimplifiedGenericBound {
             let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
             STR_SLICE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
         })
+    }
+
+    pub fn is_as_ref_trait(&self, type_name_map: &TypeNameMap) -> Option<clean::Type> {
+        if self.trait_bounds.len() != 1 {
+            return None;
+        }
+        // Safety: should never fails
+        let trait_bound = self.trait_bounds.iter().nth(0).unwrap();
+        if type_name(trait_bound, type_name_map, TypeNameLevel::All)
+            == "core::convert::AsRef".to_string()
+        {
+            return extract_as_ref(trait_bound).and_then(|type_| {
+                Some(clean::Type::BorrowedRef {
+                    lifetime: None,
+                    mutability: Mutability::Not,
+                    type_: Box::new(type_),
+                })
+            });
+        }
+        return None;
     }
 
     pub fn _format_string_(&self, type_name_map: &TypeNameMap) -> String {

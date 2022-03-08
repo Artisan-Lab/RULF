@@ -5,6 +5,8 @@ use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
 use std::collections::{HashMap, HashSet};
 
+use super::api_util::is_generic_type;
+
 pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type> {
     let mut res = HashSet::new();
     match clean_type.to_owned() {
@@ -199,4 +201,33 @@ pub fn replace_types(
         }
         _ => raw_type.to_owned(),
     }
+}
+
+pub fn extract_as_ref(trait_bound: &clean::Type) -> Option<clean::Type> {
+    let path = if let clean::Type::ResolvedPath { path, .. } = trait_bound {
+        path
+    } else {
+        return None;
+    };
+    let segments = &path.segments;
+    for path_segment in segments {
+        let generic_args = &path_segment.args;
+        match generic_args {
+            clean::GenericArgs::AngleBracketed { args, .. } => {
+                if args.len() != 1 {
+                    continue;
+                }
+                let arg = &args[0];
+                if let clean::GenericArg::Type(type_) = arg {
+                    if !is_generic_type(type_) {
+                        return Some(type_.to_owned());
+                    } else {
+                        println!("Internal Error: Found Generic in AsRef trait");
+                    }
+                }
+            }
+            clean::GenericArgs::Parenthesized { .. } => {}
+        }
+    }
+    return None;
 }

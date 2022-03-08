@@ -8,6 +8,7 @@ use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
+use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel};
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
 
@@ -268,8 +269,9 @@ impl ApiGraph {
             type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str)),
         };
 
-        let mut replace_with_primitive_type = 0usize;
-        let mut repleace_with_current_crate_type = 0usize;
+        let mut replaced_primitive_types = 0usize;
+        let mut as_ref_types = 0usize;
+        let mut replaced_current_crate_types = 0usize;
 
         // Try to determine whether each generic can be replaced with primitive type or types in current in
         free_generics.iter().for_each(|generic| {
@@ -282,23 +284,29 @@ impl ApiGraph {
                 );
                 if bounds.can_be_primitive_type(&self.type_name_map) {
                     println!("{} can be replaced with primitive type.", generic);
-                    replace_with_primitive_type += 1;
+                    replaced_primitive_types += 1;
                     replace_map.insert(generic_type, replace_primitive_type.clone());
                 } else if bounds.can_be_u8_slice(&self.type_name_map) {
                     println!("{} can be replaced with u8 slice", generic);
-                    replace_with_primitive_type += 1;
+                    replaced_primitive_types += 1;
                     replace_map.insert(generic_type, replace_u8_slice.clone());
                 } else if bounds.can_be_str_slice(&self.type_name_map) {
                     println!("{} can be replaced with str slice", generic);
-                    replace_with_primitive_type += 1;
+                    replaced_primitive_types += 1;
                     replace_map.insert(generic_type, replace_str_slice.clone());
+                } else if let Some(ref_type) = bounds.is_as_ref_trait(&self.type_name_map) {
+                    let ref_type_name =
+                        type_full_name(&ref_type, &self.type_name_map, TypeNameLevel::All);
+                    println!("{} can be replaced with {}", generic, ref_type_name);
+                    as_ref_types += 1;
+                    replace_map.insert(generic_type, ref_type);
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types,
                     &self.type_name_map,
                     &self.types_in_current_crate.traits_of_type,
                 ) {
                     println!("{} can be replaced with type {:?}", generic, type_);
-                    repleace_with_current_crate_type += 1;
+                    replaced_current_crate_types += 1;
                     replace_map.insert(generic_type, type_);
                 } else {
                     println!("Can not find sutable type for {}.", generic);
@@ -308,7 +316,7 @@ impl ApiGraph {
                     "{} has no bounds. So {} can be replaced with primitive type. ",
                     generic, generic
                 );
-                replace_with_primitive_type += 1;
+                replaced_primitive_types += 1;
                 replace_map.insert(generic_type, replace_primitive_type.clone());
             }
         });
@@ -317,7 +325,7 @@ impl ApiGraph {
             if let Some(bounds) = type_bounds.get(qpath) {
                 if bounds.can_be_primitive_type(&self.type_name_map) {
                     println!("{:?} can be replaced with primitive type.", qpath);
-                    replace_with_primitive_type += 1;
+                    replaced_primitive_types += 1;
                     replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
                 } else if let Some(type_) = bounds.can_be_replaced_with_type(
                     &self.types_in_current_crate.types,
@@ -325,7 +333,7 @@ impl ApiGraph {
                     &self.types_in_current_crate.traits_of_type,
                 ) {
                     println!("{:?} can be replaced with type {:?}", qpath, type_);
-                    repleace_with_current_crate_type += 1;
+                    replaced_current_crate_types += 1;
                     replace_map.insert(qpath.to_owned(), type_);
                 } else {
                     println!("Can not find sutable type for {:?}.", qpath);
@@ -340,7 +348,7 @@ impl ApiGraph {
                     "{:?} has no bounds. So {:?} can be replaced with primitive type. ",
                     qpath, qpath
                 );
-                replace_with_primitive_type += 1;
+                replaced_primitive_types += 1;
                 replace_map.insert(qpath.to_owned(), replace_primitive_type.clone());
             }
         });
@@ -351,8 +359,8 @@ impl ApiGraph {
         );
         println!("We can replace {} generic parameters among them. ", replace_map.len());
         println!(
-            "{} are replaced with primitive types. {} are with types in current crate.",
-            replace_with_primitive_type, repleace_with_current_crate_type
+            "{} are replaced with primitive types. {} are AsRef types. {} are with types in current crate.",
+            replaced_primitive_types, as_ref_types, replaced_current_crate_types
         );
 
         let functions = self
