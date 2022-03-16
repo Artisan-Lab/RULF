@@ -22,9 +22,11 @@ use std::hash::Hash;
 
 use crate::clean::Visibility;
 
+use super::api_sequence::StdFunctionCall;
 use super::default_value::DefaultValue;
 use super::generic_function::GenericFunction;
 use super::impl_util::TraitsOfType;
+use super::std_type::StdCallType;
 use super::type_name::TypeNameMap;
 
 lazy_static! {
@@ -1319,13 +1321,31 @@ impl ApiGraph {
                         );
                         continue;
                     } else if let Ok(default_value) = DefaultValue::try_from(current_ty) {
-                        let current_default_value_index = new_sequence.default_values.len();
                         api_call._add_param(
                             ParamType::_DefaultValue,
-                            current_default_value_index,
+                            new_sequence.default_values.len(),
                             default_value.call_type(),
                         );
                         new_sequence.default_values.push(default_value);
+                        continue;
+                    } else if let Ok(std_call_type) =
+                        StdCallType::try_from_type(current_ty, &self.type_name_map)
+                    {
+                        let (std_type, call_type) = std_call_type.std_type_and_call_type();
+                        let std_type_params = std_type.fuzzable_type_and_call_type();
+                        let mut params = Vec::new();
+                        for (fuzzable_type, call_type) in std_type_params {
+                            let fuzzable_index = new_sequence.fuzzable_params.len();
+                            params.push((fuzzable_index, call_type));
+                            new_sequence.fuzzable_params.push(fuzzable_type);
+                        }
+                        api_call._add_param(
+                            ParamType::_StdType,
+                            new_sequence.std_function_calls.len(),
+                            call_type,
+                        );
+                        let std_function_call = StdFunctionCall { std_type, params };
+                        new_sequence.std_function_calls.push(std_function_call);
                         continue;
                     }
                     //如果当前参数不是fuzzable的，那么就去api sequence寻找是否有这个依赖

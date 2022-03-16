@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
 use crate::fuzz_target::api_util;
@@ -8,16 +10,19 @@ use crate::fuzz_target::replay_util;
 use std::collections::{HashMap, HashSet};
 
 use super::default_value::DefaultValue;
+use super::std_type::StdType;
 
 const PARAM_PREFIX: &'static str = "_param";
 const LOCAL_PARAM_PREFIX: &'static str = "_local";
 const DEFAULT_VALUE_PREFIX: &'static str = "_default";
+const STD_FUNCTION_CALL_PREFIX: &'static str = "_std_type";
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum ParamType {
     _FunctionReturn,
     _FuzzableType,
     _DefaultValue,
+    _StdType,
 }
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ApiCall {
@@ -44,19 +49,26 @@ impl ApiCall {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StdFunctionCall {
+    pub std_type: StdType,
+    pub params: Vec<(usize, CallType)>,
+}
+
 //function call sequences
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ApiSequence {
     //TODO:如何表示函数调用序列？
-    pub functions: Vec<ApiCall>,               //函数调用序列
-    pub fuzzable_params: Vec<FuzzableType>,    //需要传入的fuzzable变量
-    pub default_values: Vec<DefaultValue>,     //需要预先提供的具有默认值的变量
-    pub _using_traits: Vec<String>,            //需要use引入的traits的路径
-    pub _unsafe_tag: bool,                     //标志这个调用序列是否需要加上unsafe标记
-    pub _moved: HashSet<usize>,                //表示哪些返回值已经被move掉，不再能被使用
-    pub _fuzzable_mut_tag: HashSet<usize>,     //表示哪些fuzzable的变量需要带上mut标记
-    pub _function_mut_tag: HashSet<usize>,     //表示哪些function的返回值需要带上mut标记
-    pub _covered_dependencies: HashSet<usize>, //表示用到了哪些dependency,即边覆盖率
+    pub functions: Vec<ApiCall>,                  //函数调用序列
+    pub fuzzable_params: Vec<FuzzableType>,       //需要传入的fuzzable变量
+    pub default_values: Vec<DefaultValue>,        //需要预先提供的具有默认值的变量
+    pub std_function_calls: Vec<StdFunctionCall>, //使用到的标准库中的函数调用
+    pub _using_traits: Vec<String>,               //需要use引入的traits的路径
+    pub _unsafe_tag: bool,                        //标志这个调用序列是否需要加上unsafe标记
+    pub _moved: HashSet<usize>,                   //表示哪些返回值已经被move掉，不再能被使用
+    pub _fuzzable_mut_tag: HashSet<usize>,        //表示哪些fuzzable的变量需要带上mut标记
+    pub _function_mut_tag: HashSet<usize>,        //表示哪些function的返回值需要带上mut标记
+    pub _covered_dependencies: HashSet<usize>,    //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
@@ -64,6 +76,7 @@ impl ApiSequence {
         let functions = Vec::new();
         let fuzzable_params = Vec::new();
         let default_values = Vec::new();
+        let std_function_calls = Vec::new();
         let _using_traits = Vec::new();
         let _unsafe_tag = false;
         let _moved = HashSet::new();
@@ -74,6 +87,7 @@ impl ApiSequence {
             functions,
             fuzzable_params,
             default_values,
+            std_function_calls,
             _using_traits,
             _unsafe_tag,
             _moved,
@@ -121,6 +135,7 @@ impl ApiSequence {
         let first_func_number = res.functions.len();
         let first_fuzzable_number = res.fuzzable_params.len();
         let first_default_values_number = res.default_values.len();
+        let first_std_function_call_number = res.std_function_calls.len();
         let mut other_sequence = other.clone();
         //functions
         for other_function in &other_sequence.functions {
@@ -131,6 +146,7 @@ impl ApiSequence {
                     ParamType::_FuzzableType => *index + first_fuzzable_number,
                     ParamType::_FunctionReturn => *index + first_func_number,
                     ParamType::_DefaultValue => *index + first_default_values_number,
+                    ParamType::_StdType => *index + first_std_function_call_number,
                 };
                 new_other_params.push((param_type.clone(), new_index, call_type.clone()));
             }
@@ -141,6 +157,16 @@ impl ApiSequence {
         res.fuzzable_params.append(&mut other_sequence.fuzzable_params);
         // default_values
         res.default_values.append(&mut other_sequence.default_values);
+        // std function calls
+        other_sequence.std_function_calls.iter().for_each(|std_function_call| {
+            let StdFunctionCall { std_type, params } = std_function_call;
+            let params = params
+                .iter()
+                .map(|(index, call_type)| (*index + first_fuzzable_number, call_type.to_owned()))
+                .collect_vec();
+            let other_std_function_call = StdFunctionCall { std_type: std_type.to_owned(), params };
+            res.std_function_calls.push(other_std_function_call);
+        });
         //using_trait
         res._using_traits.append(&mut other_sequence._using_traits);
         //unsafe tag
@@ -676,7 +702,7 @@ impl ApiSequence {
 
         // default values
         (0..self.default_values.len()).into_iter().for_each(|index| {
-            let default_value = unsafe { self.default_values.get_unchecked(index) };
+            let default_value = self.default_values.get(index).unwrap();
             let mut_tag = if default_value.requires_mut_tag() { "mut " } else { "" };
             let type_notation = if default_value.requies_type_notation() {
                 format!(":{}", default_value.type_notation(&_api_graph.type_name_map))
@@ -693,6 +719,25 @@ impl ApiSequence {
                 default_value.default_value()
             );
             res.push_str(&init_default_value);
+        });
+
+        // std functions
+        (0..self.std_function_calls.len()).into_iter().for_each(|index| {
+            let std_function_call = self.std_function_calls.get(index).unwrap();
+            let StdFunctionCall { std_type, params } = std_function_call;
+            let params = params
+                .iter()
+                .map(|(index, call_type)| {
+                    let param_name = format!("{}{}", PARAM_PREFIX, index);
+                    call_type._to_call_string(&param_name, &_api_graph.full_name_map)
+                })
+                .collect_vec();
+            let call_string = std_type.call_string(params);
+            let init_std_type = format!(
+                "{}let {}{} = {};\n",
+                body_indent, STD_FUNCTION_CALL_PREFIX, index, call_string
+            );
+            res.push_str(&init_std_type);
         });
 
         //api_calls
@@ -717,6 +762,9 @@ impl ApiSequence {
                     }
                     ParamType::_DefaultValue => {
                         format!("{}{}", DEFAULT_VALUE_PREFIX, index)
+                    }
+                    ParamType::_StdType => {
+                        format!("{}{}", STD_FUNCTION_CALL_PREFIX, index)
                     }
                 };
                 let call_type_array_len = call_type_array.len();

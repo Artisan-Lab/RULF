@@ -719,13 +719,11 @@ pub fn fuzz_target_run_clean_krate(
         use crate::fuzz_target::api_graph::GraphTraverseAlgorithm::_RandomWalk;
         api_dependency_graph.generate_all_possoble_sequences(_RandomWalk);
     }
-    //api_dependency_graph._print_generated_libfuzzer_file();
-    //api_dependency_graph._print_pretty_functions(false);
-    //api_dependency_graph._print_generated_test_functions();
+
     // use crate::fuzz_target::print_message;
     // print_message::_print_type_full_names(&api_dependency_graph);
     // print_message::_print_generated_test_functions(&api_dependency_graph);
-    //print_message::_print_generic_functions(&api_dependency_graph);
+    // print_message::_print_generic_functions(&api_dependency_graph);
     // print_message::_print_type_in_current_crate(&api_dependency_graph);
     // print_message::_print_traits_in_current_crate(&api_dependency_graph);
     // print_message::_print_pretty_functions(&api_dependency_graph, true);

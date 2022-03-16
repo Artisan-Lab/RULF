@@ -95,6 +95,7 @@ pub mod fuzz_target {
     crate mod prelude_type;
     crate mod print_message;
     crate mod replay_util;
+    crate mod std_type;
     crate mod type_name;
     crate mod type_util;
 }
