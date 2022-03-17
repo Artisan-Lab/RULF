@@ -115,9 +115,9 @@ pub fn _print_generic_functions(graph: &ApiGraph) {
 
 pub fn _print_type_in_current_crate(graph: &ApiGraph) {
     println!("Type in current crate:");
-    graph.types_in_current_crate.type_full_names.iter().for_each(|(did, full_name)| {
+    graph.defined_types.type_full_names.iter().for_each(|(did, full_name)| {
         println!("full name: {}", full_name);
-        if let Some(bounds) = graph.types_in_current_crate.traits_of_type.get(did) {
+        if let Some(bounds) = graph.defined_types.traits_of_type.get(did) {
             println!("bounds of type: {}", full_name);
             bounds.iter().for_each(|type_| {
                 println!("{:?}", type_);
@@ -128,7 +128,7 @@ pub fn _print_type_in_current_crate(graph: &ApiGraph) {
 
 pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
     println!("traits_in_current_crate:");
-    graph.types_in_current_crate.traits.iter().for_each(|(_, trait_name)| {
+    graph.defined_types.traits.iter().for_each(|(_, trait_name)| {
         println!("{}", trait_name);
     });
 }

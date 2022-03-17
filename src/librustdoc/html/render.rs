@@ -706,7 +706,7 @@ pub fn fuzz_target_run_clean_krate(
     //单态化泛型函数
     let enable_generic_function = true;
     if enable_generic_function {
-        api_dependency_graph.eagerly_monomorphic_generic_functions();
+        api_dependency_graph.eagerly_monomorphize_generic_functions();
     }
     //寻找所有依赖，并且构建序列
     api_dependency_graph.find_all_dependencies();
@@ -1839,11 +1839,7 @@ impl Context {
                     if generics_has_no_content(&struct_.generics) {
                         let type_ =
                             from_struct_to_clean_type(item.def_id, item.name.clone().unwrap());
-                        api_dependency_graph.add_type_in_current_crate(
-                            item.def_id,
-                            type_,
-                            type_full_name,
-                        );
+                        api_dependency_graph.add_defined_type(item.def_id, type_, type_full_name);
                     }
                 }
             } else if item_type == ItemType::Enum {
@@ -1852,11 +1848,7 @@ impl Context {
                     if generics_has_no_content(&enum_.generics) {
                         let type_ =
                             from_enum_to_clean_type(item.def_id, item.name.clone().unwrap());
-                        api_dependency_graph.add_type_in_current_crate(
-                            item.def_id,
-                            type_,
-                            type_full_name,
-                        );
+                        api_dependency_graph.add_defined_type(item.def_id, type_, type_full_name);
                     }
                 }
             }

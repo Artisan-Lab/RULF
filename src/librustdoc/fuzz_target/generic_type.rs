@@ -12,7 +12,7 @@ use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 use super::type_util::extract_as_ref;
 
 // FIXME: Why these are not marker from std?.
-pub static PRIMITIVE_TRAITS: [&'static str; 10] = [
+pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::cmp::Ord",
     "core::cmp::PartialEq",
     "core::clone::Clone",
@@ -39,6 +39,68 @@ pub enum GenericBoundError {
 #[derive(Debug, Clone)]
 pub struct SimplifiedGenericBound {
     trait_bounds: HashSet<clean::Type>,
+}
+
+pub enum ReplaceType {
+    Numeric,
+    U8Slice,
+    Str,
+    RefTrait(clean::Type),
+    DefinedType(clean::Type),
+}
+
+impl ReplaceType {
+    pub fn to_replace_type(&self) -> clean::Type {
+        match self {
+            ReplaceType::Numeric => clean::Type::Primitive(clean::PrimitiveType::I32),
+            ReplaceType::U8Slice => clean::Type::BorrowedRef {
+                lifetime: None,
+                mutability: Mutability::Not,
+                type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(
+                    clean::PrimitiveType::U8,
+                )))),
+            },
+            ReplaceType::Str => clean::Type::BorrowedRef {
+                lifetime: None,
+                mutability: Mutability::Not,
+                type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str)),
+            },
+            ReplaceType::DefinedType(ty_) | ReplaceType::RefTrait(ty_) => ty_.to_owned(),
+        }
+    }
+
+    pub fn is_primitive_type(&self) -> bool {
+        match self {
+            ReplaceType::Numeric | ReplaceType::Str | ReplaceType::U8Slice => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_ref_trait(&self) -> bool {
+        match self {
+            ReplaceType::RefTrait(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_defined_type(&self) -> bool {
+        match self {
+            ReplaceType::DefinedType(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn _print_replace_massage(&self, generic: &str, type_name_map: &TypeNameMap) {
+        match self {
+            ReplaceType::Numeric => println!("{} can be replaced with numeric", generic),
+            ReplaceType::U8Slice => println!("{} can be replaced with u8 slice", generic),
+            ReplaceType::Str => println!("{} can be replaced with str", generic),
+            ReplaceType::DefinedType(type_) | ReplaceType::RefTrait(type_) => {
+                let type_full_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
+                println!("{} can be replaced with {}", generic, type_full_name);
+            }
+        }
+    }
 }
 
 impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
@@ -73,12 +135,36 @@ impl SimplifiedGenericBound {
         self.trait_bounds.extend(other_bound.trait_bounds);
     }
 
+    /// determine whether a generic bound can be replaced with some type
+    pub fn can_be_some_type(
+        &self,
+        types: &HashMap<DefId, clean::Type>,
+        type_name_map: &TypeNameMap,
+        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+    ) -> Option<ReplaceType> {
+        if self.can_be_numeric_type(type_name_map) {
+            Some(ReplaceType::Numeric)
+        } else if self.can_be_u8_slice(type_name_map) {
+            Some(ReplaceType::U8Slice)
+        } else if self.can_be_str_slice(type_name_map) {
+            Some(ReplaceType::Str)
+        } else if let Some(ref_type) = self.is_as_ref_trait(type_name_map) {
+            Some(ReplaceType::RefTrait(ref_type))
+        } else if let Some(defined_type) =
+            self.can_be_defined_type(types, type_name_map, traits_of_type)
+        {
+            Some(ReplaceType::DefinedType(defined_type))
+        } else {
+            None
+        }
+    }
+
     // determine whether a bound can be a primitive type
-    pub fn can_be_primitive_type(&self, type_name_map: &TypeNameMap) -> bool {
+    pub fn can_be_numeric_type(&self, type_name_map: &TypeNameMap) -> bool {
         // FIXME: This is a very naive implementation. We only compare if trait names are equal.
         self.trait_bounds.iter().all(|trait_bound| {
             let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
-            PRIMITIVE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
+            NUMERIC_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
         })
     }
 
@@ -125,7 +211,7 @@ impl SimplifiedGenericBound {
         res.join(",")
     }
 
-    pub fn can_be_replaced_with_type(
+    pub fn can_be_defined_type(
         &self,
         types: &HashMap<DefId, clean::Type>,
         type_name_map: &TypeNameMap,
