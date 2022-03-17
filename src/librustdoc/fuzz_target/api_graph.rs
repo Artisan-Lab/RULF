@@ -5,14 +5,11 @@ use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
-use crate::fuzz_target::generic_type::ReplaceType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
-use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel};
 use rustc_hir::def_id::DefId;
 
-use itertools::Itertools;
 //use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
 
@@ -224,115 +221,40 @@ impl ApiGraph {
     }
 
     pub fn eagerly_monomorphize_generic_functions(&mut self) {
-        let mut free_generics = HashSet::new();
-        let mut qpaths = HashSet::new();
-        let mut type_bounds = HashMap::new();
-        let mut replace_map = HashMap::new();
+        let mut known_bounds = Vec::new();
+        let mut bound_type_map = HashMap::new();
+        let mut failed_bounds = HashSet::new();
+        let mut primitive_types = 0usize;
+        let mut ref_traits = 0usize;
+        let mut defined_types = 0usize;
 
+        let mut monomorphized_functions = Vec::new();
         self.generic_functions.iter().for_each(|generic_function| {
-            free_generics.extend(generic_function.generics.clone());
-            qpaths.extend(generic_function.remaining_qpaths.clone());
-            generic_function.type_bounds.iter().for_each(|(type_, simplified_generic_bound)| {
-                if !type_bounds.contains_key(type_) {
-                    type_bounds.insert(type_.to_owned(), simplified_generic_bound.to_owned());
-                } else {
-                    let old_bound = type_bounds.get_mut(type_).unwrap();
-                    old_bound.merge_other_bound(simplified_generic_bound.to_owned());
-                }
-            });
-        });
-
-        let mut replaced_primitive_types = 0usize;
-        let mut as_ref_types = 0usize;
-        let mut replaced_defined_types = 0usize;
-
-        // Try to determine whether each generic can be replaced with primitive type or types in current in
-        free_generics.iter().for_each(|generic| {
-            let generic_type = clean::Type::Generic(generic.to_owned());
-            if let Some(bounds) = type_bounds.get(&generic_type) {
-                println!(
-                    "Trait bounds for {}: {}",
-                    generic,
-                    bounds._format_string_(&self.type_name_map)
-                );
-                if let Some(replace_type) = bounds.can_be_some_type(
-                    &self.defined_types.types,
-                    &self.type_name_map,
-                    &self.defined_types.traits_of_type,
-                ) {
-                    replace_type._print_replace_massage(generic, &self.type_name_map);
-                    if replace_type.is_primitive_type() {
-                        replaced_primitive_types += 1;
-                    } else if replace_type.is_ref_trait() {
-                        as_ref_types += 1;
-                    } else if replace_type.is_defined_type() {
-                        replaced_defined_types += 1;
-                    }
-                    replace_map.insert(generic_type, replace_type.to_replace_type());
-                } else {
-                    println!("Can not find sutable type for {}.", generic);
-                }
-            } else {
-                println!(
-                    "{} has no bounds. So {} can be replaced with primitive type. ",
-                    generic, generic
-                );
-                replaced_primitive_types += 1;
-                replace_map.insert(generic_type, ReplaceType::Numeric.to_replace_type());
-            }
-        });
-
-        qpaths.iter().for_each(|qpath| {
-            let qpath_name = type_full_name(qpath, &self.type_name_map, TypeNameLevel::All);
-            if let Some(bounds) = type_bounds.get(qpath) {
-                println!(
-                    "Trait bounds for {}: {}",
-                    qpath_name,
-                    bounds._format_string_(&self.type_name_map)
-                );
-                if let Some(replace_type) = bounds.can_be_some_type(
-                    &self.defined_types.types,
-                    &self.type_name_map,
-                    &self.defined_types.traits_of_type,
-                ) {
-                    replace_type._print_replace_massage(&qpath_name, &self.type_name_map);
-                    if replace_type.is_primitive_type() {
-                        replaced_primitive_types += 1;
-                    } else if replace_type.is_ref_trait() {
-                        as_ref_types += 1;
-                    } else if replace_type.is_defined_type() {
-                        replaced_defined_types += 1;
-                    }
-                    replace_map.insert(qpath.to_owned(), replace_type.to_replace_type());
-                } else {
-                    println!("Can not find sutable type for {}.", qpath_name);
-                }
-            } else {
-                println!(
-                    "{} has no bounds. So {} can be replaced with primitive type. ",
-                    qpath_name, qpath_name
-                );
-                replaced_primitive_types += 1;
-                replace_map.insert(qpath.to_owned(), ReplaceType::Numeric.to_replace_type());
+            if let Ok(function) = generic_function.try_monomorphize(
+                &self.defined_types.types,
+                &self.type_name_map,
+                &self.defined_types.traits_of_type,
+                &mut known_bounds,
+                &mut bound_type_map,
+                &mut failed_bounds,
+                &mut primitive_types,
+                &mut ref_traits,
+                &mut defined_types,
+            ) {
+                monomorphized_functions.push(function);
             }
         });
 
         println!(
-            "There are totally {} generic parameter in this crate.",
-            free_generics.len() + qpaths.len()
+            "Among all {} bounds, 
+{} can be replaced with primitive type, 
+{} are ref traits, 
+{} can be replaced with defined types.",
+            known_bounds.len(),
+            primitive_types,
+            ref_traits,
+            defined_types
         );
-        println!("We can replace {} generic parameters among them. ", replace_map.len());
-        println!(
-            "{} are replaced with primitive types. {} are AsRef types. {} are with types in current crate.",
-            replaced_primitive_types, as_ref_types, replaced_defined_types
-        );
-
-        let functions = self
-            .generic_functions
-            .iter()
-            .filter(|generic_function| generic_function.can_be_fully_monomorphized(&replace_map))
-            .map(|generic_function| generic_function.monomorphize(&replace_map))
-            .collect_vec();
 
         println!(
             "There are total {} functions(include generic).",
@@ -340,12 +262,12 @@ impl ApiGraph {
         );
         println!(
             "We can monomorphize {} generic functions among total {} functions.",
-            functions.len(),
+            monomorphized_functions.len(),
             self.generic_functions.len()
         );
 
         println!("before add: {}", self.api_functions.len());
-        functions.into_iter().for_each(|api_function| {
+        monomorphized_functions.into_iter().for_each(|api_function| {
             self.add_api_function(api_function);
         });
         println!("after add: {}", self.api_functions.len());

@@ -36,7 +36,7 @@ pub enum GenericBoundError {
 }
 
 /// This represents generic bound without `trait with generic`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifiedGenericBound {
     trait_bounds: HashSet<clean::Type>,
 }

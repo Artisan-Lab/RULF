@@ -3,11 +3,14 @@ use std::convert::TryFrom;
 
 use itertools::Itertools;
 
+use rustc_hir::def_id::DefId;
+
 use crate::clean::{self, GenericBound};
 
 use super::api_function::ApiFunction;
 use super::generic_type::{generic_bounds_contains_trait_with_generic, SimplifiedGenericBound};
 use super::impl_util::where_preidicates_bounds_restrict_generic;
+use super::type_name::TypeNameMap;
 use super::type_util::{get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types};
 
 #[derive(Debug, Clone)]
@@ -178,6 +181,53 @@ impl GenericFunction {
         }
     }
 
+    pub fn try_monomorphize(
+        &self,
+        types: &HashMap<DefId, clean::Type>,
+        type_name_map: &TypeNameMap,
+        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+        known_bounds: &mut Vec<SimplifiedGenericBound>,
+        bound_type_map: &mut HashMap<usize, clean::Type>,
+        failed_bounds: &mut HashSet<usize>,
+        primitive_types: &mut usize,
+        ref_traits: &mut usize,
+        defined_types: &mut usize,
+    ) -> Result<ApiFunction, ()> {
+        let mut replace_map = HashMap::new();
+        self.type_bounds.iter().for_each(|(type_, bound)| {
+            if let Some(index) = index_of(known_bounds, bound) {
+                // the bound is one of known bounds
+                if bound_type_map.contains_key(&index) {
+                    let replace_type = bound_type_map.get(&index).unwrap();
+                    replace_map.insert(type_.to_owned(), replace_type.to_owned());
+                }
+            } else {
+                known_bounds.push(bound.to_owned());
+                let index = known_bounds.len() - 1;
+                if let Some(replace_type) =
+                    bound.can_be_some_type(types, type_name_map, traits_of_type)
+                {
+                    replace_map.insert(type_.to_owned(), replace_type.to_replace_type());
+                    bound_type_map.insert(index, replace_type.to_replace_type());
+                    if replace_type.is_primitive_type() {
+                        *primitive_types += 1;
+                    } else if replace_type.is_ref_trait() {
+                        *ref_traits += 1;
+                    } else if replace_type.is_defined_type() {
+                        *defined_types += 1;
+                    }
+                } else {
+                    failed_bounds.insert(index);
+                }
+            }
+        });
+        if self.can_be_fully_monomorphized(&replace_map) {
+            return Ok(self.monomorphize(&replace_map));
+        } else {
+            return Err(());
+        }
+    }
+
     pub fn can_be_fully_monomorphized(
         &self,
         replace_map: &HashMap<clean::Type, clean::Type>,
@@ -243,4 +293,13 @@ impl GenericFunction {
             return_type_notation,
         }
     }
+}
+
+fn index_of<T: PartialEq + Eq + Clone>(vec: &Vec<T>, item: &T) -> Option<usize> {
+    for i in 0..vec.len() {
+        if *(vec.get(i).unwrap()) == *item {
+            return Some(i);
+        }
+    }
+    None
 }
