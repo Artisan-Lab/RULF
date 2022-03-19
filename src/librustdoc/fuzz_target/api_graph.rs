@@ -8,6 +8,7 @@ use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
+use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 
 //use crate::clean::{PrimitiveType};
@@ -87,6 +88,7 @@ pub struct ApiDependency {
     pub input_fun: (ApiType, usize),  //the index of second func
     pub input_param_index: usize,
     pub call_type: CallType,
+    pub from_helper: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +282,7 @@ impl ApiGraph {
         let api_num = self.api_functions.len();
         for i in 0..api_num {
             let first_fun = &self.api_functions[i];
+            let from_helper = first_fun.is_helper;
             if first_fun._is_end_function(&self.full_name_map) {
                 //如果第一个函数是终止节点，就不寻找这样的依赖
                 continue;
@@ -309,6 +312,7 @@ impl ApiGraph {
                                     input_fun: (ApiType::BareFunction, j),
                                     input_param_index: k,
                                     call_type: call_type.clone(),
+                                    from_helper,
                                 };
                                 self.api_dependencies.push(one_dependency);
                             }
@@ -527,7 +531,7 @@ impl ApiGraph {
                     if let Some(new_sequence) =
                         self.is_fun_satisfied(&api_type, api_func_index, sequence)
                     {
-                        let covered_nodes = new_sequence._get_contained_api_functions();
+                        let covered_nodes = new_sequence.get_covered_nodes();
                         for covered_node in &covered_nodes {
                             if !already_covered_nodes.contains(covered_node) {
                                 already_covered_nodes.insert(*covered_node);
@@ -535,7 +539,7 @@ impl ApiGraph {
                             }
                         }
 
-                        let covered_edges = &new_sequence._covered_dependencies;
+                        let covered_edges = &new_sequence.covered_edges;
                         for covered_edge in covered_edges {
                             if !already_covered_edges.contains(covered_edge) {
                                 already_covered_edges.insert(*covered_edge);
@@ -706,8 +710,9 @@ impl ApiGraph {
                         covered_node_this_iteration.insert(*unvisited_node);
                         apis_covered_by_reverse_search = apis_covered_by_reverse_search + 1;
                     } else {
-                        //The possible cause is there is some wrong fuzzable type
-                        println!("Found unsupported fuzzable type.");
+                        // The possible cause is there is some wrong fuzzable type
+                        let api_func = &self.api_functions[*unvisited_node];
+                        println!("Found unsupported fuzzable type in {}.", api_func._pretty_print(&self.type_name_map));
                     }
                 }
             }
@@ -732,12 +737,12 @@ impl ApiGraph {
             }
             totol_sequences_number = totol_sequences_number + 1;
             total_length = total_length + sequence.len();
-            let cover_nodes = sequence._get_contained_api_functions();
+            let cover_nodes = sequence.get_covered_nodes();
             for cover_node in &cover_nodes {
                 covered_nodes.insert(*cover_node);
             }
 
-            let cover_edges = &sequence._covered_dependencies;
+            let cover_edges = &sequence.covered_edges;
             for cover_edge in cover_edges {
                 covered_edges.insert(*cover_edge);
             }
@@ -779,7 +784,7 @@ impl ApiGraph {
 
         for i in 0..prepared_sequence_number {
             let api_sequence = &self.api_sequences[i];
-            let contains_nodes = api_sequence._get_contained_api_functions();
+            let contains_nodes = api_sequence.get_covered_nodes();
             for node in contains_nodes {
                 if let Some(v) = node_candidate_sequences.get_mut(&node) {
                     if !v.contains(&i) {
@@ -810,7 +815,7 @@ impl ApiGraph {
             let chosen_sequence = &self.api_sequences[chosen_index];
             //println!("{:}",chosen_sequence._to_well_written_function(self, 0, 0));
 
-            let covered_nodes = chosen_sequence._get_contained_api_functions();
+            let covered_nodes = chosen_sequence.get_covered_nodes();
             to_cover_nodes =
                 to_cover_nodes.into_iter().filter(|node| !covered_nodes.contains(node)).collect();
             chosen_sequence_flag[random_index] = true;
@@ -845,11 +850,11 @@ impl ApiGraph {
             res.push(sequence.clone());
             sequence_indexes.remove(chosen_index);
 
-            for covered_node in sequence._get_contained_api_functions() {
+            for covered_node in sequence.get_covered_nodes() {
                 covered_nodes.insert(covered_node);
             }
 
-            for covered_edge in &sequence._covered_dependencies {
+            for covered_edge in &sequence.covered_edges {
                 covered_edges.insert(covered_edge.clone());
             }
         }
@@ -877,11 +882,11 @@ impl ApiGraph {
             }
             res.push(sequence.clone());
 
-            for covered_node in sequence._get_contained_api_functions() {
+            for covered_node in sequence.get_covered_nodes() {
                 covered_nodes.insert(covered_node);
             }
 
-            for covered_edge in &sequence._covered_dependencies {
+            for covered_edge in &sequence.covered_edges {
                 covered_edges.insert(covered_edge.clone());
             }
 
@@ -906,35 +911,24 @@ impl ApiGraph {
     ) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut to_cover_nodes = Vec::new();
+        let mut to_cover_edges = Vec::new();
 
-        let mut fixed_covered_nodes = HashSet::new();
-        for fixed_sequence in &self.api_sequences {
-            //let covered_nodes = fixed_sequence._get_contained_api_functions();
-            //for covered_node in &covered_nodes {
-            //    fixed_covered_nodes.insert(*covered_node);
-            //}
 
-            if !fixed_sequence._has_no_fuzzables()
-                && !fixed_sequence._contains_dead_code_except_last_one(self)
+        for seq in &self.api_sequences {
+            if !seq._has_no_fuzzables()
+                && !seq._contains_dead_code_except_last_one(self)
             {
-                let covered_nodes = fixed_sequence._get_contained_api_functions();
-                for covered_node in &covered_nodes {
-                    fixed_covered_nodes.insert(*covered_node);
-                }
+                let covered_nodes = seq.get_covered_nodes();
+                let covered_edges = seq.get_covered_edges();
+                to_cover_nodes.extend(covered_nodes);
+                to_cover_edges.extend(covered_edges);
             }
         }
 
-        for fixed_covered_node in fixed_covered_nodes {
-            to_cover_nodes.push(fixed_covered_node);
-        }
-
         let to_cover_nodes_number = to_cover_nodes.len();
-        //println!("There are total {} nodes need to be covered.", to_cover_nodes_number);
-        let to_cover_dependency_number = self.api_dependencies.len();
-        //println!("There are total {} edges need to be covered.", to_cover_dependency_number);
+        let to_cover_edges_number = to_cover_edges.len();
         let total_sequence_number = self.api_sequences.len();
 
-        //println!("There are toatl {} sequences.", total_sequence_number);
         let mut valid_fuzz_sequence_count = 0;
         for sequence in &self.api_sequences {
             if !sequence._has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self)
@@ -983,7 +977,7 @@ impl ApiGraph {
                     continue;
                 }
 
-                let covered_nodes = api_sequence._get_contained_api_functions();
+                let covered_nodes = api_sequence.get_covered_nodes();
                 let mut uncovered_nodes_by_former_sequence_count = 0;
                 for covered_node in &covered_nodes {
                     if !already_covered_nodes.contains(covered_node) {
@@ -995,7 +989,7 @@ impl ApiGraph {
                 if uncovered_nodes_by_former_sequence_count < current_max_covered_nodes {
                     continue;
                 }
-                let covered_edges = &api_sequence._covered_dependencies;
+                let covered_edges = &api_sequence.covered_edges;
                 let mut uncovered_edges_by_former_sequence_count = 0;
                 for covered_edge in covered_edges {
                     if !already_covered_edges.contains(covered_edge) {
@@ -1024,7 +1018,6 @@ impl ApiGraph {
             }
 
             if try_to_find_dynamic_length_flag && current_max_covered_nodes <= 0 {
-                //println!("sequences with dynamic length can not cover more nodes");
                 try_to_find_dynamic_length_flag = false;
                 continue;
             }
@@ -1048,12 +1041,11 @@ impl ApiGraph {
 
             let chosen_sequence = &self.api_sequences[current_chosen_sequence_index];
 
-            let covered_nodes = chosen_sequence._get_contained_api_functions();
+            let covered_nodes = chosen_sequence.get_covered_nodes();
             for cover_node in covered_nodes {
                 already_covered_nodes.insert(cover_node);
             }
-            let covered_edges = &chosen_sequence._covered_dependencies;
-            //println!("covered_edges = {:?}", covered_edges);
+            let covered_edges = &chosen_sequence.covered_edges;
             for cover_edge in covered_edges {
                 already_covered_edges.insert(*cover_edge);
             }
@@ -1062,8 +1054,8 @@ impl ApiGraph {
                 //println!("all sequence visited");
                 break;
             }
-            if to_cover_dependency_number != 0
-                && already_covered_edges.len() == to_cover_dependency_number
+            if to_cover_edges_number != 0
+                && already_covered_edges.len() == to_cover_edges_number
             {
                 //println!("all edges visited");
                 //should we stop at visit all edges?
@@ -1073,64 +1065,46 @@ impl ApiGraph {
                 //println!("all nodes visited");
                 break;
             }
-            //println!("no fuzzable count = {}", no_fuzzable_count);
         }
+        res = sorted_chosen_sequences.iter().map(|index| self.api_sequences[*index].clone()).collect_vec();
+        self.make_statistics(&res);
+        res
+    }
 
-        let total_functions_number = self.api_functions.len();
+    pub fn make_statistics(&self, chosen_seqs: &[ApiSequence]) {
         println!("-----------STATISTICS-----------");
-        println!("total nodes: {}", total_functions_number);
-
-        let valid_api_number = self.api_functions.len();
-        //println!("total valid nodes: {}", valid_api_number);
-
-        let total_dependencies_number = self.api_dependencies.len();
-        println!("total edges: {}", total_dependencies_number);
-
-        let covered_node_num = already_covered_nodes.len();
-        let covered_edges_num = already_covered_edges.len();
-        println!("covered nodes: {}", covered_node_num);
-        println!("covered edges: {}", covered_edges_num);
-
-        let node_coverage = (already_covered_nodes.len() as f64) / (valid_api_number as f64);
-        let edge_coverage =
-            (already_covered_edges.len() as f64) / (total_dependencies_number as f64);
+        let helper_nodes = self.api_functions.iter().filter(|api_fun| api_fun.is_helper).count();
+        let not_helepr_nodes = self.api_functions.len() - helper_nodes;
+        println!("total nodes: {} ({} helpers).", not_helepr_nodes, helper_nodes);
+        let helper_edges = self.api_dependencies.iter().filter(|api_dep|api_dep.from_helper).count();
+        let not_helper_edges = self.api_dependencies.len() - helper_edges;
+        println!("total edges: {} ({} helpers).", not_helper_edges, helper_edges);
+        let mut covered_nodes = HashSet::new();
+        let mut covered_edges = HashSet::new();
+        chosen_seqs.iter().for_each(|seq| {
+            covered_nodes.extend(seq.get_covered_nodes());
+            covered_edges.extend(seq.get_covered_edges());
+        });
+        let covered_helper_nodes = covered_nodes.iter().filter(|index| self.api_functions[**index].is_helper).count();
+        let covered_not_helper_nodes = covered_nodes.len() - covered_helper_nodes;
+        println!("covered nodes: {}", covered_not_helper_nodes);
+        let covered_helper_edges = covered_edges.iter().filter(|index| self.api_dependencies[**index].from_helper).count();
+        let covered_not_helper_edges = covered_edges.len() - covered_helper_edges;
+        println!("covered edges: {}", covered_not_helper_edges);
+        let node_coverage = (covered_not_helper_nodes as f64) / (not_helepr_nodes as f64);
+        let edge_coverage = (covered_not_helper_edges as f64) / (not_helper_edges as f64);
         println!("node coverage: {}", node_coverage);
         println!("edge coverage: {}", edge_coverage);
-        //println!("sequence with dynamic fuzzable length: {}", dynamic_fuzzable_length_sequences_count);
-        //println!("sequence with fixed fuzzable length: {}",fixed_fuzzale_length_sequences_count);
-
-        let mut sequnce_covered_by_reverse_search = 0;
-        let mut max_length = 0;
-        for sequence_index in sorted_chosen_sequences {
-            let api_sequence = self.api_sequences[sequence_index].clone();
-
-            if api_sequence.len() > 3 {
-                sequnce_covered_by_reverse_search = sequnce_covered_by_reverse_search + 1;
-                if api_sequence.len() > max_length {
-                    max_length = api_sequence.len();
-                }
-            }
-
-            res.push(api_sequence);
-        }
-
-        println!("targets covered by reverse search: {}", sequnce_covered_by_reverse_search);
-        println!("total targets: {}", res.len());
-        println!("max length = {}", max_length);
-
-        let mut total_length = 0;
-        for selected_sequence in &res {
-            total_length = total_length + selected_sequence.len();
-        }
-
-        println!("total length = {}", total_length);
-        let average_time_to_fuzz_each_api =
-            (total_length as f64) / (already_covered_nodes.len() as f64);
-        println!("average time to fuzz each api = {}", average_time_to_fuzz_each_api);
-
+        let reverse_searched_seqs = chosen_seqs.iter().filter(|seq| seq.len() > 3).count();
+        println!("sequences by reverse search: {}", reverse_searched_seqs);
+        println!("total targets: {}", chosen_seqs.len());
+        let max_len = chosen_seqs.iter().map(|seq| seq.len()).max().unwrap();
+        println!("max length: {}", max_len);
+        let total_len = chosen_seqs.iter().map(|seq| seq.len()).fold(0, |init, r| init+r);
+        println!("total length: {}", total_len);
+        let average_visit_time = (total_len as f64) / (covered_nodes.len() as f64);
+        println!("average time to visit each api: {}", average_visit_time);
         println!("--------------------------------");
-
-        res
     }
 
     //判断一个函数能否加入给定的序列中,如果可以加入，返回Some(new_sequence),new_sequence是将新的调用加进去之后的情况，否则返回None
@@ -1344,7 +1318,8 @@ impl ApiGraph {
                 output_fun: (*output_type, output_index),
                 input_fun: (*input_type, input_index),
                 input_param_index: input_param_index_,
-                call_type: dependency.call_type.clone(),
+                call_type: dependency.call_type.to_owned(),
+                from_helper: dependency.from_helper.to_owned(),
             };
             if tmp_dependency == *dependency {
                 //存在依赖

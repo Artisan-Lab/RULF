@@ -25,6 +25,8 @@ pub struct ApiFunction {
     pub _unsafe_tag: ApiUnsafety,
     // 是否需要返回类型的标注
     pub return_type_notation: bool,
+    // 是否是辅助函数，辅助函数不计入覆盖率统计
+    pub is_helper: bool,
 }
 
 impl ApiUnsafety {

@@ -10,15 +10,15 @@ lazy_static! {
         let mut m = HashMap::new();
         m.insert("core::option::Option", "Option");
         m.insert("core::result::Result", "Result");
-        m.insert("alloc::string::String", "String");
-        //m.insert("alloc::boxed::Box", "Box");
+        // m.insert("alloc::string::String", "String");
+        // m.insert("alloc::boxed::Box", "Box");
         m
     };
 }
 
 static _OPTION: &'static str = "Option";
 static _RESULT: &'static str = "Result";
-static _STRING: &'static str = "String";
+// static _STRING: &'static str = "String";
 
 pub fn is_preluded_type(type_name: &String) -> bool {
     if PRELUDED_TYPE.contains_key(type_name.as_str()) {

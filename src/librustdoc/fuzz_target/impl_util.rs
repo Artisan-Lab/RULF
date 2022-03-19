@@ -333,6 +333,7 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                         _trait_full_path: None,
                         _unsafe_tag: api_unsafety,
                         return_type_notation: false,
+                        is_helper: false,
                     },
                     Some(_) => {
                         if let Some(ref real_trait_name) = trait_full_name {
@@ -344,6 +345,7 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                                 _trait_full_path: Some(real_trait_name.clone()),
                                 _unsafe_tag: api_unsafety,
                                 return_type_notation: false,
+                                is_helper: false,
                             }
                         } else {
                             //println!("Trait not found in current crate.");

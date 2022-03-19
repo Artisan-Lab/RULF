@@ -272,6 +272,7 @@ impl GenericFunction {
             output,
             _trait_full_path,
             _unsafe_tag,
+            is_helper,
             ..
         } = self.api_function.clone();
         generics.params.clear();
@@ -291,6 +292,7 @@ impl GenericFunction {
             _trait_full_path,
             _unsafe_tag,
             return_type_notation,
+            is_helper
         }
     }
 }

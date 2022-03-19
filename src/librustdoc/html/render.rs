@@ -1828,6 +1828,7 @@ impl Context {
                             _trait_full_path: None,
                             _unsafe_tag: api_unsafety,
                             return_type_notation: false,
+                            is_helper: true,
                         };
                         api_dependency_graph.add_api_function(api_fun);
                     }

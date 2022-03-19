@@ -2,7 +2,7 @@ use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use std::collections::HashMap;
 
-use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path};
+use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path, TypeBinding};
 use crate::html::render::cache::Cache;
 use rustc_hir::Mutability;
 
@@ -308,9 +308,23 @@ fn type_parameters_full_name(
             match path_segment.args {
                 clean::GenericArgs::AngleBracketed { ref args, ref bindings } => {
                     if bindings.len() != 0 {
-                        todo!("deal with type bindings");
+                        let type_bindings = bindings.iter().map(|type_binding| {
+                            let TypeBinding {name, kind} = type_binding;
+                            match kind {
+                                clean::TypeBindingKind::Equality { ty} => {
+                                    let bind_type_name = type_full_name(ty, type_name_map, type_name_level);
+                                    format!("<{}={}>", name, bind_type_name)
+                                },
+                                clean::TypeBindingKind::Constraint { .. } => todo!("deal with constraint binds."),
+                            }
+                        }).collect_vec().join(",");
+                        if args.len() == 0 {
+                            return type_bindings;
+                        } else {
+                            todo!("type bindings coexist with args.")
+                        }
                     }
-                    // args.iter().for_each(|generic_arg| println!("{:?}", generic_arg));
+
                     let arg_names =
                         args.iter()
                             .filter(|generic_arg| {

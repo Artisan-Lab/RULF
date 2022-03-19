@@ -68,7 +68,7 @@ pub struct ApiSequence {
     pub _moved: HashSet<usize>,                   //表示哪些返回值已经被move掉，不再能被使用
     pub _fuzzable_mut_tag: HashSet<usize>,        //表示哪些fuzzable的变量需要带上mut标记
     pub _function_mut_tag: HashSet<usize>,        //表示哪些function的返回值需要带上mut标记
-    pub _covered_dependencies: HashSet<usize>,    //表示用到了哪些dependency,即边覆盖率
+    pub covered_edges: HashSet<usize>,    //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
@@ -82,7 +82,7 @@ impl ApiSequence {
         let _moved = HashSet::new();
         let _fuzzable_mut_tag = HashSet::new();
         let _function_mut_tag = HashSet::new();
-        let _covered_dependencies = HashSet::new();
+        let covered_edges = HashSet::new();
         ApiSequence {
             functions,
             fuzzable_params,
@@ -93,7 +93,7 @@ impl ApiSequence {
             _moved,
             _fuzzable_mut_tag,
             _function_mut_tag,
-            _covered_dependencies,
+            covered_edges,
         }
     }
 
@@ -103,7 +103,7 @@ impl ApiSequence {
     }
 
     pub fn _add_dependency(&mut self, dependency: usize) {
-        self._covered_dependencies.insert(dependency);
+        self.covered_edges.insert(dependency);
     }
 
     pub fn len(&self) -> usize {
@@ -211,7 +211,7 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn _get_contained_api_functions(&self) -> Vec<usize> {
+    pub fn get_covered_nodes(&self) -> Vec<usize> {
         let mut res = Vec::new();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
@@ -220,6 +220,10 @@ impl ApiSequence {
             }
         }
         res
+    }
+
+    pub fn get_covered_edges(&self) -> HashSet<usize> {
+        self.covered_edges.clone()
     }
 
     pub fn _is_moved(&self, index: usize) -> bool {
