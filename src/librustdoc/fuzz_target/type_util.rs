@@ -1,8 +1,9 @@
-use crate::clean;
+use crate::clean::{self, Path};
 use crate::html::render::cache::Cache;
 use itertools::Itertools;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
+use rustc_hir::Mutability;
 use std::collections::{HashMap, HashSet};
 
 use super::api_util::is_generic_type;
@@ -230,4 +231,68 @@ pub fn extract_as_ref(trait_bound: &clean::Type) -> Option<clean::Type> {
         }
     }
     return None;
+}
+
+// extract all occurred types in a type
+pub fn extract_types(ty_: &clean::Type) -> HashSet<clean::Type> {
+    match ty_ {
+        clean::Type::Primitive(..)
+        | clean::Type::BareFunction(..)
+        | clean::Type::Generic(..)
+        | clean::Type::ImplTrait(..)
+        | clean::Type::QPath { .. }
+        | clean::Type::Infer
+        | clean::Type::Never => HashSet::new(),
+        clean::Type::ResolvedPath { path, .. } => {
+            let mut path_types = extract_types_in_path(path);
+            path_types.insert(ty_.to_owned());
+            path_types
+        }
+        clean::Type::Array(type_, ..) => extract_types(&**type_),
+        clean::Type::BorrowedRef { type_, .. } => extract_types(&**type_),
+        clean::Type::RawPointer(_, type_) => extract_types(&**type_),
+        clean::Type::Slice(type_) => extract_types(&**type_),
+        clean::Type::Tuple(types) => {
+            types.iter().map(|type_| extract_types(type_)).fold(HashSet::new(), |mut l, r| {
+                l.extend(r);
+                l
+            })
+        }
+    }
+}
+
+fn extract_types_in_path(path: &Path) -> HashSet<clean::Type> {
+    let mut res = HashSet::new();
+    for segments in path.segments.iter() {
+        if let clean::GenericArgs::AngleBracketed { ref args, .. } = segments.args {
+            args.iter().for_each(|generic_arg| {
+                if let clean::GenericArg::Type(ty_) = generic_arg {
+                    res.insert(ty_.to_owned());
+                }
+            });
+        }
+    }
+    res
+}
+
+pub fn u8_slice_type() -> clean::Type {
+    clean::Type::BorrowedRef {
+        lifetime: None,
+        mutability: Mutability::Not,
+        type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(
+            clean::PrimitiveType::U8,
+        )))),
+    }
+}
+
+pub fn str_type() -> clean::Type {
+    clean::Type::BorrowedRef {
+        lifetime: None,
+        mutability: Mutability::Not,
+        type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str)),
+    }
+}
+
+pub fn i32_type() -> clean::Type {
+    clean::Type::Primitive(clean::PrimitiveType::I32)
 }

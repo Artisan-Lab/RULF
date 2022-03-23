@@ -8,8 +8,11 @@ use std::{
 
 use crate::clean::{self, GenericBound};
 
-use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 use super::type_util::extract_as_ref;
+use super::{
+    type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap},
+    type_util::{i32_type, str_type, u8_slice_type},
+};
 
 // FIXME: Why these are not marker from std?.
 pub static NUMERIC_TRAITS: [&'static str; 10] = [
@@ -52,19 +55,9 @@ pub enum ReplaceType {
 impl ReplaceType {
     pub fn to_replace_type(&self) -> clean::Type {
         match self {
-            ReplaceType::Numeric => clean::Type::Primitive(clean::PrimitiveType::I32),
-            ReplaceType::U8Slice => clean::Type::BorrowedRef {
-                lifetime: None,
-                mutability: Mutability::Not,
-                type_: Box::new(clean::Type::Slice(Box::new(clean::Type::Primitive(
-                    clean::PrimitiveType::U8,
-                )))),
-            },
-            ReplaceType::Str => clean::Type::BorrowedRef {
-                lifetime: None,
-                mutability: Mutability::Not,
-                type_: Box::new(clean::Type::Primitive(clean::PrimitiveType::Str)),
-            },
+            ReplaceType::Numeric => i32_type(),
+            ReplaceType::U8Slice => u8_slice_type(),
+            ReplaceType::Str => str_type(),
             ReplaceType::DefinedType(ty_) | ReplaceType::RefTrait(ty_) => ty_.to_owned(),
         }
     }

@@ -292,7 +292,7 @@ impl GenericFunction {
             _trait_full_path,
             _unsafe_tag,
             return_type_notation,
-            is_helper
+            is_helper,
         }
     }
 }

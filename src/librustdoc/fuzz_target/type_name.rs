@@ -308,16 +308,23 @@ fn type_parameters_full_name(
             match path_segment.args {
                 clean::GenericArgs::AngleBracketed { ref args, ref bindings } => {
                     if bindings.len() != 0 {
-                        let type_bindings = bindings.iter().map(|type_binding| {
-                            let TypeBinding {name, kind} = type_binding;
-                            match kind {
-                                clean::TypeBindingKind::Equality { ty} => {
-                                    let bind_type_name = type_full_name(ty, type_name_map, type_name_level);
-                                    format!("<{}={}>", name, bind_type_name)
-                                },
-                                clean::TypeBindingKind::Constraint { .. } => todo!("deal with constraint binds."),
-                            }
-                        }).collect_vec().join(",");
+                        let type_bindings = bindings
+                            .iter()
+                            .map(|type_binding| {
+                                let TypeBinding { name, kind } = type_binding;
+                                match kind {
+                                    clean::TypeBindingKind::Equality { ty } => {
+                                        let bind_type_name =
+                                            type_full_name(ty, type_name_map, type_name_level);
+                                        format!("<{}={}>", name, bind_type_name)
+                                    }
+                                    clean::TypeBindingKind::Constraint { .. } => {
+                                        todo!("deal with constraint binds.")
+                                    }
+                                }
+                            })
+                            .collect_vec()
+                            .join(",");
                         if args.len() == 0 {
                             return type_bindings;
                         } else {

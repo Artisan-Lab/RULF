@@ -68,7 +68,7 @@ pub struct ApiSequence {
     pub _moved: HashSet<usize>,                   //表示哪些返回值已经被move掉，不再能被使用
     pub _fuzzable_mut_tag: HashSet<usize>,        //表示哪些fuzzable的变量需要带上mut标记
     pub _function_mut_tag: HashSet<usize>,        //表示哪些function的返回值需要带上mut标记
-    pub covered_edges: HashSet<usize>,    //表示用到了哪些dependency,即边覆盖率
+    covered_edges: HashSet<usize>,                //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
@@ -211,19 +211,25 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn get_covered_nodes(&self) -> Vec<usize> {
+    pub fn get_covered_nodes(&self, graph: &ApiGraph) -> Vec<usize> {
         let mut res = Vec::new();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
-            if !res.contains(func_index) {
+            let is_helper = graph.api_functions[*func_index].is_helper;
+            if !is_helper && !res.contains(func_index) {
                 res.push(*func_index);
             }
         }
         res
     }
 
-    pub fn get_covered_edges(&self) -> HashSet<usize> {
-        self.covered_edges.clone()
+    pub fn get_covered_edges(&self, graph: &ApiGraph) -> HashSet<usize> {
+        self.covered_edges
+            .iter()
+            .filter(|edge| !graph.api_dependencies[**edge].from_helper)
+            .map(|index| *index)
+            .collect()
+        // self.covered_edges.clone()
     }
 
     pub fn _is_moved(&self, index: usize) -> bool {

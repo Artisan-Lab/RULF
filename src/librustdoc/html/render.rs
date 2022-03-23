@@ -708,6 +708,8 @@ pub fn fuzz_target_run_clean_krate(
     if enable_generic_function {
         api_dependency_graph.eagerly_monomorphize_generic_functions();
     }
+    // 添加辅助函数
+    api_dependency_graph.add_std_helpers();
     //寻找所有依赖，并且构建序列
     api_dependency_graph.find_all_dependencies();
     //api_dependency_graph._print_pretty_dependencies();
@@ -1828,7 +1830,7 @@ impl Context {
                             _trait_full_path: None,
                             _unsafe_tag: api_unsafety,
                             return_type_notation: false,
-                            is_helper: true,
+                            is_helper: false,
                         };
                         api_dependency_graph.add_api_function(api_fun);
                     }
