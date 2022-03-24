@@ -229,7 +229,7 @@ impl ApiGraph {
         let mut bound_type_map = HashMap::new();
         let mut failed_bounds = HashSet::new();
         let mut primitive_types = 0usize;
-        let mut ref_traits = 0usize;
+        let mut convert_traits = 0usize;
         let mut defined_types = 0usize;
 
         let mut monomorphized_functions = Vec::new();
@@ -242,7 +242,7 @@ impl ApiGraph {
                 &mut bound_type_map,
                 &mut failed_bounds,
                 &mut primitive_types,
-                &mut ref_traits,
+                &mut convert_traits,
                 &mut defined_types,
             ) {
                 monomorphized_functions.push(function);
@@ -252,11 +252,11 @@ impl ApiGraph {
         println!(
             "Among all {} bounds, 
 {} can be replaced with primitive type, 
-{} are ref traits, 
+{} are convert traits, 
 {} can be replaced with defined types.",
             known_bounds.len(),
             primitive_types,
-            ref_traits,
+            convert_traits,
             defined_types
         );
 
@@ -275,6 +275,10 @@ impl ApiGraph {
             self.add_api_function(api_function);
         });
         println!("after add: {}", self.api_functions.len());
+        println!("failed bounds: ");
+        failed_bounds.iter().for_each(|index| {
+            println!("{}", known_bounds[*index]._format_string_(&self.type_name_map));
+        });
     }
 
     pub fn add_std_helpers(&mut self) {
@@ -1097,6 +1101,8 @@ impl ApiGraph {
         let helper_nodes = self.api_functions.iter().filter(|api_fun| api_fun.is_helper).count();
         let not_helepr_nodes = self.api_functions.len() - helper_nodes;
         println!("total nodes: {} ({} helpers).", not_helepr_nodes, helper_nodes);
+        let all_nodes = self.generic_functions.len() + not_helepr_nodes;
+        println!("all nodes(include generic): {} ", all_nodes);
         let helper_edges =
             self.api_dependencies.iter().filter(|api_dep| api_dep.from_helper).count();
         let not_helper_edges = self.api_dependencies.len() - helper_edges;
@@ -1117,8 +1123,10 @@ impl ApiGraph {
         println!("covered edges: {}", covered_not_helper_edges);
         let node_coverage = (covered_not_helper_nodes as f64) / (not_helepr_nodes as f64);
         let edge_coverage = (covered_not_helper_edges as f64) / (not_helper_edges as f64);
+        let all_node_coverage = (covered_not_helper_edges as f64) / (all_nodes as f64);
         println!("node coverage: {}", node_coverage);
         println!("edge coverage: {}", edge_coverage);
+        println!("all node coverage: {}", all_node_coverage);
         let reverse_searched_seqs = chosen_seqs.iter().filter(|seq| seq.len() > 3).count();
         println!("sequences by reverse search: {}", reverse_searched_seqs);
         println!("total targets: {}", chosen_seqs.len());

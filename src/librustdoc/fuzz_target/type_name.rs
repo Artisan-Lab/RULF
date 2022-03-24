@@ -80,8 +80,13 @@ impl TypeNameMap {
     }
 
     fn get_type_name(&self, def_id: &DefId, type_name_level: TypeNameLevel) -> Option<String> {
-        // safety: all type should
-        let (type_name, type_name_kind) = self.map.get(def_id).unwrap();
+        // Some type may does not have type name, we will return unknown types.
+        // e.g., indices
+        let (type_name, type_name_kind) = if self.map.contains_key(def_id) {
+            self.map.get(def_id).unwrap()
+        } else {
+           return None;
+        };
         let valid_type_kinds = type_name_level.type_kinds();
         if valid_type_kinds.contains(type_name_kind) { Some(type_name.to_owned()) } else { None }
     }
@@ -130,7 +135,12 @@ pub fn type_full_name(
 ) -> String {
     let type_name = match type_ {
         clean::Type::ResolvedPath { path, did, .. } => {
-            let type_name = type_name_map.get_type_name(did, type_name_level).unwrap();
+            let type_name = if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
+                type_name
+            } else {
+                // println!("Warning: try to get type full name for {:?}", type_);
+                return "Unknown type".to_string();
+            };
             let striped_type_name = strip_prelude_type_name(&type_name);
             let type_parameter_name =
                 type_parameters_full_name(path, type_name_map, type_name_level);
@@ -192,7 +202,12 @@ pub fn type_name(
 ) -> String {
     let type_name = match type_ {
         clean::Type::ResolvedPath { did, .. } => {
-            type_name_map.get_type_name(did, type_name_level).unwrap()
+            if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
+                return type_name;
+            } else {
+                // println!("Warning: try to get type name for {:?}", type_);
+                return "Unknown type".to_string();
+            };
         }
         clean::Type::Generic(generic_name) => generic_name.to_owned(),
         clean::Type::Primitive(primitive_type) => primitive_type.as_str().to_string(),

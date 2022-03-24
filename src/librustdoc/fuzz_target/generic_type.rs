@@ -8,7 +8,7 @@ use std::{
 
 use crate::clean::{self, GenericBound};
 
-use super::type_util::extract_as_ref;
+use super::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
 use super::{
     type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap},
     type_util::{i32_type, str_type, u8_slice_type},
@@ -27,10 +27,10 @@ pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::fmt::Debug",
     "core::default::Default",
 ];
-// FIXME: u8 slice cannot contain write trait(Temporary use)
 pub static U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Read"];
-// FIXME：仅仅是为clap库所暂时使用的
-pub static STR_SLICE_TRAITS: [&'static str; 1] = ["core::convert::AsRef<Str>"];
+pub static MUT_U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Write"];
+pub static STR_SLICE_TRAITS: [&'static str; 4] = ["core::convert::AsRef<Str>", "core::convert::Into<String>", "core::convert::Into<std::ffi::os_str::OsString>",
+                                                "core::clone::Clone"];
 
 #[derive(Debug, Clone, Copy)]
 pub enum GenericBoundError {
@@ -47,8 +47,10 @@ pub struct SimplifiedGenericBound {
 pub enum ReplaceType {
     Numeric,
     U8Slice,
+    MutU8Slice,
     Str,
     RefTrait(clean::Type),
+    IntoTrait(clean::Type),
     DefinedType(clean::Type),
 }
 
@@ -57,21 +59,22 @@ impl ReplaceType {
         match self {
             ReplaceType::Numeric => i32_type(),
             ReplaceType::U8Slice => u8_slice_type(),
+            ReplaceType::MutU8Slice => mutable_u8_slice_type(),
             ReplaceType::Str => str_type(),
-            ReplaceType::DefinedType(ty_) | ReplaceType::RefTrait(ty_) => ty_.to_owned(),
+            ReplaceType::DefinedType(ty_) | ReplaceType::RefTrait(ty_) | ReplaceType::IntoTrait(ty_) => ty_.to_owned(),
         }
     }
 
     pub fn is_primitive_type(&self) -> bool {
         match self {
-            ReplaceType::Numeric | ReplaceType::Str | ReplaceType::U8Slice => true,
+            ReplaceType::Numeric | ReplaceType::Str | ReplaceType::U8Slice | ReplaceType::MutU8Slice => true,
             _ => false,
         }
     }
 
-    pub fn is_ref_trait(&self) -> bool {
+    pub fn is_convert_trait(&self) -> bool {
         match self {
-            ReplaceType::RefTrait(..) => true,
+            ReplaceType::RefTrait(..) | ReplaceType::IntoTrait(..) => true,
             _ => false,
         }
     }
@@ -86,9 +89,10 @@ impl ReplaceType {
     pub fn _print_replace_massage(&self, generic: &str, type_name_map: &TypeNameMap) {
         match self {
             ReplaceType::Numeric => println!("{} can be replaced with numeric", generic),
-            ReplaceType::U8Slice => println!("{} can be replaced with u8 slice", generic),
+            ReplaceType::U8Slice => println!("{} can be replaced with &[u8]", generic),
+            ReplaceType::MutU8Slice => println!("{} can be replaced with &mut [u8]", generic),
             ReplaceType::Str => println!("{} can be replaced with str", generic),
-            ReplaceType::DefinedType(type_) | ReplaceType::RefTrait(type_) => {
+            ReplaceType::DefinedType(type_) | ReplaceType::RefTrait(type_) | ReplaceType::IntoTrait(type_)=> {
                 let type_full_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
                 println!("{} can be replaced with {}", generic, type_full_name);
             }
@@ -139,10 +143,14 @@ impl SimplifiedGenericBound {
             Some(ReplaceType::Numeric)
         } else if self.can_be_u8_slice(type_name_map) {
             Some(ReplaceType::U8Slice)
+        } else if self.can_be_mut_u8_slice(type_name_map) {
+            Some(ReplaceType::MutU8Slice)
         } else if self.can_be_str_slice(type_name_map) {
             Some(ReplaceType::Str)
         } else if let Some(ref_type) = self.is_as_ref_trait(type_name_map) {
             Some(ReplaceType::RefTrait(ref_type))
+        } else if let Some(into_type) = self.is_into_trait(type_name_map) {
+            Some(ReplaceType::IntoTrait(into_type))
         } else if let Some(defined_type) =
             self.can_be_defined_type(types, type_name_map, traits_of_type)
         {
@@ -168,6 +176,13 @@ impl SimplifiedGenericBound {
         })
     }
 
+    pub fn can_be_mut_u8_slice(&self, type_name_map: &TypeNameMap) -> bool {
+        self.trait_bounds.iter().all(|trait_bound| {
+            let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
+            MUT_U8_SLICE_TRAITS.iter().any(|primitive_trait| *primitive_trait == &trait_name)
+        })
+    }
+
     pub fn can_be_str_slice(&self, type_name_map: &TypeNameMap) -> bool {
         self.trait_bounds.iter().all(|trait_bound| {
             let trait_name = type_full_name(trait_bound, type_name_map, TypeNameLevel::All);
@@ -184,13 +199,26 @@ impl SimplifiedGenericBound {
         if type_name(trait_bound, type_name_map, TypeNameLevel::All)
             == "core::convert::AsRef".to_string()
         {
-            return extract_as_ref(trait_bound).and_then(|type_| {
+            return extract_only_one_type_parameter(trait_bound).and_then(|type_| {
                 Some(clean::Type::BorrowedRef {
                     lifetime: None,
                     mutability: Mutability::Not,
                     type_: Box::new(type_),
                 })
             });
+        }
+        return None;
+    }
+
+    pub fn is_into_trait(&self, type_name_map: &TypeNameMap) -> Option<clean::Type> {
+        if self.trait_bounds.len() != 1 {
+            return None;
+        }
+        // Safety: should never fails
+        let trait_bound = self.trait_bounds.iter().nth(0).unwrap();
+        if type_name(trait_bound, type_name_map, TypeNameLevel::All)
+            == "core::convert::Into".to_string() {
+                return extract_only_one_type_parameter(trait_bound);
         }
         return None;
     }

@@ -204,7 +204,7 @@ pub fn replace_types(
     }
 }
 
-pub fn extract_as_ref(trait_bound: &clean::Type) -> Option<clean::Type> {
+pub fn extract_only_one_type_parameter(trait_bound: &clean::Type) -> Option<clean::Type> {
     let path = if let clean::Type::ResolvedPath { path, .. } = trait_bound {
         path
     } else {
@@ -295,4 +295,15 @@ pub fn str_type() -> clean::Type {
 
 pub fn i32_type() -> clean::Type {
     clean::Type::Primitive(clean::PrimitiveType::I32)
+}
+
+pub fn u8_type() -> clean::Type {
+    clean::Type::Primitive(clean::PrimitiveType::U8)
+}
+
+pub fn mutable_u8_slice_type() -> clean::Type {
+    clean::Type::BorrowedRef { 
+        lifetime: None, 
+        mutability: Mutability::Mut, 
+        type_: Box::new(clean::Type::Slice(Box::new(u8_type()))) }
 }

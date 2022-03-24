@@ -190,7 +190,7 @@ impl GenericFunction {
         bound_type_map: &mut HashMap<usize, clean::Type>,
         failed_bounds: &mut HashSet<usize>,
         primitive_types: &mut usize,
-        ref_traits: &mut usize,
+        convert_traits: &mut usize,
         defined_types: &mut usize,
     ) -> Result<ApiFunction, ()> {
         let mut replace_map = HashMap::new();
@@ -211,8 +211,8 @@ impl GenericFunction {
                     bound_type_map.insert(index, replace_type.to_replace_type());
                     if replace_type.is_primitive_type() {
                         *primitive_types += 1;
-                    } else if replace_type.is_ref_trait() {
-                        *ref_traits += 1;
+                    } else if replace_type.is_convert_trait() {
+                        *convert_traits += 1;
                     } else if replace_type.is_defined_type() {
                         *defined_types += 1;
                     }
