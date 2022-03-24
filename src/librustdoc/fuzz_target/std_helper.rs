@@ -7,6 +7,7 @@ use rustc_hir::Mutability;
 pub enum StdHelper {
     StdPathPath(clean::Type),
     StdFfiOsStr(clean::Type),
+    String(clean::Type),
 }
 
 impl StdHelper {
@@ -15,6 +16,7 @@ impl StdHelper {
         match type_full_name.as_str() {
             "std::path::Path" => Ok(StdHelper::StdPathPath(type_.to_owned())),
             "std::ffi::os_str::OsStr" => Ok(StdHelper::StdFfiOsStr(type_.to_owned())),
+            "String" => Ok(StdHelper::String(type_.to_owned())),
             _ => Err(()),
         }
     }
@@ -23,6 +25,7 @@ impl StdHelper {
         match self {
             StdHelper::StdPathPath(type_) => std_path_path_helper(type_),
             StdHelper::StdFfiOsStr(type_) => std_ffi_osstr_helper(type_),
+            StdHelper::String(type_) => string_helper(type_),
         }
     }
 }
@@ -43,6 +46,19 @@ fn std_path_path_helper(type_: &clean::Type) -> ApiFunction {
 fn std_ffi_osstr_helper(type_: &clean::Type) -> ApiFunction {
     ApiFunction {
         full_name: "std::ffi::OsStr::new".to_string(),
+        generics: clean::Generics { params: Vec::new(), where_predicates: Vec::new() },
+        inputs: vec![str_type()],
+        output: Some(type_.to_owned()),
+        _trait_full_path: None,
+        _unsafe_tag: ApiUnsafety::Normal,
+        return_type_notation: false,
+        is_helper: true,
+    }
+}
+
+fn string_helper(type_: &clean::Type) -> ApiFunction {
+    ApiFunction {
+        full_name: "String::from".to_string(),
         generics: clean::Generics { params: Vec::new(), where_predicates: Vec::new() },
         inputs: vec![str_type()],
         output: Some(type_.to_owned()),

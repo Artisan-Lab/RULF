@@ -27,10 +27,16 @@ pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::fmt::Debug",
     "core::default::Default",
 ];
-pub static U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Read"];
+pub static U8_SLICE_TRAITS: [&'static str; 2] = ["std::io::Read", 
+                                                "regex::bytes::Replacer", // for regex
+                                                ];
 pub static MUT_U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Write"];
-pub static STR_SLICE_TRAITS: [&'static str; 4] = ["core::convert::AsRef<Str>", "core::convert::Into<String>", "core::convert::Into<std::ffi::os_str::OsString>",
-                                                "core::clone::Clone"];
+pub static STR_SLICE_TRAITS: [&'static str; 5] = ["core::convert::AsRef<Str>", 
+                                                "core::convert::Into<String>", 
+                                                "core::convert::Into<std::ffi::os_str::OsString>",
+                                                "core::clone::Clone", 
+                                                "regex::Replacer", // for regex
+                                                ];
 
 #[derive(Debug, Clone, Copy)]
 pub enum GenericBoundError {

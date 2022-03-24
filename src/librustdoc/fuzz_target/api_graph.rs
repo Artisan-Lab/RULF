@@ -1123,7 +1123,7 @@ impl ApiGraph {
         println!("covered edges: {}", covered_not_helper_edges);
         let node_coverage = (covered_not_helper_nodes as f64) / (not_helepr_nodes as f64);
         let edge_coverage = (covered_not_helper_edges as f64) / (not_helper_edges as f64);
-        let all_node_coverage = (covered_not_helper_edges as f64) / (all_nodes as f64);
+        let all_node_coverage = (covered_not_helper_nodes as f64) / (all_nodes as f64);
         println!("node coverage: {}", node_coverage);
         println!("edge coverage: {}", edge_coverage);
         println!("all node coverage: {}", all_node_coverage);

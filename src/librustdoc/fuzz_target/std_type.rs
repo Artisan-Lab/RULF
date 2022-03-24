@@ -1,4 +1,4 @@
-use crate::clean;
+use crate::clean::{self, PrimitiveType};
 
 use super::call_type::CallType;
 use super::fuzzable_type::FuzzableType;
@@ -8,11 +8,13 @@ use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdCallType {
     IpAddr, // std::net::IpAddr
+    VecU8, // Vec<u8>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdType {
     IpAddr,
+    VecU8
 }
 
 impl StdCallType {
@@ -20,6 +22,7 @@ impl StdCallType {
         let type_full_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
         match type_full_name.as_str() {
             "std::net::ip::IpAddr" => Ok(StdCallType::IpAddr),
+            "Vec<u8>" => Ok(StdCallType::VecU8),
             _ => Err(()),
         }
     }
@@ -27,6 +30,7 @@ impl StdCallType {
     pub fn std_type_and_call_type(&self) -> (StdType, CallType) {
         match self {
             StdCallType::IpAddr => (StdType::IpAddr, CallType::_DirectCall),
+            StdCallType::VecU8 => (StdType::VecU8, CallType::_DirectCall),
         }
     }
 }
@@ -35,6 +39,7 @@ impl StdType {
     pub fn fuzzable_type_and_call_type(&self) -> Vec<(FuzzableType, CallType)> {
         match self {
             StdType::IpAddr => vec![(FuzzableType::RefStr, CallType::_DirectCall)],
+            StdType::VecU8 => vec![(FuzzableType::RefSlice(Box::new(FuzzableType::Primitive(PrimitiveType::U8))), CallType::_DirectCall)],
         }
     }
 
@@ -49,6 +54,13 @@ impl StdType {
                     "if let Ok(ip_addr) = {}.parse::<std::net::IpAddr>() {{ip_addr}} else {{std::process::exit(-1);}}",
                     param
                 )
+            },
+            StdType::VecU8 => {
+                if params.len() != 1 {
+                    panic!("IpAddr parse requires only one parameter.");
+                }
+                let param = params.first().unwrap();
+                format!("{}.to_vec()", param)
             }
         }
     }
