@@ -52,6 +52,7 @@ impl ApiCall {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StdFunctionCall {
     pub std_type: StdType,
+    pub require_mut_tag: bool,
     pub params: Vec<(usize, CallType)>,
 }
 
@@ -159,12 +160,16 @@ impl ApiSequence {
         res.default_values.append(&mut other_sequence.default_values);
         // std function calls
         other_sequence.std_function_calls.iter().for_each(|std_function_call| {
-            let StdFunctionCall { std_type, params } = std_function_call;
+            let StdFunctionCall { std_type, require_mut_tag, params } = std_function_call;
             let params = params
                 .iter()
                 .map(|(index, call_type)| (*index + first_fuzzable_number, call_type.to_owned()))
                 .collect_vec();
-            let other_std_function_call = StdFunctionCall { std_type: std_type.to_owned(), params };
+            let other_std_function_call = StdFunctionCall {
+                std_type: std_type.to_owned(),
+                require_mut_tag: require_mut_tag.to_owned(),
+                params,
+            };
             res.std_function_calls.push(other_std_function_call);
         });
         //using_trait
@@ -734,7 +739,7 @@ impl ApiSequence {
         // std functions
         (0..self.std_function_calls.len()).into_iter().for_each(|index| {
             let std_function_call = self.std_function_calls.get(index).unwrap();
-            let StdFunctionCall { std_type, params } = std_function_call;
+            let StdFunctionCall { std_type, require_mut_tag, params } = std_function_call;
             let params = params
                 .iter()
                 .map(|(index, call_type)| {
@@ -743,9 +748,10 @@ impl ApiSequence {
                 })
                 .collect_vec();
             let call_string = std_type.call_string(params);
+            let mut_modifier = if *require_mut_tag { "mut " } else { "" };
             let init_std_type = format!(
-                "{}let {}{} = {};\n",
-                body_indent, STD_FUNCTION_CALL_PREFIX, index, call_string
+                "{}let {}{}{} = {};\n",
+                body_indent, mut_modifier, STD_FUNCTION_CALL_PREFIX, index, call_string
             );
             res.push_str(&init_std_type);
         });

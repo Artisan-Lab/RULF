@@ -302,8 +302,9 @@ pub fn u8_type() -> clean::Type {
 }
 
 pub fn mutable_u8_slice_type() -> clean::Type {
-    clean::Type::BorrowedRef { 
-        lifetime: None, 
-        mutability: Mutability::Mut, 
-        type_: Box::new(clean::Type::Slice(Box::new(u8_type()))) }
+    clean::Type::BorrowedRef {
+        lifetime: None,
+        mutability: Mutability::Mut,
+        type_: Box::new(clean::Type::Slice(Box::new(u8_type()))),
+    }
 }

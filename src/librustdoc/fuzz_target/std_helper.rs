@@ -35,7 +35,11 @@ fn std_path_path_helper(type_: &clean::Type) -> ApiFunction {
         full_name: "std::path::Path::new".to_string(),
         generics: clean::Generics { params: Vec::new(), where_predicates: Vec::new() },
         inputs: vec![str_type()],
-        output: Some(clean::Type::BorrowedRef { lifetime: None, mutability: Mutability::Not, type_: Box::new(type_.to_owned()) }),
+        output: Some(clean::Type::BorrowedRef {
+            lifetime: None,
+            mutability: Mutability::Not,
+            type_: Box::new(type_.to_owned()),
+        }),
         _trait_full_path: None,
         _unsafe_tag: ApiUnsafety::Normal,
         return_type_notation: false,

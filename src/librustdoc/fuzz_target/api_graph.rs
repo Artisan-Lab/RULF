@@ -1234,7 +1234,9 @@ impl ApiGraph {
                             new_sequence.std_function_calls.len(),
                             call_type,
                         );
-                        let std_function_call = StdFunctionCall { std_type, params };
+                        let require_mut_tag = std_call_type.requires_mut_tag();
+                        let std_function_call =
+                            StdFunctionCall { std_type, require_mut_tag, params };
                         new_sequence.std_function_calls.push(std_function_call);
                         continue;
                     }

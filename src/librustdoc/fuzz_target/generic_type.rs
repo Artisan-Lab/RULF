@@ -27,16 +27,18 @@ pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::fmt::Debug",
     "core::default::Default",
 ];
-pub static U8_SLICE_TRAITS: [&'static str; 2] = ["std::io::Read", 
-                                                "regex::bytes::Replacer", // for regex
-                                                ];
+pub static U8_SLICE_TRAITS: [&'static str; 2] = [
+    "std::io::Read",
+    "regex::bytes::Replacer", // for regex
+];
 pub static MUT_U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Write"];
-pub static STR_SLICE_TRAITS: [&'static str; 5] = ["core::convert::AsRef<Str>", 
-                                                "core::convert::Into<String>", 
-                                                "core::convert::Into<std::ffi::os_str::OsString>",
-                                                "core::clone::Clone", 
-                                                "regex::Replacer", // for regex
-                                                ];
+pub static STR_SLICE_TRAITS: [&'static str; 5] = [
+    "core::convert::AsRef<Str>",
+    "core::convert::Into<String>",
+    "core::convert::Into<std::ffi::os_str::OsString>",
+    "core::clone::Clone",
+    "regex::Replacer", // for regex
+];
 
 #[derive(Debug, Clone, Copy)]
 pub enum GenericBoundError {
@@ -67,13 +69,18 @@ impl ReplaceType {
             ReplaceType::U8Slice => u8_slice_type(),
             ReplaceType::MutU8Slice => mutable_u8_slice_type(),
             ReplaceType::Str => str_type(),
-            ReplaceType::DefinedType(ty_) | ReplaceType::RefTrait(ty_) | ReplaceType::IntoTrait(ty_) => ty_.to_owned(),
+            ReplaceType::DefinedType(ty_)
+            | ReplaceType::RefTrait(ty_)
+            | ReplaceType::IntoTrait(ty_) => ty_.to_owned(),
         }
     }
 
     pub fn is_primitive_type(&self) -> bool {
         match self {
-            ReplaceType::Numeric | ReplaceType::Str | ReplaceType::U8Slice | ReplaceType::MutU8Slice => true,
+            ReplaceType::Numeric
+            | ReplaceType::Str
+            | ReplaceType::U8Slice
+            | ReplaceType::MutU8Slice => true,
             _ => false,
         }
     }
@@ -98,7 +105,9 @@ impl ReplaceType {
             ReplaceType::U8Slice => println!("{} can be replaced with &[u8]", generic),
             ReplaceType::MutU8Slice => println!("{} can be replaced with &mut [u8]", generic),
             ReplaceType::Str => println!("{} can be replaced with str", generic),
-            ReplaceType::DefinedType(type_) | ReplaceType::RefTrait(type_) | ReplaceType::IntoTrait(type_)=> {
+            ReplaceType::DefinedType(type_)
+            | ReplaceType::RefTrait(type_)
+            | ReplaceType::IntoTrait(type_) => {
                 let type_full_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
                 println!("{} can be replaced with {}", generic, type_full_name);
             }
@@ -223,8 +232,9 @@ impl SimplifiedGenericBound {
         // Safety: should never fails
         let trait_bound = self.trait_bounds.iter().nth(0).unwrap();
         if type_name(trait_bound, type_name_map, TypeNameLevel::All)
-            == "core::convert::Into".to_string() {
-                return extract_only_one_type_parameter(trait_bound);
+            == "core::convert::Into".to_string()
+        {
+            return extract_only_one_type_parameter(trait_bound);
         }
         return None;
     }

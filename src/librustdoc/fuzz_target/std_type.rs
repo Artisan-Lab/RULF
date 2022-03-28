@@ -7,14 +7,15 @@ use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 /// support special std type. Std types are dealt with case by case now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdCallType {
-    IpAddr, // std::net::IpAddr
-    VecU8, // Vec<u8>
+    IpAddr,      // std::net::IpAddr
+    VecU8,       // Vec<u8>
+    RefMutVecU8, // &mut Vec<u8>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdType {
     IpAddr,
-    VecU8
+    VecU8,
 }
 
 impl StdCallType {
@@ -23,6 +24,7 @@ impl StdCallType {
         match type_full_name.as_str() {
             "std::net::ip::IpAddr" => Ok(StdCallType::IpAddr),
             "Vec<u8>" => Ok(StdCallType::VecU8),
+            "&mut Vec<u8>" => Ok(StdCallType::RefMutVecU8),
             _ => Err(()),
         }
     }
@@ -31,6 +33,16 @@ impl StdCallType {
         match self {
             StdCallType::IpAddr => (StdType::IpAddr, CallType::_DirectCall),
             StdCallType::VecU8 => (StdType::VecU8, CallType::_DirectCall),
+            StdCallType::RefMutVecU8 => {
+                (StdType::VecU8, CallType::_MutBorrowedRef(Box::new(CallType::_DirectCall)))
+            }
+        }
+    }
+
+    pub fn requires_mut_tag(&self) -> bool {
+        match self {
+            StdCallType::RefMutVecU8 => true,
+            StdCallType::IpAddr | StdCallType::VecU8 => false,
         }
     }
 }
@@ -39,7 +51,10 @@ impl StdType {
     pub fn fuzzable_type_and_call_type(&self) -> Vec<(FuzzableType, CallType)> {
         match self {
             StdType::IpAddr => vec![(FuzzableType::RefStr, CallType::_DirectCall)],
-            StdType::VecU8 => vec![(FuzzableType::RefSlice(Box::new(FuzzableType::Primitive(PrimitiveType::U8))), CallType::_DirectCall)],
+            StdType::VecU8 => vec![(
+                FuzzableType::RefSlice(Box::new(FuzzableType::Primitive(PrimitiveType::U8))),
+                CallType::_DirectCall,
+            )],
         }
     }
 
@@ -54,7 +69,7 @@ impl StdType {
                     "if let Ok(ip_addr) = {}.parse::<std::net::IpAddr>() {{ip_addr}} else {{std::process::exit(-1);}}",
                     param
                 )
-            },
+            }
             StdType::VecU8 => {
                 if params.len() != 1 {
                     panic!("IpAddr parse requires only one parameter.");

@@ -85,7 +85,7 @@ impl TypeNameMap {
         let (type_name, type_name_kind) = if self.map.contains_key(def_id) {
             self.map.get(def_id).unwrap()
         } else {
-           return None;
+            return None;
         };
         let valid_type_kinds = type_name_level.type_kinds();
         if valid_type_kinds.contains(type_name_kind) { Some(type_name.to_owned()) } else { None }
@@ -135,12 +135,13 @@ pub fn type_full_name(
 ) -> String {
     let type_name = match type_ {
         clean::Type::ResolvedPath { path, did, .. } => {
-            let type_name = if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
-                type_name
-            } else {
-                // println!("Warning: try to get type full name for {:?}", type_);
-                return "Unknown type".to_string();
-            };
+            let type_name =
+                if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
+                    type_name
+                } else {
+                    // println!("Warning: try to get type full name for {:?}", type_);
+                    return "Unknown type".to_string();
+                };
             let striped_type_name = strip_prelude_type_name(&type_name);
             let type_parameter_name =
                 type_parameters_full_name(path, type_name_map, type_name_level);
