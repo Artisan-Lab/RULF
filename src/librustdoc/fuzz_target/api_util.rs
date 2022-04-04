@@ -79,6 +79,10 @@ pub fn is_generic_type(ty: &clean::Type) -> bool {
     }
 }
 
+pub fn is_opaque_type(ty_: &clean::Type) -> bool {
+    if let clean::Type::ImplTrait(_) = ty_ { true } else { false }
+}
+
 pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
     match ty {
         clean::Type::ResolvedPath { .. } => {

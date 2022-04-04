@@ -105,7 +105,9 @@ impl ApiFunction {
     pub fn _is_generic_function(&self) -> bool {
         let input_types = &self.inputs;
         for ty in input_types {
-            if api_util::is_generic_type(&ty) {
+            // 对于impl trait，仅判断函数的输入参数中是否存在impl trait
+            // 这是因为函数返回值中的impl trait，其类型事实上是由函数的实现者来指定的，因此，我们并不会尝试去单态化返回值的类型
+            if api_util::is_generic_type(&ty) || api_util::is_opaque_type(&ty) {
                 return true;
             }
         }

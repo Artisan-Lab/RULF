@@ -171,6 +171,22 @@ impl GenericFunction {
         })
     }
 
+    fn collect_opaque_types(&self) -> HashMap<clean::Type, SimplifiedGenericBound> {
+        let mut opaque_types = HashMap::new();
+        self.api_function.inputs.iter().for_each(|input_ty| {
+            if let clean::Type::ImplTrait(bounds) = input_ty {
+                if !generic_bounds_contains_trait_with_generic(bounds) {
+                    if let Ok(simplified_bound) =
+                        SimplifiedGenericBound::try_from(bounds.as_slice())
+                    {
+                        opaque_types.insert(input_ty.to_owned(), simplified_bound);
+                    }
+                }
+            }
+        });
+        opaque_types
+    }
+
     fn push_one_type_bounds(&mut self, bounds: &[GenericBound], bounded_type: clean::Type) {
         let simplified_bound = SimplifiedGenericBound::try_from(bounds).unwrap();
         if self.type_bounds.contains_key(&bounded_type) {
@@ -222,7 +238,9 @@ impl GenericFunction {
             }
         });
         if self.can_be_fully_monomorphized(&replace_map) {
-            return Ok(self.monomorphize(&replace_map));
+            let opaque_replace_map =
+                self.get_opaque_replace_map(types, type_name_map, traits_of_type);
+            return Ok(self.monomorphize(&replace_map, &opaque_replace_map));
         } else {
             return Err(());
         }
@@ -263,7 +281,11 @@ impl GenericFunction {
         return_type_generics.iter().any(|generic| !input_type_generics.contains(generic))
     }
 
-    pub fn monomorphize(&self, replace_map: &HashMap<clean::Type, clean::Type>) -> ApiFunction {
+    pub fn monomorphize(
+        &self,
+        replace_map: &HashMap<clean::Type, clean::Type>,
+        opaque_replace_map: &HashMap<clean::Type, clean::Type>,
+    ) -> ApiFunction {
         // println!("monomorphize {}.", self.api_function.full_name);
         let ApiFunction {
             full_name,
@@ -277,8 +299,11 @@ impl GenericFunction {
         } = self.api_function.clone();
         generics.params.clear();
         generics.where_predicates.clear();
-        let inputs =
+        let mut inputs =
             inputs.into_iter().map(|type_| replace_types(&type_, replace_map)).collect_vec();
+        // replace opaque types in input types
+        inputs =
+            inputs.into_iter().map(|type_| replace_types(&type_, opaque_replace_map)).collect_vec();
         let output = output.and_then(|type_| Some(replace_types(&type_, replace_map)));
         let return_type_notation = self.should_notate_return_type();
         // if return_type_notation {
@@ -294,6 +319,24 @@ impl GenericFunction {
             return_type_notation,
             is_helper,
         }
+    }
+
+    fn get_opaque_replace_map(
+        &self,
+        types: &HashMap<DefId, clean::Type>,
+        type_name_map: &TypeNameMap,
+        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+    ) -> HashMap<clean::Type, clean::Type> {
+        let opaque_types = self.collect_opaque_types();
+        let mut opaque_replace_map = HashMap::new();
+        for (opaque_type, bounds) in opaque_types.iter() {
+            if let Some(replace_type) =
+                bounds.can_be_some_type(types, type_name_map, traits_of_type)
+            {
+                opaque_replace_map.insert(opaque_type.to_owned(), replace_type.to_replace_type());
+            }
+        }
+        opaque_replace_map
     }
 }
 
