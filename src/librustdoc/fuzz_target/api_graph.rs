@@ -62,7 +62,8 @@ pub struct ApiGraph {
     pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
     pub generic_functions: Vec<GenericFunction>,
     pub functions_with_unsupported_fuzzable_types: HashSet<String>,
-    //pub _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
+    pub failed_generic_functions: Vec<GenericFunction>, // statistic use
+                                                        //pub _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -141,6 +142,7 @@ impl ApiGraph {
             mod_visibility: ModVisibity::new(_crate_name),
             generic_functions: Vec::new(),
             functions_with_unsupported_fuzzable_types: HashSet::new(),
+            failed_generic_functions: Vec::new(),
             //_sequences_of_all_algorithm,
         }
     }
@@ -233,6 +235,7 @@ impl ApiGraph {
         let mut defined_types = 0usize;
 
         let mut monomorphized_functions = Vec::new();
+        let mut failed_generic_functions = Vec::new();
         self.generic_functions.iter().for_each(|generic_function| {
             if let Ok(function) = generic_function.try_monomorphize(
                 &self.defined_types.types,
@@ -246,8 +249,11 @@ impl ApiGraph {
                 &mut defined_types,
             ) {
                 monomorphized_functions.push(function);
+            } else {
+                failed_generic_functions.push(generic_function.to_owned());
             }
         });
+        self.failed_generic_functions = failed_generic_functions;
 
         println!(
             "Among all {} bounds, 
@@ -448,7 +454,7 @@ impl ApiGraph {
     //已经访问过的节点数量,用来快速判断bfs是否还需要run下去：如果一轮下来，bfs的长度没有发生变化，那么也可直接quit了
     pub fn _visited_nodes_num(&self) -> usize {
         let visited: Vec<&bool> =
-            (&self.api_functions_visited).into_iter().filter(|x| **x == true).collect();
+            (&self.api_functions_visited).into_iter().filter(|x| **x).collect();
         visited.len()
     }
 
@@ -937,133 +943,95 @@ impl ApiGraph {
         stop_at_visit_all_nodes: bool,
     ) -> Vec<ApiSequence> {
         let mut res = Vec::new();
-        let mut to_cover_nodes = Vec::new();
-        let mut to_cover_edges = Vec::new();
+        let mut to_cover_nodes = HashSet::new();
+        let mut to_cover_edges = HashSet::new();
 
-        for seq in &self.api_sequences {
-            if !seq._has_no_fuzzables() && !seq._contains_dead_code_except_last_one(self) {
-                let covered_nodes = seq.get_covered_nodes(&self);
-                let covered_edges = seq.get_covered_edges(&self);
-                to_cover_nodes.extend(covered_nodes);
-                to_cover_edges.extend(covered_edges);
-            }
+        let valid_seqs = self
+            .api_sequences
+            .iter()
+            .filter(|seq| !seq._has_no_fuzzables() && !seq.contains_dead_code(self))
+            .map(|api_seq| api_seq.to_owned())
+            .collect_vec();
+
+        if valid_seqs.len() <= 0 {
+            println!("There are no valid sequence for fuzzing.");
+            return res;
+        }
+
+        for seq in valid_seqs.iter() {
+            let covered_nodes = seq.get_covered_nodes(&self);
+            let covered_edges = seq.get_covered_edges(&self);
+            to_cover_nodes.extend(covered_nodes);
+            to_cover_edges.extend(covered_edges);
         }
 
         let to_cover_nodes_number = to_cover_nodes.len();
         let to_cover_edges_number = to_cover_edges.len();
-        let total_sequence_number = self.api_sequences.len();
-
-        let mut valid_fuzz_sequence_count = 0;
-        for sequence in &self.api_sequences {
-            if !sequence._has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self)
-            {
-                valid_fuzz_sequence_count = valid_fuzz_sequence_count + 1;
-            }
-        }
-        //println!("There are toatl {} valid sequences for fuzz.", valid_fuzz_sequence_count);
-        if valid_fuzz_sequence_count <= 0 {
-            return res;
-        }
+        let valid_seq_number = valid_seqs.len();
 
         let mut already_covered_nodes = HashSet::new();
         let mut already_covered_edges = HashSet::new();
         let mut already_chosen_sequences = HashSet::new();
         let mut sorted_chosen_sequences = Vec::new();
-        let mut dynamic_fuzzable_length_sequences_count = 0;
-        let mut fixed_fuzzale_length_sequences_count = 0;
 
-        let mut try_to_find_dynamic_length_flag = true;
         for _ in 0..max_size + 1 {
-            let mut current_chosen_sequence_index = 0;
-            let mut current_max_covered_nodes = 0;
-            let mut current_max_covered_edges = 0;
-            let mut current_chosen_sequence_len = 0;
+            let mut chosen_seq_index = 0;
+            let mut max_covered_nodes = 0;
+            let mut max_covered_edges = 0;
+            let mut chosen_sequence_len = 0;
 
-            for j in 0..total_sequence_number {
+            for j in 0..valid_seq_number {
                 if already_chosen_sequences.contains(&j) {
                     continue;
                 }
-                let api_sequence = &self.api_sequences[j];
+                let api_seq = &valid_seqs[j];
 
-                if api_sequence._has_no_fuzzables()
-                    || api_sequence._contains_dead_code_except_last_one(self)
-                {
-                    continue;
-                }
-
-                if try_to_find_dynamic_length_flag && api_sequence._is_fuzzables_fixed_length() {
-                    //优先寻找fuzzable部分具有动态长度的情况
-                    continue;
-                }
-
-                if !try_to_find_dynamic_length_flag && !api_sequence._is_fuzzables_fixed_length() {
-                    //再寻找fuzzable部分具有静态长度的情况
-                    continue;
-                }
-
-                let covered_nodes = api_sequence.get_covered_nodes(&self);
-                let mut uncovered_nodes_by_former_sequence_count = 0;
+                let covered_nodes = api_seq.get_covered_nodes(&self);
+                let mut covered_new_nodes_number = 0;
                 for covered_node in &covered_nodes {
                     if !already_covered_nodes.contains(covered_node) {
-                        uncovered_nodes_by_former_sequence_count =
-                            uncovered_nodes_by_former_sequence_count + 1;
+                        covered_new_nodes_number = covered_new_nodes_number + 1;
                     }
                 }
 
-                if uncovered_nodes_by_former_sequence_count < current_max_covered_nodes {
+                if covered_new_nodes_number < max_covered_nodes {
                     continue;
                 }
-                let covered_edges = api_sequence.get_covered_edges(&self);
-                let mut uncovered_edges_by_former_sequence_count = 0;
+                let covered_edges = api_seq.get_covered_edges(&self);
+                let mut covered_new_edges_number = 0;
                 for covered_edge in covered_edges {
                     if !already_covered_edges.contains(&covered_edge) {
-                        uncovered_edges_by_former_sequence_count =
-                            uncovered_edges_by_former_sequence_count + 1;
+                        covered_new_edges_number = covered_new_edges_number + 1;
                     }
                 }
-                if uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
-                    && uncovered_edges_by_former_sequence_count < current_max_covered_edges
+                if covered_new_nodes_number == max_covered_nodes
+                    && covered_new_edges_number < max_covered_edges
                 {
                     continue;
                 }
-                let sequence_len = api_sequence.len();
-                if (uncovered_nodes_by_former_sequence_count > current_max_covered_nodes)
-                    || (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
-                        && uncovered_edges_by_former_sequence_count > current_max_covered_edges)
-                    || (uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
-                        && uncovered_edges_by_former_sequence_count == current_max_covered_edges
-                        && sequence_len < current_chosen_sequence_len)
+                let sequence_len = api_seq.len();
+                if (covered_new_nodes_number > max_covered_nodes)
+                    || (covered_new_nodes_number == max_covered_nodes
+                        && covered_new_edges_number > max_covered_edges)
+                    || (covered_new_nodes_number == max_covered_nodes
+                        && covered_new_edges_number == max_covered_edges
+                        && sequence_len < chosen_sequence_len)
                 {
-                    current_chosen_sequence_index = j;
-                    current_max_covered_nodes = uncovered_nodes_by_former_sequence_count;
-                    current_max_covered_edges = uncovered_edges_by_former_sequence_count;
-                    current_chosen_sequence_len = sequence_len;
+                    chosen_seq_index = j;
+                    max_covered_nodes = covered_new_nodes_number;
+                    max_covered_edges = covered_new_edges_number;
+                    chosen_sequence_len = sequence_len;
                 }
             }
 
-            if try_to_find_dynamic_length_flag && current_max_covered_nodes <= 0 {
-                try_to_find_dynamic_length_flag = false;
-                continue;
-            }
-
-            if !try_to_find_dynamic_length_flag
-                && current_max_covered_edges <= 0
-                && current_max_covered_nodes <= 0
-            {
+            if max_covered_edges <= 0 && max_covered_nodes <= 0 {
                 //println!("can't cover more edges or nodes");
                 break;
             }
-            already_chosen_sequences.insert(current_chosen_sequence_index);
-            sorted_chosen_sequences.push(current_chosen_sequence_index);
+            already_chosen_sequences.insert(chosen_seq_index);
+            sorted_chosen_sequences.push(chosen_seq_index);
 
-            if try_to_find_dynamic_length_flag {
-                dynamic_fuzzable_length_sequences_count =
-                    dynamic_fuzzable_length_sequences_count + 1;
-            } else {
-                fixed_fuzzale_length_sequences_count = fixed_fuzzale_length_sequences_count + 1;
-            }
-
-            let chosen_sequence = &self.api_sequences[current_chosen_sequence_index];
+            let chosen_sequence = &valid_seqs[chosen_seq_index];
 
             let covered_nodes = chosen_sequence.get_covered_nodes(&self);
             for cover_node in covered_nodes {
@@ -1074,13 +1042,12 @@ impl ApiGraph {
                 already_covered_edges.insert(cover_edge);
             }
 
-            if already_chosen_sequences.len() == valid_fuzz_sequence_count {
+            if already_chosen_sequences.len() == valid_seqs.len() {
                 //println!("all sequence visited");
                 break;
             }
             if to_cover_edges_number != 0 && already_covered_edges.len() == to_cover_edges_number {
                 //println!("all edges visited");
-                //should we stop at visit all edges?
                 break;
             }
             if stop_at_visit_all_nodes && already_covered_nodes.len() == to_cover_nodes_number {
@@ -1088,10 +1055,7 @@ impl ApiGraph {
                 break;
             }
         }
-        res = sorted_chosen_sequences
-            .iter()
-            .map(|index| self.api_sequences[*index].clone())
-            .collect_vec();
+        res = sorted_chosen_sequences.iter().map(|index| valid_seqs[*index].clone()).collect_vec();
         self.make_statistics(&res);
         res
     }
@@ -1101,7 +1065,7 @@ impl ApiGraph {
         let helper_nodes = self.api_functions.iter().filter(|api_fun| api_fun.is_helper).count();
         let not_helepr_nodes = self.api_functions.len() - helper_nodes;
         println!("total nodes: {} ({} helpers).", not_helepr_nodes, helper_nodes);
-        let all_nodes = self.generic_functions.len() + not_helepr_nodes;
+        let all_nodes = self.failed_generic_functions.len() + not_helepr_nodes;
         println!("all nodes(include generic): {} ", all_nodes);
         let helper_edges =
             self.api_dependencies.iter().filter(|api_dep| api_dep.from_helper).count();
@@ -1116,6 +1080,8 @@ impl ApiGraph {
         let covered_helper_nodes =
             covered_nodes.iter().filter(|index| self.api_functions[**index].is_helper).count();
         let covered_not_helper_nodes = covered_nodes.len() - covered_helper_nodes;
+        let checked_visited = self._visited_nodes_num();
+        println!("check visited: {}", checked_visited);
         println!("covered nodes: {}", covered_not_helper_nodes);
         let covered_helper_edges =
             covered_edges.iter().filter(|index| self.api_dependencies[**index].from_helper).count();

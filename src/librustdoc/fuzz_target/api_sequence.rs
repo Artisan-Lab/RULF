@@ -216,13 +216,13 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn get_covered_nodes(&self, graph: &ApiGraph) -> Vec<usize> {
-        let mut res = Vec::new();
+    pub fn get_covered_nodes(&self, graph: &ApiGraph) -> HashSet<usize> {
+        let mut res = HashSet::new();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
             let is_helper = graph.api_functions[*func_index].is_helper;
             if !is_helper && !res.contains(func_index) {
-                res.push(*func_index);
+                res.insert(*func_index);
             }
         }
         res
@@ -368,7 +368,7 @@ impl ApiSequence {
         dead_api_call
     }
 
-    pub fn _contains_dead_code_except_last_one(&self, _api_graph: &ApiGraph) -> bool {
+    pub fn contains_dead_code(&self, _api_graph: &ApiGraph) -> bool {
         let sequence_len = self.len();
         if sequence_len <= 1 {
             return false;
