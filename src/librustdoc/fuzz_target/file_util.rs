@@ -1,4 +1,4 @@
-use crate::fuzz_target::api_graph::ApiGraph;
+use super::api_graph::ApiGraph;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;

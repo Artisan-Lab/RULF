@@ -2,11 +2,11 @@ use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use std::collections::HashMap;
 
-use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path, TypeBinding, GetDefId};
+use crate::clean::{self, GenericArg, GenericBound, GetDefId, Lifetime, Path, TypeBinding};
 use crate::html::render::cache::Cache;
 use rustc_hir::Mutability;
 
-use super::prelude_type::is_preluded_type;
+use super::prelude_type::is_preluded_type_name;
 
 lazy_static! {
     static ref PRELUDED_TYPE_NAME: HashMap<&'static str, &'static str> = {
@@ -109,7 +109,7 @@ impl From<&Cache> for TypeNameMap {
         // paths defined in external crates
         cache.external_paths.iter().for_each(|(def_id, (segments, _))| {
             let type_name = full_qualified_name(segments);
-            if is_preluded_type(&type_name) {
+            if is_preluded_type_name(&type_name) {
                 // prelude type only defines in external crate
                 type_name_map.insert(*def_id, type_name, TypeNameKind::Prelude)
             } else if cache.traits.contains_key(def_id) {
@@ -257,9 +257,13 @@ pub fn type_name(
 }
 
 // debug use
-pub fn _type_name_with_def_id(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+pub fn _type_name_with_def_id(
+    type_: &clean::Type,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     let type_full_name = type_full_name(type_, type_name_map, type_name_level);
-    if let Some(def_id) =  type_.def_id() {
+    if let Some(def_id) = type_.def_id() {
         format!("{} def_id: {:?}", type_full_name, def_id)
     } else {
         type_full_name
@@ -408,6 +412,10 @@ fn strip_prelude_type_name(raw: &str) -> String {
 }
 
 fn full_qualified_name(segments: &Vec<String>) -> String {
-    let non_empty_segments = segments.iter().filter(|segment| segment.len()>0).map(|segment| segment.to_owned()).collect_vec();
+    let non_empty_segments = segments
+        .iter()
+        .filter(|segment| segment.len() > 0)
+        .map(|segment| segment.to_owned())
+        .collect_vec();
     non_empty_segments.join("::")
 }

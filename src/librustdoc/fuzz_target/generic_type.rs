@@ -8,11 +8,9 @@ use std::{
 
 use crate::clean::{self, GenericBound};
 
+use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 use super::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
-use super::{
-    type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap},
-    type_util::{i32_type, str_type, u8_slice_type},
-};
+use super::type_util::{i32_type, str_type, u8_slice_type};
 
 // FIXME: Why these are not marker from std?.
 pub static NUMERIC_TRAITS: [&'static str; 10] = [

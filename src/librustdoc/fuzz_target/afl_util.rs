@@ -1,5 +1,5 @@
+use super::fuzzable_type::FuzzableType;
 use crate::clean::PrimitiveType;
-use crate::fuzz_target::fuzzable_type::FuzzableType;
 use rustc_data_structures::fx::FxHashSet;
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum _AflHelpers {

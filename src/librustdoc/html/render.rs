@@ -722,15 +722,15 @@ pub fn fuzz_target_run_clean_krate(
         api_dependency_graph.generate_all_possoble_sequences(_RandomWalk);
     }
 
-    use crate::fuzz_target::print_message;
+    // use crate::fuzz_target::print_message;
     // print_message::_print_type_full_names(&api_dependency_graph);
     // print_message::_print_generated_test_functions(&api_dependency_graph);
     // print_message::_print_generic_functions(&api_dependency_graph);
     // print_message::_print_type_in_current_crate(&api_dependency_graph);
     // print_message::_print_traits_in_current_crate(&api_dependency_graph);
-    print_message::_print_pretty_functions(&api_dependency_graph, true);
-    // print_message::_print_pretty_sequences(&api_dependency_graph);
+    // print_message::_print_pretty_functions(&api_dependency_graph, true);
     // print_message::_print_pretty_functions(&api_dependency_graph, false);
+    // print_message::_print_pretty_sequences(&api_dependency_graph);
     // print_message::_print_generated_afl_file(&api_dependency_graph);
     // println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
     //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());

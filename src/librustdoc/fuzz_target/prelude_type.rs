@@ -1,9 +1,9 @@
 //To deal with some prelude type
-use crate::clean::{self, types::GetDefId};
-use crate::fuzz_target::api_util;
-use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::impl_util::FullNameMap;
+use super::call_type::CallType;
+use crate::clean;
 use std::collections::{HashMap, HashSet};
+
+use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 
 lazy_static! {
     static ref PRELUDED_TYPE: HashMap<&'static str, &'static str> = {
@@ -20,7 +20,7 @@ static _OPTION: &'static str = "Option";
 static _RESULT: &'static str = "Result";
 // static _STRING: &'static str = "String";
 
-pub fn is_preluded_type(type_name: &String) -> bool {
+pub fn is_preluded_type_name(type_name: &String) -> bool {
     if PRELUDED_TYPE.contains_key(type_name.as_str()) {
         return true;
     } else {
@@ -37,14 +37,9 @@ pub fn get_all_preluded_type() -> HashSet<String> {
     // res
 }
 
-pub fn preluded_type(type_: &clean::Type, full_name_map: &FullNameMap) -> bool {
-    let def_id = type_.def_id().unwrap();
-    if let Some(type_name) = full_name_map._get_full_name(&def_id) {
-        if is_preluded_type(type_name) {
-            return true;
-        }
-    }
-    return false;
+pub fn is_preluded_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let type_name = type_name(type_, type_name_map, TypeNameLevel::All);
+    is_preluded_type_name(&type_name)
 }
 
 pub fn to_strip_type_name(type_name: &String) -> String {
@@ -66,13 +61,12 @@ pub enum PreludeType {
 }
 
 impl PreludeType {
-    pub fn from_type(type_: &clean::Type, full_name_map: &FullNameMap) -> Self {
+    pub fn from_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> Self {
         match type_ {
             clean::Type::ResolvedPath { path, .. } => {
-                if preluded_type(type_, full_name_map) {
-                    let def_id = type_.def_id().unwrap();
-                    let type_full_name = full_name_map._get_full_name(&def_id).unwrap();
-                    let strip_type_name_string = to_strip_type_name(type_full_name);
+                if is_preluded_type(type_, type_name_map) {
+                    let type_name = type_name(type_, type_name_map, TypeNameLevel::All);
+                    let strip_type_name_string = to_strip_type_name(&type_name);
                     let strip_type_name = strip_type_name_string.as_str();
                     if _OPTION == strip_type_name {
                         extract_option(path, type_)
@@ -90,16 +84,18 @@ impl PreludeType {
         }
     }
 
-    pub fn _to_type_name(&self, full_name_map: &FullNameMap) -> String {
+    pub fn _to_type_name(&self, type_name_map: &TypeNameMap) -> String {
         match self {
-            PreludeType::NotPrelude(type_) => api_util::_type_name(type_, full_name_map),
+            PreludeType::NotPrelude(type_) => {
+                type_full_name(type_, type_name_map, TypeNameLevel::All)
+            }
             PreludeType::PreludeOption(type_) => {
-                let inner_type_name = api_util::_type_name(type_, full_name_map);
+                let inner_type_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
                 format!("Option<{}>", inner_type_name)
             }
             PreludeType::PreludeResult { ok_type, err_type } => {
-                let ok_type_name = api_util::_type_name(ok_type, full_name_map);
-                let err_type_name = api_util::_type_name(err_type, full_name_map);
+                let ok_type_name = type_full_name(ok_type, type_name_map, TypeNameLevel::All);
+                let err_type_name = type_full_name(err_type, type_name_map, TypeNameLevel::All);
                 format!("Result<{}, {}>", ok_type_name, err_type_name)
             }
         }
@@ -196,8 +192,8 @@ fn extract_result(path: &clean::Path, type_: &clean::Type) -> PreludeType {
     return PreludeType::NotPrelude(type_.clone());
 }
 
-pub fn is_prelude_type(type_: &clean::Type, full_name_map: &FullNameMap) -> bool {
-    let prelude_type = PreludeType::from_type(type_, full_name_map);
+pub fn is_prelude_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let prelude_type = PreludeType::from_type(type_, type_name_map);
     let final_type = prelude_type._get_final_type();
     if final_type == *type_ { false } else { true }
 }

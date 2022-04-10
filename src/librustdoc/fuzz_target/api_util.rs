@@ -1,12 +1,11 @@
+use super::call_type::CallType;
+use super::fuzzable_type::{self, FuzzableCallType};
+use super::prelude_type::{self, PreludeType};
 use crate::clean::{self, GetDefId, PrimitiveType};
-use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
-use crate::fuzz_target::impl_util::FullNameMap;
-use crate::fuzz_target::prelude_type::{self, PreludeType};
 use rustc_hir::{self, Mutability};
 
 use super::fuzzable_type::FuzzableType;
-use super::type_name::{TypeNameMap, type_full_name, TypeNameLevel};
+use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
 pub fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
     inputs.values.iter().map(|argument| argument.type_.clone()).collect()
@@ -84,14 +83,14 @@ pub fn is_opaque_type(ty_: &clean::Type) -> bool {
     if let clean::Type::ImplTrait(_) = ty_ { true } else { false }
 }
 
-pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
+pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap) -> bool {
     match ty {
         clean::Type::ResolvedPath { .. } => {
             //TODO:need more analyse
-            if prelude_type::is_prelude_type(ty, full_name_map) {
-                let prelude_type = PreludeType::from_type(ty, full_name_map);
+            if prelude_type::is_prelude_type(ty, type_name_map) {
+                let prelude_type = PreludeType::from_type(ty, type_name_map);
                 let final_type = prelude_type._get_final_type();
-                if _is_end_type(&final_type, full_name_map) {
+                if _is_end_type(&final_type, type_name_map) {
                     return true;
                 }
             }
@@ -107,7 +106,7 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
         clean::Type::Tuple(inner) => {
             let mut flag = true;
             for inner_type in inner {
-                if !_is_end_type(inner_type, full_name_map) {
+                if !_is_end_type(inner_type, type_name_map) {
                     flag = false;
                     break;
                 }
@@ -118,11 +117,11 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
         | clean::Type::Array(inner, ..)
         | clean::Type::RawPointer(_, inner) => {
             let inner_type = &**inner;
-            return _is_end_type(inner_type, full_name_map);
+            return _is_end_type(inner_type, type_name_map);
         }
         clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
-            return _is_end_type(inner_type, full_name_map);
+            return _is_end_type(inner_type, type_name_map);
         }
         clean::Type::QPath { .. } => {
             //TODO: qpath
@@ -137,42 +136,41 @@ pub fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap) -> bool {
 }
 
 //get the name of a type
-pub fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap) -> String {
-    if let Some(def_id) = &type_.def_id() {
-        if let Some(full_name) = full_name_map._get_full_name(def_id) {
-            return full_name.clone();
-        }
-    }
-    match type_ {
-        clean::Type::Primitive(primitive_type) => primitive_type.as_str().to_string(),
-        clean::Type::Generic(generic) => generic.to_string(),
-        clean::Type::BorrowedRef { type_, .. } => {
-            let inner_type = &**type_;
-            let inner_name = _type_name(inner_type, full_name_map);
-            format!("&{}", inner_name)
-        }
-        clean::Type::Tuple(inner_types) => {
-            let inner_types_number = inner_types.len();
-            let mut res = "(".to_string();
-            for i in 0..inner_types_number {
-                let inner_type = &inner_types[i];
-                if i != 0 {
-                    res.push_str(" ,");
-                }
-                res.push_str(_type_name(inner_type, full_name_map).as_str());
-            }
-            res.push(')');
-            res
-        }
-        _ => "Currently not supported to get full name.".to_string(),
-    }
-}
+// pub fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap) -> String {
+//     if let Some(def_id) = &type_.def_id() {
+//         if let Some(full_name) = full_name_map._get_full_name(def_id) {
+//             return full_name.clone();
+//         }
+//     }
+//     match type_ {
+//         clean::Type::Primitive(primitive_type) => primitive_type.as_str().to_string(),
+//         clean::Type::Generic(generic) => generic.to_string(),
+//         clean::Type::BorrowedRef { type_, .. } => {
+//             let inner_type = &**type_;
+//             let inner_name = _type_name(inner_type, full_name_map);
+//             format!("&{}", inner_name)
+//         }
+//         clean::Type::Tuple(inner_types) => {
+//             let inner_types_number = inner_types.len();
+//             let mut res = "(".to_string();
+//             for i in 0..inner_types_number {
+//                 let inner_type = &inner_types[i];
+//                 if i != 0 {
+//                     res.push_str(" ,");
+//                 }
+//                 res.push_str(_type_name(inner_type, full_name_map).as_str());
+//             }
+//             res.push(')');
+//             res
+//         }
+//         _ => "Currently not supported to get full name.".to_string(),
+//     }
+// }
 
 /// determine whether output_type and input type can be same type
 pub fn same_type(
     output_type: &clean::Type,
     input_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     //same type, direct call
@@ -183,19 +181,19 @@ pub fn same_type(
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
             //TODO:should take lifetime into account?
-            return _borrowed_ref_in_same_type(mutability, type_, output_type, full_name_map, type_name_map);
+            return _borrowed_ref_in_same_type(mutability, type_, output_type, type_name_map);
         }
         clean::Type::RawPointer(mutability, type_) => {
-            return _raw_pointer_in_same_type(mutability, type_, output_type, full_name_map, type_name_map);
+            return _raw_pointer_in_same_type(mutability, type_, output_type, type_name_map);
         }
         _ => {}
     }
 
     //考虑输入类型是prelude type的情况，后面就不再考虑
-    if prelude_type::is_prelude_type(input_type, full_name_map) {
-        let input_prelude_type = PreludeType::from_type(input_type, full_name_map);
+    if prelude_type::is_prelude_type(input_type, type_name_map) {
+        let input_prelude_type = PreludeType::from_type(input_type, type_name_map);
         let final_type = input_prelude_type._get_final_type();
-        let inner_call_type = same_type(output_type, &final_type, full_name_map, type_name_map);
+        let inner_call_type = same_type(output_type, &final_type, type_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -210,7 +208,7 @@ pub fn same_type(
     match output_type {
         //结构体、枚举、联合
         clean::Type::ResolvedPath { .. } => {
-            _same_type_resolved_path(output_type, input_type, full_name_map, type_name_map)
+            _same_type_resolved_path(output_type, input_type, type_name_map)
         }
         //范型
         clean::Type::Generic(_generic) => {
@@ -229,10 +227,10 @@ pub fn same_type(
         clean::Type::Array(_inner_type, _) => CallType::_NotCompatible,
         clean::Type::Never | clean::Type::Infer => CallType::_NotCompatible,
         clean::Type::RawPointer(_, type_) => {
-            _same_type_raw_pointer(type_, input_type, full_name_map, type_name_map)
+            _same_type_raw_pointer(type_, input_type, type_name_map)
         }
         clean::Type::BorrowedRef { type_, .. } => {
-            _same_type_borrowed_ref(type_, input_type, full_name_map, type_name_map)
+            _same_type_borrowed_ref(type_, input_type, type_name_map)
         }
         clean::Type::QPath { .. } => {
             //TODO:有需要的时候再考虑
@@ -250,14 +248,13 @@ pub fn same_type(
 fn _same_type_resolved_path(
     output_type: &clean::Type,
     input_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     //处理output type 是 prelude type的情况
-    if prelude_type::is_prelude_type(output_type, full_name_map) {
-        let output_prelude_type = PreludeType::from_type(output_type, full_name_map);
+    if prelude_type::is_prelude_type(output_type, type_name_map) {
+        let output_prelude_type = PreludeType::from_type(output_type, type_name_map);
         let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type = same_type(&final_output_type, input_type, full_name_map, type_name_map);
+        let inner_call_type = same_type(&final_output_type, input_type, type_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -290,10 +287,17 @@ fn _same_type_resolved_path(
     }
 }
 
-fn _same_def_id_and_type_name(output_type: &clean::Type, input_type: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+fn _same_def_id_and_type_name(
+    output_type: &clean::Type,
+    input_type: &clean::Type,
+    type_name_map: &TypeNameMap,
+) -> bool {
     let input_type_name = type_full_name(input_type, type_name_map, TypeNameLevel::All);
     let output_type_name = type_full_name(output_type, type_name_map, TypeNameLevel::All);
-    input_type_name.as_str() != "Unknown type" && output_type_name.as_str() != "Unknown type" && output_type.def_id() == input_type.def_id() && output_type_name == input_type_name
+    input_type_name.as_str() != "Unknown type"
+        && output_type_name.as_str() != "Unknown type"
+        && output_type.def_id() == input_type.def_id()
+        && output_type_name == input_type_name
 }
 
 //输出类型是Primitive的情况
@@ -394,11 +398,10 @@ fn _same_type_primitive(primitive_type: &PrimitiveType, input_type: &clean::Type
 fn _same_type_raw_pointer(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(inner_type, input_type, full_name_map, type_name_map);
+    let inner_compatible = same_type(inner_type, input_type, type_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -413,11 +416,10 @@ fn _same_type_raw_pointer(
 fn _same_type_borrowed_ref(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(inner_type, input_type, full_name_map, type_name_map);
+    let inner_compatible = same_type(inner_type, input_type, type_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -440,11 +442,10 @@ pub fn _borrowed_ref_in_same_type(
     mutability: &Mutability,
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(output_type, inner_type, full_name_map, type_name_map);
+    let inner_compatible = same_type(output_type, inner_type, type_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -465,11 +466,10 @@ pub fn _raw_pointer_in_same_type(
     mutability: &Mutability,
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
-    full_name_map: &FullNameMap,
     type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(output_type, inner_type, full_name_map, type_name_map);
+    let inner_compatible = same_type(output_type, inner_type, type_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -591,8 +591,8 @@ pub fn _move_condition(input_type: &clean::Type, call_type: &CallType) -> bool {
     return false;
 }
 
-pub fn is_fuzzable_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> bool {
-    let fuzzable_call_type = fuzzable_type::fuzzable_call_type(ty_, full_name_map);
+pub fn is_fuzzable_type(ty_: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let fuzzable_call_type = fuzzable_type::fuzzable_call_type(ty_, type_name_map);
     if fuzzable_call_type == FuzzableCallType::NoFuzzable {
         return false;
     }

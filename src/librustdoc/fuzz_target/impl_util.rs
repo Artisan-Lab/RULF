@@ -1,7 +1,7 @@
+use super::api_function::{ApiFunction, ApiUnsafety};
+use super::api_util;
 use crate::clean::{self, types::GetDefId};
 use crate::clean::{Generics, WherePredicate};
-use crate::fuzz_target::api_function::{ApiFunction, ApiUnsafety};
-use crate::fuzz_target::api_util;
 use crate::html::item_type::ItemType;
 use crate::html::render::cache::Cache;
 use itertools::Itertools;
@@ -120,7 +120,7 @@ pub fn extract_impls_from_cache(
     for (did, (strings, item_type)) in extertal_paths {
         let full_name = full_path(&strings);
 
-        if prelude_type::is_preluded_type(&full_name) {
+        if prelude_type::is_preluded_type_name(&full_name) {
             full_name_map.push_mapping(&did, &full_name, *item_type);
         }
     }

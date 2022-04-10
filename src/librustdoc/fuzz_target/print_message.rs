@@ -1,9 +1,9 @@
 //This file contains functions to print intermediate info
 
-use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::api_graph::ApiType;
-use crate::fuzz_target::type_name::type_full_name;
-use crate::fuzz_target::type_name::TypeNameLevel;
+use super::api_graph::ApiGraph;
+use super::api_graph::ApiType;
+use super::type_name::type_full_name;
+use super::type_name::TypeNameLevel;
 
 /// traits of primitive types
 

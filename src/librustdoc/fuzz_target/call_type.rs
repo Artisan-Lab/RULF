@@ -1,7 +1,7 @@
-use crate::clean::{self};
-use crate::fuzz_target::api_function::ApiUnsafety;
-use crate::fuzz_target::api_util::_type_name;
-use crate::fuzz_target::impl_util::FullNameMap;
+use super::api_function::ApiUnsafety;
+use crate::clean;
+
+use super::type_name::{type_full_name, TypeNameMap};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum CallType {
@@ -22,20 +22,20 @@ pub enum CallType {
 }
 
 impl CallType {
-    pub fn _to_call_string(&self, variable_name: &String, full_name_map: &FullNameMap) -> String {
+    pub fn _to_call_string(&self, variable_name: &String, type_name_map: &TypeNameMap) -> String {
         match self {
             CallType::_NotCompatible => String::new(),
             CallType::_DirectCall => variable_name.clone(),
             CallType::_BorrowedRef(inner_) => {
                 let mut call_string = "&(".to_string();
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
             }
             CallType::_MutBorrowedRef(inner_) => {
                 let mut call_string = "&mut (".to_string();
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
@@ -43,19 +43,25 @@ impl CallType {
             CallType::_ConstRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *const ");
-                call_string.push_str(_type_name(ty_, full_name_map).as_str());
+                call_string.push_str(
+                    type_full_name(ty_, type_name_map, super::type_name::TypeNameLevel::All)
+                        .as_str(),
+                );
                 call_string
             }
             CallType::_MutRawPointer(inner_, ty_) => {
                 //TODO:需要转换之后的类型名
                 let mut call_string = "&(".to_string();
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *mut ");
-                call_string.push_str(_type_name(ty_, full_name_map).as_str());
+                call_string.push_str(
+                    type_full_name(ty_, type_name_map, super::type_name::TypeNameLevel::All)
+                        .as_str(),
+                );
                 call_string
             }
             CallType::_AsConvert(str_) => {
@@ -68,31 +74,31 @@ impl CallType {
             CallType::_UnsafeDeref(inner_) | CallType::_Deref(inner_) => {
                 //TODO:unsafe deref需要考虑unsafe标记
                 let mut call_string = "*(".to_string();
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(")");
                 call_string
             }
             CallType::_UnwrapResult(inner_) => {
                 //TODO:暂时先unwrap，后面再想办法处理逻辑
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 format!("_unwrap_result({})", inner_call_string)
             }
             CallType::_UnwrapOption(inner_) => {
                 //TODO:暂时先unwrap,后面在想办法处理
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 format!("_unwrap_option({})", inner_call_string)
             }
             CallType::_ToOption(inner_) => {
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 format!("Some({})", inner_call_string)
             }
             CallType::_ToResult(inner_) => {
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 format!("Ok({})", inner_call_string)
             }
             CallType::_ToArray(inner_, len) => {
-                let inner_call_string = inner_._to_call_string(variable_name, full_name_map);
+                let inner_call_string = inner_._to_call_string(variable_name, type_name_map);
                 format!("[{};{}]", inner_call_string, len)
             }
         }

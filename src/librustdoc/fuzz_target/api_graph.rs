@@ -1,13 +1,13 @@
+use super::api_function::ApiFunction;
+use super::api_sequence::{ApiCall, ApiSequence, ParamType};
+use super::api_util;
+use super::call_type::CallType;
+use super::fuzzable_type;
+use super::fuzzable_type::FuzzableType;
+use super::impl_util::FullNameMap;
+use super::mod_visibility::ModVisibity;
+use super::prelude_type;
 use crate::clean;
-use crate::fuzz_target::api_function::ApiFunction;
-use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
-use crate::fuzz_target::api_util;
-use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::fuzzable_type;
-use crate::fuzz_target::fuzzable_type::FuzzableType;
-use crate::fuzz_target::impl_util::FullNameMap;
-use crate::fuzz_target::mod_visibility::ModVisibity;
-use crate::fuzz_target::prelude_type;
 use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 
@@ -340,7 +340,7 @@ impl ApiGraph {
         for i in 0..api_num {
             let first_fun = &self.api_functions[i];
             let from_helper = first_fun.is_helper;
-            if first_fun._is_end_function(&self.full_name_map) {
+            if first_fun._is_end_function(&self.type_name_map) {
                 //如果第一个函数是终止节点，就不寻找这样的依赖
                 continue;
             }
@@ -349,7 +349,7 @@ impl ApiGraph {
                 for j in 0..api_num {
                     //TODO:是否要把i=j的情况去掉？
                     let second_fun = &self.api_functions[j];
-                    if second_fun._is_start_function(&self.full_name_map) {
+                    if second_fun._is_start_function(&self.type_name_map) {
                         //如果第二个节点是开始节点，那么直接跳过
                         continue;
                     }
@@ -358,7 +358,7 @@ impl ApiGraph {
                     for k in 0..input_params_num {
                         let input_param = &input_params[k];
                         let call_type =
-                            api_util::same_type(output_type, input_param, &self.full_name_map, &self.type_name_map);
+                            api_util::same_type(output_type, input_param, &self.type_name_map);
                         match &call_type {
                             CallType::_NotCompatible => {
                                 continue;
@@ -717,7 +717,7 @@ impl ApiGraph {
                 let input_param_num = inputs.len();
                 for i in 0..input_param_num {
                     let input_type = &inputs[i];
-                    if api_util::is_fuzzable_type(input_type, &self.full_name_map) {
+                    if api_util::is_fuzzable_type(input_type, &self.type_name_map) {
                         continue;
                     }
                     let mut can_find_dependency_flag = false;
@@ -1168,12 +1168,12 @@ impl ApiGraph {
 
                 for i in 0..input_params_num {
                     let current_ty = &input_params[i];
-                    if api_util::is_fuzzable_type(current_ty, &self.full_name_map) {
+                    if api_util::is_fuzzable_type(current_ty, &self.type_name_map) {
                         //如果当前参数是fuzzable的
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
                         // println!("current_ty for: {:?}", current_ty);
                         let fuzzable_call_type =
-                            fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map);
+                            fuzzable_type::fuzzable_call_type(current_ty, &self.type_name_map);
                         let (fuzzable_type, call_type) =
                             fuzzable_call_type.generate_fuzzable_type_and_call_type();
 
@@ -1368,7 +1368,7 @@ impl ApiGraph {
                 match api_type {
                     ApiType::BareFunction => {
                         let last_func = &self.api_functions[*index];
-                        if last_func._is_end_function(&self.full_name_map) {
+                        if last_func._is_end_function(&self.type_name_map) {
                             return true;
                         } else {
                             return false;

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use crate::fuzz_target::{api_util, type_name::_type_name_with_def_id};
-use crate::fuzz_target::impl_util::FullNameMap;
+use super::{api_util, type_name::_type_name_with_def_id};
 use itertools::Itertools;
 use rustc_hir::{self, Mutability};
 
@@ -47,13 +46,13 @@ impl ApiUnsafety {
 }
 
 impl ApiFunction {
-    pub fn _is_end_function(&self, full_name_map: &FullNameMap) -> bool {
+    pub fn _is_end_function(&self, type_name_map: &TypeNameMap) -> bool {
         if self.contains_mut_borrow() {
             return false;
         }
         let return_type = &self.output;
         match return_type {
-            Some(ty) => api_util::_is_end_type(ty, full_name_map),
+            Some(ty) => api_util::_is_end_type(ty, type_name_map),
             None => true,
         }
         //TODO:考虑可变引用或者是可变裸指针做参数的情况
@@ -89,11 +88,11 @@ impl ApiFunction {
         !function_name_contains_prelude_type & !trait_contains_prelude_type
     }
 
-    pub fn _is_start_function(&self, full_name_map: &FullNameMap) -> bool {
+    pub fn _is_start_function(&self, type_name_map: &TypeNameMap) -> bool {
         let input_types = &self.inputs;
         let mut flag = true;
         for ty in input_types {
-            if !api_util::_is_end_type(&ty, full_name_map) {
+            if !api_util::_is_end_type(&ty, type_name_map) {
                 flag = false;
                 break;
             }

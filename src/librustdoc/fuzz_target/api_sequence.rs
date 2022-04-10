@@ -744,7 +744,7 @@ impl ApiSequence {
                 .iter()
                 .map(|(index, call_type)| {
                     let param_name = format!("{}{}", PARAM_PREFIX, index);
-                    call_type._to_call_string(&param_name, &_api_graph.full_name_map)
+                    call_type._to_call_string(&param_name, &_api_graph.type_name_map)
                 })
                 .collect_vec();
             let call_string = std_type.call_string(params);
@@ -758,7 +758,7 @@ impl ApiSequence {
 
         //api_calls
         let api_calls_num = self.functions.len();
-        let full_name_map = &_api_graph.full_name_map;
+        let type_name_map = &_api_graph.type_name_map;
         for i in 0..api_calls_num {
             let api_call = &self.functions[i];
 
@@ -786,7 +786,7 @@ impl ApiSequence {
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
                     let call_type = &call_type_array[0];
-                    let param_string = call_type._to_call_string(&param_name, full_name_map);
+                    let param_string = call_type._to_call_string(&param_name, type_name_map);
                     param_strings.push(param_string);
                 } else {
                     let mut former_param_name = param_name.clone();
@@ -802,7 +802,7 @@ impl ApiSequence {
                             "{}let mut {} = {};\n",
                             body_indent,
                             helper_name,
-                            call_type._to_call_string(&former_param_name, full_name_map)
+                            call_type._to_call_string(&former_param_name, type_name_map)
                         );
                         if helper_index > 1 {
                             if !api_util::_need_mut_tag(call_type) {
@@ -820,7 +820,7 @@ impl ApiSequence {
                     }
                     res.push_str(former_helper_line.as_str());
                     let param_string =
-                        last_call_type._to_call_string(&former_param_name, full_name_map);
+                        last_call_type._to_call_string(&former_param_name, type_name_map);
                     param_strings.push(param_string);
                 }
             }
