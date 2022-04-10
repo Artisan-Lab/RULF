@@ -27,8 +27,9 @@ pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::fmt::Debug",
     "core::default::Default",
 ];
-pub static U8_SLICE_TRAITS: [&'static str; 2] = [
+pub static U8_SLICE_TRAITS: [&'static str; 3] = [
     "std::io::Read",
+    "std::io::BufRead",
     "regex::bytes::Replacer", // for regex
 ];
 pub static MUT_U8_SLICE_TRAITS: [&'static str; 1] = ["std::io::Write"];
@@ -145,6 +146,14 @@ impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
 impl SimplifiedGenericBound {
     pub fn merge_other_bound(&mut self, other_bound: SimplifiedGenericBound) {
         self.trait_bounds.extend(other_bound.trait_bounds);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.trait_bounds.is_empty()
+    }
+
+    pub fn default_type_for_empty_bounds() -> clean::Type {
+        i32_type()
     }
 
     /// determine whether a generic bound can be replaced with some type

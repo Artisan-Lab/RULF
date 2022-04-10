@@ -38,7 +38,7 @@ pub fn _print_pretty_functions(graph: &ApiGraph, check_visited: bool) {
             }
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print(&graph.type_name_map);
+        let fn_line = api_function._pretty_print_with_def_id(&graph.type_name_map);
 
         println!("{}:{}", i, fn_line);
     }

@@ -230,13 +230,38 @@ impl ApiGraph {
         let mut known_bounds = Vec::new();
         let mut bound_type_map = HashMap::new();
         let mut failed_bounds = HashSet::new();
+        let mut global_replace_map = HashMap::new();
         let mut primitive_types = 0usize;
         let mut convert_traits = 0usize;
         let mut defined_types = 0usize;
 
         let mut monomorphized_functions = Vec::new();
         let mut failed_generic_functions = Vec::new();
+        let mut generic_funcs_with_empty_bounds = Vec::new();
+        // 首先单态化所有泛型参数都带有trait约束的泛型函数
         self.generic_functions.iter().for_each(|generic_function| {
+            if generic_function.contains_empty_bounds() {
+                generic_funcs_with_empty_bounds.push(generic_function.to_owned());
+            } else if let Ok(function) = generic_function.try_monomorphize(
+                &self.defined_types.types,
+                &self.type_name_map,
+                &self.defined_types.traits_of_type,
+                &mut known_bounds,
+                &mut bound_type_map,
+                &mut failed_bounds,
+                &mut primitive_types,
+                &mut convert_traits,
+                &mut defined_types,
+                &mut global_replace_map,
+            ) {
+                monomorphized_functions.push(function);
+            } else {
+                failed_generic_functions.push(generic_function.to_owned());
+            }
+        });
+
+        // 然后单态化所有的可能不含有trait约束的泛型函数
+        generic_funcs_with_empty_bounds.iter().for_each(|generic_function| {
             if let Ok(function) = generic_function.try_monomorphize(
                 &self.defined_types.types,
                 &self.type_name_map,
@@ -247,12 +272,14 @@ impl ApiGraph {
                 &mut primitive_types,
                 &mut convert_traits,
                 &mut defined_types,
+                &mut global_replace_map,
             ) {
                 monomorphized_functions.push(function);
             } else {
                 failed_generic_functions.push(generic_function.to_owned());
             }
         });
+
         self.failed_generic_functions = failed_generic_functions;
 
         println!(
@@ -331,7 +358,7 @@ impl ApiGraph {
                     for k in 0..input_params_num {
                         let input_param = &input_params[k];
                         let call_type =
-                            api_util::same_type(output_type, input_param, &self.full_name_map);
+                            api_util::same_type(output_type, input_param, &self.full_name_map, &self.type_name_map);
                         match &call_type {
                             CallType::_NotCompatible => {
                                 continue;

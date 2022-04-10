@@ -6,6 +6,7 @@ use crate::fuzz_target::prelude_type::{self, PreludeType};
 use rustc_hir::{self, Mutability};
 
 use super::fuzzable_type::FuzzableType;
+use super::type_name::{TypeNameMap, type_full_name, TypeNameLevel};
 
 pub fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
     inputs.values.iter().map(|argument| argument.type_.clone()).collect()
@@ -172,6 +173,7 @@ pub fn same_type(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     //same type, direct call
     if output_type == input_type {
@@ -181,10 +183,10 @@ pub fn same_type(
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
             //TODO:should take lifetime into account?
-            return _borrowed_ref_in_same_type(mutability, type_, output_type, full_name_map);
+            return _borrowed_ref_in_same_type(mutability, type_, output_type, full_name_map, type_name_map);
         }
         clean::Type::RawPointer(mutability, type_) => {
-            return _raw_pointer_in_same_type(mutability, type_, output_type, full_name_map);
+            return _raw_pointer_in_same_type(mutability, type_, output_type, full_name_map, type_name_map);
         }
         _ => {}
     }
@@ -193,7 +195,7 @@ pub fn same_type(
     if prelude_type::is_prelude_type(input_type, full_name_map) {
         let input_prelude_type = PreludeType::from_type(input_type, full_name_map);
         let final_type = input_prelude_type._get_final_type();
-        let inner_call_type = same_type(output_type, &final_type, full_name_map);
+        let inner_call_type = same_type(output_type, &final_type, full_name_map, type_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -208,7 +210,7 @@ pub fn same_type(
     match output_type {
         //结构体、枚举、联合
         clean::Type::ResolvedPath { .. } => {
-            _same_type_resolved_path(output_type, input_type, full_name_map)
+            _same_type_resolved_path(output_type, input_type, full_name_map, type_name_map)
         }
         //范型
         clean::Type::Generic(_generic) => {
@@ -227,10 +229,10 @@ pub fn same_type(
         clean::Type::Array(_inner_type, _) => CallType::_NotCompatible,
         clean::Type::Never | clean::Type::Infer => CallType::_NotCompatible,
         clean::Type::RawPointer(_, type_) => {
-            _same_type_raw_pointer(type_, input_type, full_name_map)
+            _same_type_raw_pointer(type_, input_type, full_name_map, type_name_map)
         }
         clean::Type::BorrowedRef { type_, .. } => {
-            _same_type_borrowed_ref(type_, input_type, full_name_map)
+            _same_type_borrowed_ref(type_, input_type, full_name_map, type_name_map)
         }
         clean::Type::QPath { .. } => {
             //TODO:有需要的时候再考虑
@@ -249,12 +251,13 @@ fn _same_type_resolved_path(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     //处理output type 是 prelude type的情况
     if prelude_type::is_prelude_type(output_type, full_name_map) {
         let output_prelude_type = PreludeType::from_type(output_type, full_name_map);
         let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type = same_type(&final_output_type, input_type, full_name_map);
+        let inner_call_type = same_type(&final_output_type, input_type, full_name_map, type_name_map);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -267,11 +270,17 @@ fn _same_type_resolved_path(
 
     match input_type {
         clean::Type::ResolvedPath { .. } => {
+            // 目前尝试过两种比较类型相等的方法，都存在问题
+            // 1是直接比较def id，但是这种比较方法并不充分，比如存在 Option<usize> != Option<&str>，但这两个类型def id是一样的
+            // 2是直接比较两个type相等，但是存在虽然type不相等，但是类型仍然是同一种类型的情况
+            // 第三种就是目前所有的，def_id与类型的名字都相等，
             if *output_type == *input_type {
                 //if input type = outer type, then this is the same type
                 //only same defid is not sufficient. eg. Option<usize> != Option<&str>
                 return CallType::_DirectCall;
             } else if _resolved_path_equal_without_lifetime(output_type, input_type) {
+                return CallType::_DirectCall;
+            } else if _same_def_id_and_type_name(output_type, input_type, type_name_map) {
                 return CallType::_DirectCall;
             } else {
                 return CallType::_NotCompatible;
@@ -279,6 +288,12 @@ fn _same_type_resolved_path(
         }
         _ => CallType::_NotCompatible,
     }
+}
+
+fn _same_def_id_and_type_name(output_type: &clean::Type, input_type: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let input_type_name = type_full_name(input_type, type_name_map, TypeNameLevel::All);
+    let output_type_name = type_full_name(output_type, type_name_map, TypeNameLevel::All);
+    input_type_name.as_str() != "Unknown type" && output_type_name.as_str() != "Unknown type" && output_type.def_id() == input_type.def_id() && output_type_name == input_type_name
 }
 
 //输出类型是Primitive的情况
@@ -380,9 +395,10 @@ fn _same_type_raw_pointer(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(inner_type, input_type, full_name_map);
+    let inner_compatible = same_type(inner_type, input_type, full_name_map, type_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -398,9 +414,10 @@ fn _same_type_borrowed_ref(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(inner_type, input_type, full_name_map);
+    let inner_compatible = same_type(inner_type, input_type, full_name_map, type_name_map);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -424,9 +441,10 @@ pub fn _borrowed_ref_in_same_type(
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(output_type, inner_type, full_name_map);
+    let inner_compatible = same_type(output_type, inner_type, full_name_map, type_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
@@ -448,9 +466,10 @@ pub fn _raw_pointer_in_same_type(
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
     full_name_map: &FullNameMap,
+    type_name_map: &TypeNameMap,
 ) -> CallType {
     let inner_type = &**type_;
-    let inner_compatible = same_type(output_type, inner_type, full_name_map);
+    let inner_compatible = same_type(output_type, inner_type, full_name_map, type_name_map);
     match &inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;

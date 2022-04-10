@@ -197,6 +197,10 @@ impl GenericFunction {
         }
     }
 
+    pub fn contains_empty_bounds(&self) -> bool {
+        self.type_bounds.iter().any(|(_, bounds)| bounds.is_empty())
+    }
+
     pub fn try_monomorphize(
         &self,
         types: &HashMap<DefId, clean::Type>,
@@ -208,10 +212,20 @@ impl GenericFunction {
         primitive_types: &mut usize,
         convert_traits: &mut usize,
         defined_types: &mut usize,
+        global_replace_map: &mut HashMap<clean::Type, clean::Type>,
     ) -> Result<ApiFunction, ()> {
         let mut replace_map = HashMap::new();
         self.type_bounds.iter().for_each(|(type_, bound)| {
-            if let Some(index) = index_of(known_bounds, bound) {
+            if bound.is_empty() {
+                // if this is an empty bounds
+                if global_replace_map.contains_key(type_) {
+                    let replace_type = global_replace_map.get(type_).unwrap().to_owned();
+                    replace_map.insert(type_.to_owned(), replace_type);
+                } else {
+                    let replace_type = SimplifiedGenericBound::default_type_for_empty_bounds();
+                    replace_map.insert(type_.to_owned(), replace_type);
+                }
+            } else if let Some(index) = index_of(known_bounds, bound) {
                 // the bound is one of known bounds
                 if bound_type_map.contains_key(&index) {
                     let replace_type = bound_type_map.get(&index).unwrap();
@@ -225,6 +239,7 @@ impl GenericFunction {
                 {
                     replace_map.insert(type_.to_owned(), replace_type.to_replace_type());
                     bound_type_map.insert(index, replace_type.to_replace_type());
+                    global_replace_map.insert(type_.to_owned(), replace_type.to_replace_type());
                     if replace_type.is_primitive_type() {
                         *primitive_types += 1;
                     } else if replace_type.is_convert_trait() {
@@ -266,7 +281,7 @@ impl GenericFunction {
         generic_fully_monomorphized & remaining_qpath_fully_monomorphized
     }
 
-    /// 判断一个泛型函数是否需要对返回类型进行标注。判断的依据是，存在某个泛型参数，在返回类型中出现，但没有在
+    /// 判断一个泛型函数是否需要对返回类型进行标注。判断的依据是，存在某个泛型参数，在返回类型中出现，但没有在参数中出现
     pub fn should_notate_return_type(&self) -> bool {
         let return_type_generics = self
             .api_function

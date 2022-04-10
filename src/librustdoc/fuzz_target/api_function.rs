@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::fuzz_target::api_util;
+use crate::fuzz_target::{api_util, type_name::_type_name_with_def_id};
 use crate::fuzz_target::impl_util::FullNameMap;
 use itertools::Itertools;
 use rustc_hir::{self, Mutability};
@@ -136,6 +136,21 @@ impl ApiFunction {
             .join(" ,");
         let output_type = if let Some(ref ty_) = self.output {
             format!(" -> {}", type_full_name(ty_, type_name_map, TypeNameLevel::All))
+        } else {
+            "".to_string()
+        };
+        format!("fn {}({}){}", self.full_name, input_types, output_type)
+    }
+
+    pub fn _pretty_print_with_def_id(&self, type_name_map: &TypeNameMap) -> String {
+        let input_types = self
+            .inputs
+            .iter()
+            .map(|input_type| _type_name_with_def_id(input_type, type_name_map, TypeNameLevel::All))
+            .collect_vec()
+            .join(" ,");
+        let output_type = if let Some(ref ty_) = self.output {
+            format!(" -> {}", _type_name_with_def_id(ty_, type_name_map, TypeNameLevel::All))
         } else {
             "".to_string()
         };

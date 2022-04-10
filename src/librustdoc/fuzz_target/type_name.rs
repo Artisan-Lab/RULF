@@ -2,7 +2,7 @@ use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use std::collections::HashMap;
 
-use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path, TypeBinding};
+use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path, TypeBinding, GetDefId};
 use crate::html::render::cache::Cache;
 use rustc_hir::Mutability;
 
@@ -97,7 +97,7 @@ impl From<&Cache> for TypeNameMap {
         let mut type_name_map = TypeNameMap::new();
         // path defined in current crate
         cache.paths.iter().for_each(|(def_id, (segments, _))| {
-            let type_name = segments.join("::");
+            let type_name = full_qualified_name(segments);
             if cache.traits.contains_key(def_id) {
                 // trait defined in current crate
                 type_name_map.insert(*def_id, type_name, TypeNameKind::Trait)
@@ -108,7 +108,7 @@ impl From<&Cache> for TypeNameMap {
         });
         // paths defined in external crates
         cache.external_paths.iter().for_each(|(def_id, (segments, _))| {
-            let type_name = segments.join("::");
+            let type_name = full_qualified_name(segments);
             if is_preluded_type(&type_name) {
                 // prelude type only defines in external crate
                 type_name_map.insert(*def_id, type_name, TypeNameKind::Prelude)
@@ -256,6 +256,16 @@ pub fn type_name(
     strip_prelude_type_name(&type_name)
 }
 
+// debug use
+pub fn _type_name_with_def_id(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+    let type_full_name = type_full_name(type_, type_name_map, type_name_level);
+    if let Some(def_id) =  type_.def_id() {
+        format!("{} def_id: {:?}", type_full_name, def_id)
+    } else {
+        type_full_name
+    }
+}
+
 fn raw_pointer_modifier(mutability: &Mutability) -> &'static str {
     match mutability {
         // 补上空格
@@ -385,7 +395,8 @@ fn type_parameters_full_name(
             }
         })
         .collect_vec();
-    segment_names.join("::")
+    // segment_names.join("::")
+    full_qualified_name(&segment_names)
 }
 
 fn strip_prelude_type_name(raw: &str) -> String {
@@ -394,4 +405,9 @@ fn strip_prelude_type_name(raw: &str) -> String {
     } else {
         raw.to_string()
     }
+}
+
+fn full_qualified_name(segments: &Vec<String>) -> String {
+    let non_empty_segments = segments.iter().filter(|segment| segment.len()>0).map(|segment| segment.to_owned()).collect_vec();
+    non_empty_segments.join("::")
 }
