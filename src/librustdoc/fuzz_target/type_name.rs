@@ -256,6 +256,9 @@ pub fn type_name(
     strip_prelude_type_name(&type_name)
 }
 
+// pub fn _type_full_name_without_lifetime(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+// }
+
 // debug use
 pub fn _type_name_with_def_id(
     type_: &clean::Type,
@@ -319,6 +322,17 @@ fn generic_bound_full_name(
             type_full_name(&poly_trait.trait_, type_name_map, type_name_level)
         }
         GenericBound::Outlives(lifetime) => lifetime.get_ref().to_string(),
+    }
+}
+
+// This is currently an ugly patch for serde_json
+// Some type name may contains private mod, so this type name cannot be used as return type notation.
+// we should special deal with such cases.
+pub fn only_public_type_name(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+    let type_full_name = type_full_name(type_, type_name_map, type_name_level);
+    match type_full_name.as_str() {
+        "serde_json::Result<std::net::ip::Ipv4Addr>" => "serde_json::Result<std::net::Ipv4Addr>".to_string(),
+        _ => type_full_name
     }
 }
 
@@ -419,3 +433,4 @@ fn full_qualified_name(segments: &Vec<String>) -> String {
         .collect_vec();
     non_empty_segments.join("::")
 }
+

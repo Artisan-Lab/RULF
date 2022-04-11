@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{api_util, type_name::_type_name_with_def_id};
+use super::{api_util, type_name::{_type_name_with_def_id, only_public_type_name}};
 use itertools::Itertools;
 use rustc_hir::{self, Mutability};
 
@@ -158,7 +158,7 @@ impl ApiFunction {
 
     pub fn return_type_name(&self, type_name_map: &TypeNameMap) -> Option<String> {
         self.output.as_ref().and_then(|ty| {
-            Some(type_full_name(ty, type_name_map, super::type_name::TypeNameLevel::All))
+            Some(only_public_type_name(ty, type_name_map, super::type_name::TypeNameLevel::All))
         })
     }
 }

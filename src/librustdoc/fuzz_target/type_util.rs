@@ -301,6 +301,10 @@ pub fn u8_type() -> clean::Type {
     clean::Type::Primitive(clean::PrimitiveType::U8)
 }
 
+pub fn usize_type() -> clean::Type {
+    clean::Type::Primitive(clean::PrimitiveType::Usize)
+}
+
 pub fn mutable_u8_slice_type() -> clean::Type {
     clean::Type::BorrowedRef {
         lifetime: None,

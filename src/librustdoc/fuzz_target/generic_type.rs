@@ -13,7 +13,7 @@ use super::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
 use super::type_util::{i32_type, str_type, u8_slice_type};
 
 // FIXME: Why these are not marker from std?.
-pub static NUMERIC_TRAITS: [&'static str; 10] = [
+pub static NUMERIC_TRAITS: [&'static str; 11] = [
     "core::cmp::Ord",
     "core::cmp::PartialEq",
     "core::clone::Clone",
@@ -24,6 +24,7 @@ pub static NUMERIC_TRAITS: [&'static str; 10] = [
     "core::cmp::Eq",
     "core::fmt::Debug",
     "core::default::Default",
+    "serde::ser::Serialize", // for serde_json
 ];
 pub static U8_SLICE_TRAITS: [&'static str; 3] = [
     "std::io::Read",
