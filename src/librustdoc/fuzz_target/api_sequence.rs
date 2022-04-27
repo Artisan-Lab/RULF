@@ -1,12 +1,12 @@
 use itertools::Itertools;
 
-use crate::fuzz_target::afl_util::{self, _AflHelpers};
-use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
-use crate::fuzz_target::api_util;
-use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::fuzzable_type::FuzzableType;
-use crate::fuzz_target::prelude_type;
-use crate::fuzz_target::replay_util;
+use super::afl_util::{self, _AflHelpers};
+use super::api_graph::{ApiGraph, ApiType};
+use super::api_util;
+use super::call_type::CallType;
+use super::fuzzable_type::FuzzableType;
+use super::prelude_type;
+use super::replay_util;
 use std::collections::{HashMap, HashSet};
 
 use super::default_value::DefaultValue;
@@ -503,6 +503,7 @@ impl ApiSequence {
     println!(\"data = {{:?}}\", data);
     println!(\"data len = {{:?}}\", data.len());
 {}
+    println!(\"No panic!\");
 }}",
             self._afl_closure_body(0, test_index)
         )

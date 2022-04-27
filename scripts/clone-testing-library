@@ -1,0 +1,29 @@
+#! /usr/bin/env bash
+set -e
+
+WORK_DIR=${HOME}
+cd ${WORK_DIR}
+# clone xi-editor
+if [ ! -d "${WORK_DIR}/xi-editor" ]; then
+   git clone https://github.com/xi-editor/xi-editor.git
+fi
+cd ${WORK_DIR}/xi-editor
+git reset 52bf34368e52369106d8eca6096a4839f7629e1e --hard
+cd ${WORK_DIR}
+
+# clone bat
+if [ ! -d "${WORK_DIR}/bat" ]; then
+   git clone https://github.com/sharkdp/bat.git
+fi
+cd ${WORK_DIR}/bat
+git reset 573f34d757434a5580abd45f5a059c908552d0b3 --hard
+cd ${WORK_DIR}
+
+# clone tui-rs
+if [ ! -d "${WORK_DIR}/tui-rs" ]; then
+   git clone https://github.com/fdehau/tui-rs.git
+fi
+cd ${WORK_DIR}/tui-rs
+git reset f09863faa0e9bf36955d3d2773b15b887ae32153 --hard
+cd ${WORK_DIR}
+

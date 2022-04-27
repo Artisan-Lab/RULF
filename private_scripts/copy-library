@@ -1,0 +1,12 @@
+#! /usr/bin/env bash
+
+set -e
+
+# copy Fuzzing Scripts from host to container
+# git clone may sometimes fail, so we copy from host
+
+CONTAINER_ID="104533e6f629"
+DOCKER_USER="jjf"
+docker cp ${HOME}/xi-editor ${CONTAINER_ID}:/home/${DOCKER_USER}
+docker cp ${HOME}/bat ${CONTAINER_ID}:/home/${DOCKER_USER}
+docker cp ${HOME}/tui-rs ${CONTAINER_ID}:/home/${DOCKER_USER}
