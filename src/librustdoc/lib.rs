@@ -140,7 +140,7 @@ pub fn fuzz_target_generator_main() {
         32_000_000 // 32MB on other platforms
     };
     rustc_driver::set_sigpipe_handler();
-    env_logger::init_from_env("FUZZ-TARGET-GENERATOR");
+    env_logger::init_from_env("RULF_LOG");
     let res = std::thread::Builder::new()
         .stack_size(thread_stack_size)
         .spawn(move || get_args().map(|args| fuzz_target_generator_main_args(&args)).unwrap_or(1))

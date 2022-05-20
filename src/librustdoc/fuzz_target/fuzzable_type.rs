@@ -33,7 +33,6 @@ pub enum FuzzableType {
 
 impl FuzzableCallType {
     pub fn generate_fuzzable_type_and_call_type(&self) -> (FuzzableType, CallType) {
-        //println!("fuzzable call type: {:?}", self);
         match self {
             FuzzableCallType::NoFuzzable => (FuzzableType::NoFuzzable, CallType::_NotCompatible),
             FuzzableCallType::Primitive(primitive) => {
@@ -331,8 +330,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, type_name_map: &TypeNameMap) -> Fuz
                 }
             }
         }
-        clean::Type::Generic(s) => {
-            println!("generic type = {:?}", s);
+        clean::Type::Generic(..) => {
             FuzzableCallType::NoFuzzable
         }
         clean::Type::Primitive(primitive_type) => {

@@ -195,7 +195,6 @@ impl ApiSequence {
     pub fn _merge_sequences(sequences: &Vec<ApiSequence>) -> Self {
         let sequences_len = sequences.len();
         if sequences_len <= 0 {
-            //println!("Should not merge with no sequence");
             return ApiSequence::new();
         }
         let mut basic_sequence = sequences.first().unwrap().clone();
@@ -769,7 +768,6 @@ impl ApiSequence {
             for j in 0..param_size {
                 let (param_type, index, call_type) = &api_call.params[j];
                 let call_type_array = call_type._split_at_unwrap_call_type();
-                //println!("call_type_array = {:?}",call_type_array);
                 let param_name = match param_type {
                     ParamType::_FuzzableType => {
                         format!("{}{}", PARAM_PREFIX, index)

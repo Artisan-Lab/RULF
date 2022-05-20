@@ -150,10 +150,11 @@ impl ApiGraph {
     pub fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun._unsafe_tag._is_unsafe() {
             // filter unsafe function
-            println!("{} is unsafe function.", api_fun.full_name);
+            trace!("{} is unsafe function.", api_fun.full_name);
         } else if api_fun._is_generic_function() {
-            println!("{} is generic function.", api_fun.full_name);
+            trace!("{} is generic function.", api_fun.full_name);
             if let Ok(generic_function) = GenericFunction::try_from(api_fun) {
+                trace!("{} is suitable to add", generic_function.api_function.full_name);
                 self.generic_functions.push(generic_function);
             }
         } else {
@@ -195,7 +196,6 @@ impl ApiGraph {
     /// filter functions defined in invisible mods
     pub fn filter_functions_in_invisible_mods(&mut self) {
         let invisible_mods = self.mod_visibility.get_invisible_mods().into_iter().collect();
-
         self.api_functions = self
             .api_functions
             .drain(..)
@@ -227,6 +227,12 @@ impl ApiGraph {
     }
 
     pub fn eagerly_monomorphize_generic_functions(&mut self) {
+
+        trace!("There are {} functions to monomorphize", self.generic_functions.len());
+        self.generic_functions.iter().for_each(|gf| {
+            trace!("{}", gf.api_function.full_name);
+        });
+
         let mut known_bounds = Vec::new();
         let mut bound_type_map = HashMap::new();
         let mut failed_bounds = HashSet::new();
@@ -282,7 +288,7 @@ impl ApiGraph {
 
         self.failed_generic_functions = failed_generic_functions;
 
-        println!(
+        info!(
             "Among all {} bounds, 
 {} can be replaced with primitive type, 
 {} are convert traits, 
@@ -293,24 +299,25 @@ impl ApiGraph {
             defined_types
         );
 
-        println!(
+        info!(
             "There are total {} functions(include generic).",
             self.api_functions.len() + self.generic_functions.len()
         );
-        println!(
+        info!(
             "We can monomorphize {} generic functions among total {} functions.",
             monomorphized_functions.len(),
             self.generic_functions.len()
         );
 
-        println!("before add: {}", self.api_functions.len());
+        trace!("before add: {}", self.api_functions.len());
         monomorphized_functions.into_iter().for_each(|api_function| {
             self.add_api_function(api_function);
         });
-        println!("after add: {}", self.api_functions.len());
-        println!("failed bounds: ");
+        trace!("after add: {}", self.api_functions.len());
+        info!("failed bounds: ");
         failed_bounds.iter().for_each(|index| {
-            println!("{}", known_bounds[*index]._format_string_(&self.type_name_map));
+
+            info!("{}", known_bounds[*index]._format_string_(&self.type_name_map));
         });
     }
 
@@ -333,7 +340,6 @@ impl ApiGraph {
     }
 
     pub fn find_all_dependencies(&mut self) {
-        //println!("find_dependencies");
         self.api_dependencies.clear();
         //两个api_function之间的dependency
         let api_num = self.api_functions.len();
@@ -407,36 +413,36 @@ impl ApiGraph {
         let max_sequence_number = 100000;
         match algorithm {
             GraphTraverseAlgorithm::_Bfs => {
-                println!("using bfs");
+                info!("using bfs");
                 self.bfs(bfs_max_len, false, false);
             }
             GraphTraverseAlgorithm::_FastBfs => {
-                println!("using fastbfs");
+                info!("using fastbfs");
                 self.bfs(bfs_max_len, false, true);
             }
             GraphTraverseAlgorithm::_BfsEndPoint => {
-                println!("using bfs end point");
+                info!("using bfs end point");
                 self.bfs(bfs_max_len, true, false);
             }
             GraphTraverseAlgorithm::_FastBfsEndPoint => {
-                println!("using fast bfs end point");
+                info!("using fast bfs end point");
                 self.bfs(bfs_max_len, true, true);
             }
             GraphTraverseAlgorithm::_TryDeepBfs => {
-                println!("using try deep bfs");
+                info!("using try deep bfs");
                 self._try_deep_bfs(max_sequence_number);
             }
             GraphTraverseAlgorithm::_RandomWalk => {
-                println!("using random walk");
+                info!("using random walk");
                 self.random_walk(random_walk_max_size, false, random_walk_max_depth);
             }
             GraphTraverseAlgorithm::_RandomWalkEndPoint => {
-                println!("using random walk end point");
+                info!("using random walk end point");
                 self.random_walk(random_walk_max_size, true, random_walk_max_depth);
             }
 
             GraphTraverseAlgorithm::_DirectBackwardSearch => {
-                println!("using backward search");
+                info!("using backward search");
                 self.api_sequences.clear();
                 self.reset_visited();
                 self._try_to_cover_unvisited_nodes();
@@ -529,15 +535,13 @@ impl ApiGraph {
 
                         //bfs fast，如果都已经别访问过，直接退出
                         if self.check_all_visited() {
-                            //println!("bfs all visited");
-                            //return;
+                            debug!("bfs all visited");
                         }
                     }
                 }
             }
         }
 
-        //println!("There are total {} sequences after bfs", self.api_sequences.len());
         if !stop_at_end_function {
             std::process::exit(0);
         }
@@ -610,7 +614,7 @@ impl ApiGraph {
                 }
             }
             if !has_new_coverage_flag {
-                println!("forward bfs can not find more.");
+                trace!("forward bfs can not find more.");
                 break;
             }
         }
@@ -654,8 +658,7 @@ impl ApiGraph {
 
                 //如果全都已经访问过，直接退出
                 if self.check_all_visited() {
-                    println!("random run {} times", i);
-                    //return;
+                    trace!("random run {} times", i);
                 }
             }
         }
@@ -693,7 +696,6 @@ impl ApiGraph {
     }
 
     pub fn _try_to_cover_unvisited_nodes(&mut self) {
-        //println!("try to cover more nodes");
         let mut apis_covered_by_reverse_search = 0;
         let mut unvisited_nodes = HashSet::new();
         let api_fun_number = self.api_functions.len();
@@ -707,8 +709,6 @@ impl ApiGraph {
         for _ in 0..unvisited_nodes.len() {
             covered_node_this_iteration.clear();
             let candidate_sequences = self._choose_candidate_sequence_for_merge();
-            //println!("sequence number, {}", self.api_sequences.len());
-            //println!("candidate sequence number, {}", candidate_sequences.len());
             for unvisited_node in &unvisited_nodes {
                 let unvisited_api_func = &self.api_functions[*unvisited_node];
                 let inputs = &unvisited_api_func.inputs;
@@ -752,7 +752,6 @@ impl ApiGraph {
                     }
                 }
                 if can_be_covered_flag {
-                    //println!("{:?} can be covered", unvisited_api_func.full_name);
                     let dependent_sequences: Vec<ApiSequence> = dependent_sequence_indexes
                         .into_iter()
                         .map(|index| self.api_sequences[index].clone())
@@ -769,7 +768,7 @@ impl ApiGraph {
                     } else {
                         // The possible cause is there is some wrong fuzzable type
                         let api_func = &self.api_functions[*unvisited_node];
-                        println!(
+                        warn!(
                             "Found unsupported fuzzable type in {}.",
                             api_func._pretty_print(&self.type_name_map)
                         );
@@ -777,7 +776,7 @@ impl ApiGraph {
                 }
             }
             if covered_node_this_iteration.len() == 0 {
-                println!("reverse search can not cover more nodes");
+                debug!("reverse search can not cover more nodes");
                 break;
             } else {
                 for covered_node in &covered_node_this_iteration {
@@ -808,14 +807,13 @@ impl ApiGraph {
             }
         }
 
-        // println!("after backward search");
-        // println!("targets = {}", totol_sequences_number);
-        // println!("total length = {}", total_length);
-        // let average_visit_time = (total_length as f64) / (covered_nodes.len() as f64);
-        // println!("average time to visit = {}", average_visit_time);
-        // println!("edge covered by reverse search = {}", covered_edges.len());
-
-        //println!("There are total {} APIs covered by reverse search", apis_covered_by_reverse_search);
+        debug!("after backward search");
+        debug!("targets = {}", totol_sequences_number);
+        debug!("total length = {}", total_length);
+        let average_visit_time = (total_length as f64) / (covered_nodes.len() as f64);
+        debug!("average time to visit = {}", average_visit_time);
+        debug!("edge covered by reverse search = {}", covered_edges.len());
+        debug!("There are total {} APIs covered by reverse search", apis_covered_by_reverse_search);
     }
 
     pub fn _naive_choose_sequence(&self, max_sequence_size: usize) -> Vec<ApiSequence> {
@@ -827,7 +825,7 @@ impl ApiGraph {
             }
         }
         let to_cover_nodes_number = to_cover_nodes.len();
-        println!("There are total {} nodes need to be covered.", to_cover_nodes_number);
+        debug!("There are total {} nodes need to be covered.", to_cover_nodes_number);
 
         let mut chosen_sequence_flag = Vec::new();
         let prepared_sequence_number = self.api_sequences.len();
@@ -857,10 +855,9 @@ impl ApiGraph {
         let mut rng = rand::thread_rng();
         for _ in 0..max_sequence_size {
             if to_cover_nodes.len() == 0 {
-                println!("all {} nodes need to be covered is covered", to_cover_nodes_number);
+                debug!("all {} nodes need to be covered is covered", to_cover_nodes_number);
                 break;
             }
-            //println!("need_to_cover_nodes:{:?}", to_cover_nodes);
             let next_cover_node = to_cover_nodes.first().unwrap();
             let candidate_sequences =
                 node_candidate_sequences.get(next_cover_node).unwrap().clone();
@@ -871,9 +868,7 @@ impl ApiGraph {
             let candidate_number = unvisited_candidate_sequences.len();
             let random_index = rng.gen_range(0, candidate_number);
             let chosen_index = unvisited_candidate_sequences[random_index];
-            //println!("randomc index{}", random_index);
             let chosen_sequence = &self.api_sequences[chosen_index];
-            //println!("{:}",chosen_sequence._to_well_written_function(self, 0, 0));
 
             let covered_nodes = chosen_sequence.get_covered_nodes(&self);
             to_cover_nodes =
@@ -919,11 +914,11 @@ impl ApiGraph {
             }
         }
 
-        println!("-----------STATISTICS-----------");
-        println!("Random selection selected {} targets", res.len());
-        println!("Random selection covered {} nodes", covered_nodes.len());
-        println!("Random selection covered {} edges", covered_edges.len());
-        println!("--------------------------------");
+        info!("-----------STATISTICS-----------");
+        info!("Random selection selected {} targets", res.len());
+        info!("Random selection covered {} nodes", covered_nodes.len());
+        info!("Random selection covered {} edges", covered_edges.len());
+        info!("--------------------------------");
 
         res
     }
@@ -955,11 +950,11 @@ impl ApiGraph {
             }
         }
 
-        println!("-----------STATISTICS-----------");
-        println!("Random walk selected {} targets", res.len());
-        println!("Random walk covered {} nodes", covered_nodes.len());
-        println!("Random walk covered {} edges", covered_edges.len());
-        println!("--------------------------------");
+        info!("-----------STATISTICS-----------");
+        info!("Random walk selected {} targets", res.len());
+        info!("Random walk covered {} nodes", covered_nodes.len());
+        info!("Random walk covered {} edges", covered_edges.len());
+        info!("--------------------------------");
 
         res
     }
@@ -981,7 +976,7 @@ impl ApiGraph {
             .collect_vec();
 
         if valid_seqs.len() <= 0 {
-            println!("There are no valid sequence for fuzzing.");
+            warn!("There are no valid sequence for fuzzing.");
             return res;
         }
 
@@ -1052,7 +1047,6 @@ impl ApiGraph {
             }
 
             if max_covered_edges <= 0 && max_covered_nodes <= 0 {
-                //println!("can't cover more edges or nodes");
                 break;
             }
             already_chosen_sequences.insert(chosen_seq_index);
@@ -1070,15 +1064,15 @@ impl ApiGraph {
             }
 
             if already_chosen_sequences.len() == valid_seqs.len() {
-                //println!("all sequence visited");
+                debug!("all sequence visited");
                 break;
             }
             if to_cover_edges_number != 0 && already_covered_edges.len() == to_cover_edges_number {
-                //println!("all edges visited");
+                debug!("all edges visited");
                 break;
             }
             if stop_at_visit_all_nodes && already_covered_nodes.len() == to_cover_nodes_number {
-                //println!("all nodes visited");
+                debug!("all nodes visited");
                 break;
             }
         }
@@ -1088,16 +1082,16 @@ impl ApiGraph {
     }
 
     pub fn make_statistics(&self, chosen_seqs: &[ApiSequence]) {
-        println!("-----------STATISTICS-----------");
+        info!("-----------STATISTICS-----------");
         let helper_nodes = self.api_functions.iter().filter(|api_fun| api_fun.is_helper).count();
         let not_helepr_nodes = self.api_functions.len() - helper_nodes;
-        println!("total nodes: {} ({} helpers).", not_helepr_nodes, helper_nodes);
+        info!("total nodes: {} ({} helpers).", not_helepr_nodes, helper_nodes);
         let all_nodes = self.failed_generic_functions.len() + not_helepr_nodes;
-        println!("all nodes(include generic): {} ", all_nodes);
+        info!("all nodes(include generic): {} ", all_nodes);
         let helper_edges =
             self.api_dependencies.iter().filter(|api_dep| api_dep.from_helper).count();
         let not_helper_edges = self.api_dependencies.len() - helper_edges;
-        println!("total edges: {} ({} helpers).", not_helper_edges, helper_edges);
+        info!("total edges: {} ({} helpers).", not_helper_edges, helper_edges);
         let mut covered_nodes = HashSet::new();
         let mut covered_edges = HashSet::new();
         chosen_seqs.iter().for_each(|seq| {
@@ -1108,28 +1102,28 @@ impl ApiGraph {
             covered_nodes.iter().filter(|index| self.api_functions[**index].is_helper).count();
         let covered_not_helper_nodes = covered_nodes.len() - covered_helper_nodes;
         let checked_visited = self._visited_nodes_num();
-        println!("check visited: {}", checked_visited);
-        println!("covered nodes: {}", covered_not_helper_nodes);
+        info!("check visited: {}", checked_visited);
+        info!("covered nodes: {}", covered_not_helper_nodes);
         let covered_helper_edges =
             covered_edges.iter().filter(|index| self.api_dependencies[**index].from_helper).count();
         let covered_not_helper_edges = covered_edges.len() - covered_helper_edges;
-        println!("covered edges: {}", covered_not_helper_edges);
+        info!("covered edges: {}", covered_not_helper_edges);
         let node_coverage = (covered_not_helper_nodes as f64) / (not_helepr_nodes as f64);
         let edge_coverage = (covered_not_helper_edges as f64) / (not_helper_edges as f64);
         let all_node_coverage = (covered_not_helper_nodes as f64) / (all_nodes as f64);
-        println!("node coverage: {}", node_coverage);
-        println!("edge coverage: {}", edge_coverage);
-        println!("all node coverage: {}", all_node_coverage);
+        info!("node coverage: {}", node_coverage);
+        info!("edge coverage: {}", edge_coverage);
+        info!("all node coverage: {}", all_node_coverage);
         let reverse_searched_seqs = chosen_seqs.iter().filter(|seq| seq.len() > 3).count();
-        println!("sequences by reverse search: {}", reverse_searched_seqs);
-        println!("total targets: {}", chosen_seqs.len());
+        info!("sequences by reverse search: {}", reverse_searched_seqs);
+        info!("total targets: {}", chosen_seqs.len());
         let max_len = chosen_seqs.iter().map(|seq| seq.len()).max().unwrap();
-        println!("max length: {}", max_len);
+        info!("max length: {}", max_len);
         let total_len = chosen_seqs.iter().map(|seq| seq.len()).fold(0, |init, r| init + r);
-        println!("total length: {}", total_len);
+        info!("total length: {}", total_len);
         let average_visit_time = (total_len as f64) / (covered_nodes.len() as f64);
-        println!("average time to visit each api: {}", average_visit_time);
-        println!("--------------------------------");
+        info!("average time to visit each api: {}", average_visit_time);
+        info!("--------------------------------");
     }
 
     //判断一个函数能否加入给定的序列中,如果可以加入，返回Some(new_sequence),new_sequence是将新的调用加进去之后的情况，否则返回None
@@ -1171,7 +1165,6 @@ impl ApiGraph {
                     if api_util::is_fuzzable_type(current_ty, &self.type_name_map) {
                         //如果当前参数是fuzzable的
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
-                        // println!("current_ty for: {:?}", current_ty);
                         let fuzzable_call_type =
                             fuzzable_type::fuzzable_call_type(current_ty, &self.type_name_map);
                         let (fuzzable_type, call_type) =
@@ -1181,10 +1174,10 @@ impl ApiGraph {
                         //典型例子是tuple里面出现了引用（&usize），这种情况不再去寻找dependency，直接返回无法添加即可
                         match &fuzzable_type {
                             FuzzableType::NoFuzzable => {
-                                println!("Fuzzable Type Error Occurs!");
-                                println!("type = {:?}", current_ty);
-                                println!("fuzzable_call_type = {:?}", fuzzable_call_type);
-                                println!("fuzzable_type = {:?}", fuzzable_type);
+                                warn!("Fuzzable Type Error Occurs!");
+                                warn!("type = {:?}", current_ty);
+                                warn!("fuzzable_call_type = {:?}", fuzzable_call_type);
+                                warn!("fuzzable_type = {:?}", fuzzable_type);
                                 return None;
                             }
                             _ => {}

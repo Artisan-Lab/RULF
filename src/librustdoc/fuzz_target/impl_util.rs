@@ -41,16 +41,12 @@ impl CrateImplCollection {
     }
 
     pub fn add_impl(&mut self, impl_: &clean::Impl) {
-        //println!("impl type = {:?}", impl_.for_);
         let _impl_type = &impl_.for_;
-        //println!("impl type = {:?}", _impl_type);
         match impl_.trait_ {
             None => {
-                //println!("No trait!");
                 self.impl_types.push(impl_.clone());
             }
             Some(ref _ty_) => {
-                //println!("trait={:?}", _ty_);
                 self.impl_trait_for_types.push(impl_.clone());
             }
         }
@@ -138,37 +134,21 @@ pub fn extract_impls_from_cache(
         // 只添加可以在full_name_map中找到对应的did的type
         if full_name_map._get_full_name(did) != None {
             for impl_ in impls {
-                //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
                 crate_impl_collection.add_impl(impl_.inner_impl());
             }
         }
     }
 
     api_graph.set_traits_of_type(traits_of_type);
-    //println!("analyse impl Type");
     //分析impl type类型
     for impl_ in &crate_impl_collection.impl_types {
-        //println!("analyse_impl_");
         _analyse_impl(impl_, &full_name_map, &mut api_graph);
     }
 
-    //println!("analyse impl Trait for Type");
     for impl_ in &crate_impl_collection.impl_trait_for_types {
         _analyse_impl(impl_, &full_name_map, &mut api_graph);
     }
-    //TODO：如何提取trait对应的impl，impl traitA for traitB? impl dyn traitA?下面的逻辑有误
-    //for (did, impls) in trait_impl_maps {
-    //   println!("trait:{:?}",did);
-    //    //还是只看当前crate中的trait
-    //    if full_name_map._get_full_name(did) != None {
-    //        let full_name = full_name_map._get_full_name(did).unwrap();
-    //        println!("full_name : {:?}", full_name);
-    //        println!("{}", impls.len());
-    //    }
-
-    //}
-
-    //println!("{:?}", crate_impl_collection);
+    //TODO：如何提取trait对应的impl，impl traitA for traitB? impl dyn traitA?
 }
 
 fn full_path(paths: &Vec<String>) -> String {
@@ -182,8 +162,6 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
     // check where predicate
     if where_preidicates_bounds_restrict_generic(impl_generics) {
         return;
-        // println!("{:?}", impl_generics);
-        // println!("FIXME(where bounds for impl block): impl {} for {}", trait_full_name.clone().unwrap_or_default(), type_full_name.clone().unwrap_or_default());
     }
 
     // BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
@@ -219,17 +197,12 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
     });
 
     for item in inner_items {
-        //println!("item_name, {:?}", item.name.as_ref().unwrap());
         match &item.inner {
             //这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
             clean::FunctionItem(_function) => {
                 let function_name =
                     format!("{:?}::{:?}", type_full_name, item.name.as_ref().unwrap());
-                //使用全限定名称：type::f
-                //function_name.push_str(type_full_name.as_str());
-                //function_name.push_str("::");
-                //function_name.push_str(item.name.as_ref().unwrap().as_str());
-                println!("function name in impl:{:?}", function_name);
+                error!("function name in impl:{:?}", function_name);
             }
             clean::MethodItem(method) => {
                 let clean::FnDecl { inputs, output, .. } = method.decl.clone();
@@ -348,16 +321,14 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                                 is_helper: false,
                             }
                         } else {
-                            //println!("Trait not found in current crate.");
+                            trace!("Trait not found in current crate.");
                             return;
                         }
                     }
                 };
                 api_graph.add_api_function(api_function);
             }
-            _ => {
-                //println!("no covered item {:?}", &item.inner);
-            }
+            _ => {}
         }
     }
 }
@@ -602,7 +573,6 @@ pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
                 clean::Type::Generic(..) | clean::Type::QPath { .. } => false,
                 // restrict generic
                 _ => {
-                    // println!("{:?}", ty);
                     true
                 }
             }

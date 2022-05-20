@@ -166,13 +166,11 @@ impl CallType {
             return vec![self.clone()];
         }
         let raw_array = self._call_type_to_array();
-        //println!("raw array = {:?}", raw_array);
         let mut res = Vec::new();
         let raw_array_len = raw_array.len();
         let mut one_split = Vec::new();
         for i in 0..raw_array_len {
             let current_call_type = &raw_array[i];
-            //println!("current call type: {:?}", current_call_type);
             if !current_call_type._is_unwrap_call_type() {
                 one_split.push(current_call_type.clone());
                 if i == raw_array_len - 1 {
@@ -191,13 +189,10 @@ impl CallType {
         }
         let mut call_types = Vec::new();
         for call_type_array in &res {
-            //println!("before concat: {:?}", call_type_array);
             let call_type = CallType::_array_to_call_type(call_type_array);
-            //println!("after concat: {:?}", call_type);
             call_types.push(call_type);
         }
         call_types.reverse();
-        //println!("call_type_array = {:?}",call_types);
         let last_call_type = call_types.last().unwrap();
         if last_call_type._is_unwrap_call_type() {
             call_types.push(CallType::_DirectCall);
@@ -212,7 +207,7 @@ impl CallType {
     fn _inner_array_to_call_type(call_type_array: &Vec<CallType>, start: usize) -> Self {
         let array_len = call_type_array.len();
         if start >= array_len {
-            println!("should not go to here in inner array to call type");
+            error!("should not go to here in inner array to call type");
             return CallType::_NotCompatible;
         }
         if start == array_len - 1 {
@@ -222,7 +217,7 @@ impl CallType {
         let inner_type = CallType::_inner_array_to_call_type(call_type_array, start + 1);
         match current_type {
             CallType::_DirectCall | CallType::_AsConvert(..) | CallType::_NotCompatible => {
-                println!("should not go to here in inner array to call type 2");
+                error!("should not go to here in inner array to call type 2");
                 return CallType::_NotCompatible;
             }
             CallType::_BorrowedRef(..) => CallType::_BorrowedRef(Box::new(inner_type)),

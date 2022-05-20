@@ -97,7 +97,6 @@ pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap) -> bool {
             return false;
         }
         clean::Type::Generic(_s) => {
-            //println!("generic type = {:?}", s);
             false
         }
         clean::Type::Primitive(_) => true,

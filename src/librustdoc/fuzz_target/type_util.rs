@@ -223,7 +223,7 @@ pub fn extract_only_one_type_parameter(trait_bound: &clean::Type) -> Option<clea
                     if !is_generic_type(type_) {
                         return Some(type_.to_owned());
                     } else {
-                        println!("Internal Error: Found Generic in AsRef trait");
+                        error!("Internal Error: Found Generic in trait");
                     }
                 }
             }

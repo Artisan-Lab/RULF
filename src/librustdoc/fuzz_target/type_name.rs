@@ -139,7 +139,7 @@ pub fn type_full_name(
                 if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
                     type_name
                 } else {
-                    // println!("Warning: try to get type full name for {:?}", type_);
+                    warn!("Warning: try to get type full name for {:?}", type_);
                     return "Unknown type".to_string();
                 };
             let striped_type_name = strip_prelude_type_name(&type_name);
@@ -206,7 +206,7 @@ pub fn type_name(
             if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
                 return type_name;
             } else {
-                // println!("Warning: try to get type name for {:?}", type_);
+                warn!("try to get type name for {:?}", type_);
                 return "Unknown type".to_string();
             };
         }
@@ -250,7 +250,7 @@ pub fn type_name(
             format!("impl {}", traits.join("+"))
         }
         clean::Type::BareFunction(..) => {
-            unreachable!("Internal Error. We won't try to get type name of these types.")
+            format!("Bare Function")
         }
     };
     strip_prelude_type_name(&type_name)

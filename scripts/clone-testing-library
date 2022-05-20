@@ -16,7 +16,7 @@ if [ ! -d "${WORK_DIR}/bat" ]; then
    git clone https://github.com/sharkdp/bat.git
 fi
 cd ${WORK_DIR}/bat
-git reset 573f34d757434a5580abd45f5a059c908552d0b3 --hard
+git reset cc7b89faf822d773a5ec74f3c80320ff06863af8 --hard
 cd ${WORK_DIR}
 
 # clone tui-rs

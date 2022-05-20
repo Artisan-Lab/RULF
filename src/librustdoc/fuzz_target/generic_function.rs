@@ -43,7 +43,6 @@ impl TryFrom<ApiFunction> for GenericFunction {
         };
         generic_function.collect_generics();
         if where_preidicates_bounds_restrict_generic(&generic_function.api_function.generics) {
-            // println!("FIXME(where bound for function): {}", generic_function.api_function.full_name);
             return Err(GenericFunctionError::RestricGenericBound);
         }
         if !generic_function.check_generics() {
@@ -97,7 +96,7 @@ impl GenericFunction {
                 .iter()
                 .any(|generic_param_def| generic_param_def.name == *generic);
             if !contains_generic_def {
-                println!(
+                error!(
                     "{} in {} does not have definition.",
                     self.api_function.full_name, generic
                 );
@@ -301,7 +300,6 @@ impl GenericFunction {
         replace_map: &HashMap<clean::Type, clean::Type>,
         opaque_replace_map: &HashMap<clean::Type, clean::Type>,
     ) -> ApiFunction {
-        // println!("monomorphize {}.", self.api_function.full_name);
         let ApiFunction {
             full_name,
             mut generics,
@@ -321,9 +319,9 @@ impl GenericFunction {
             inputs.into_iter().map(|type_| replace_types(&type_, opaque_replace_map)).collect_vec();
         let output = output.and_then(|type_| Some(replace_types(&type_, replace_map)));
         let return_type_notation = self.should_notate_return_type();
-        // if return_type_notation {
-        //     println!("{} needs return type notation.", full_name);
-        // }
+        if return_type_notation {
+            debug!("{} needs return type notation.", full_name);
+        }
         ApiFunction {
             full_name,
             generics,

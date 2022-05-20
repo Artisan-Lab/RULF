@@ -73,7 +73,6 @@ impl PreludeType {
                     } else if _RESULT == strip_type_name {
                         extract_result(path, type_)
                     } else {
-                        //println!("other prelude type");
                         PreludeType::NotPrelude(type_.clone())
                     }
                 } else {

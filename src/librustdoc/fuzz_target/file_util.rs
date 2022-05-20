@@ -21,6 +21,7 @@ lazy_static! {
         m.insert("http", "/home/jjf/afl_fast_work/http-afl-work");
         m.insert("flate2", "/home/jjf/afl_fast_work/flate2-afl-work");
         m.insert("time", "/home/jjf/afl_fast_work/time-afl-work");
+        m.insert("base64", "/home/jjf/afl_fast_work/base64-afl-work");
 
         //fudge-like-directories
         m.insert("fudge_like_url", "/home/jjf/fudge_like_work/url-work");
@@ -117,7 +118,6 @@ impl FileHelper {
         let mut test_files = Vec::new();
         let mut reproduce_files = Vec::new();
         let mut libfuzzer_files = Vec::new();
-        //let chosen_sequences = api_graph._naive_choose_sequence(MAX_TEST_FILE_NUMBER);
         let chosen_sequences = if !random_strategy {
             api_graph._heuristic_choose(MAX_TEST_FILE_NUMBER, true)
         } else {
@@ -128,7 +128,6 @@ impl FileHelper {
             };
             api_graph._first_choose(random_size)
         };
-        //println!("chosen sequences number: {}", chosen_sequences.len());
 
         for sequence in &chosen_sequences {
             if sequence_count >= MAX_TEST_FILE_NUMBER {

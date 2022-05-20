@@ -7,11 +7,15 @@ use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 /// support special std type. Std types are dealt with case by case now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StdCallType {
+    // Std
     IpAddr,       // std::net::IpAddr
     VecU8,        // Vec<u8>
     RefMutVecU8,  // &mut Vec<u8>
     NonZeroUsize, // std::num::NonZeroUsize
     NonZeroI8,    // std::num::NonZeroI8,
+    CowStr,       // std::borrow::Cow<str>
+    // Enum Type
+    Base64CharacterSet // base64::CharacterSet
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +24,9 @@ pub enum StdType {
     VecU8,
     NonZeroUsize,
     NonZeroI8,
+    CowStr, // Cow<str>
+    // Enum
+    Base64CharacterSet // base64::CharacterSet
 }
 
 impl StdCallType {
@@ -31,6 +38,8 @@ impl StdCallType {
             "&mut Vec<u8>" => Ok(StdCallType::RefMutVecU8),
             "core::num::NonZeroUsize" => Ok(StdCallType::NonZeroUsize),
             "core::num::NonZeroI8" => Ok(StdCallType::NonZeroI8),
+            "alloc::borrow::Cow<str>" => Ok(StdCallType::CowStr),
+            "base64::CharacterSet" => Ok(StdCallType::Base64CharacterSet),
             _ => Err(()),
         }
     }
@@ -47,14 +56,19 @@ impl StdCallType {
             },
             StdCallType::NonZeroI8 => {
                 (StdType::NonZeroI8, CallType::_DirectCall)
-            }
+            },
+            StdCallType::CowStr => {
+                (StdType::CowStr, CallType::_DirectCall)
+            },
+            StdCallType::Base64CharacterSet => (StdType::Base64CharacterSet, CallType::_DirectCall)
         }
     }
 
     pub fn requires_mut_tag(&self) -> bool {
         match self {
             StdCallType::RefMutVecU8 => true,
-            StdCallType::IpAddr | StdCallType::VecU8 | StdCallType::NonZeroUsize | StdCallType::NonZeroI8 => false,
+            StdCallType::IpAddr | StdCallType::VecU8 | StdCallType::NonZeroUsize | StdCallType::NonZeroI8 | 
+            StdCallType::CowStr | StdCallType::Base64CharacterSet => false,
         }
     }
 }
@@ -69,6 +83,8 @@ impl StdType {
             )],
             StdType::NonZeroUsize => vec![(FuzzableType::Primitive(PrimitiveType::Usize), CallType::_DirectCall)],
             StdType::NonZeroI8 => vec![(FuzzableType::Primitive(PrimitiveType::I8), CallType::_DirectCall)],
+            StdType::CowStr => vec![(FuzzableType::RefStr, CallType::_DirectCall)],
+            StdType::Base64CharacterSet => vec![],
         }
     }
 
@@ -109,6 +125,24 @@ impl StdType {
                 format!(
                     "if let Some(res) = std::num::NonZeroI8::new({}) {{res}} else {{std::process::exit(-1);}}",
                     param
+                )
+            },
+            StdType::CowStr => {
+                if params.len() != 1 {
+                    panic!("Cow<str> requires only one parameter.");
+                }
+                let param = params.first().unwrap();
+                format!(
+                    "std::borrow::Cow::Owned(String::from({}))",
+                    param
+                )
+            },
+            StdType::Base64CharacterSet => {
+                if params.len() != 0 {
+                    panic!("base64::CharacterSet requires zero parameter.");
+                }
+                format!(
+                    "base64::CharacterSet::Standard"
                 )
             },
         }

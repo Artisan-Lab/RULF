@@ -220,28 +220,6 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _print_all() {
-        println!("afl helper functions: ");
-        println!("{}", _data_to_u8());
-        println!("{}", _data_to_i8());
-        println!("{}", _data_to_u16());
-        println!("{}", _data_to_i16());
-        println!("{}", _data_to_u32());
-        println!("{}", _data_to_i32());
-        println!("{}", _data_to_u64());
-        println!("{}", _data_to_i64());
-        println!("{}", _data_to_u128());
-        println!("{}", _data_to_i128());
-        println!("{}", _data_to_usize());
-        println!("{}", _data_to_isize());
-        println!("{}", _data_to_char());
-        println!("{}", _data_to_bool());
-        println!("{}", _data_to_str());
-        println!("{}", _data_to_slice());
-        println!("{}", _data_to_f32());
-        println!("{}", _data_to_f64());
-    }
-
     //may remove later
     pub fn _feature_gate(&self) -> Option<String> {
         match self {

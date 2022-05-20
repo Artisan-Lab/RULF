@@ -675,7 +675,6 @@ pub fn fuzz_target_run_clean_krate(
     );
     let traits_in_current_crate = collect_traits_in_current_crate(&cache);
     api_dependency_graph.set_traits_in_current_crate(traits_in_current_crate);
-    //println!("{:?}", full_name_map);
 
     krate = new_crate;
     let cache = Arc::new(cache);
@@ -700,8 +699,12 @@ pub fn fuzz_target_run_clean_krate(
 
     //将bare function添加到graph中去
     let ret = cx.analyse_clean_krate(&krate, &mut api_dependency_graph);
+    debug!("before filter: {}", api_dependency_graph.generic_functions.len());
+
     //根据mod可见性和预包含类型过滤function
     api_dependency_graph.filter_functions();
+
+    debug!("after filter: {}", api_dependency_graph.generic_functions.len());
 
     //单态化泛型函数
     let enable_generic_function = true;
@@ -722,24 +725,19 @@ pub fn fuzz_target_run_clean_krate(
         api_dependency_graph.generate_all_possoble_sequences(_RandomWalk);
     }
 
-    use crate::fuzz_target::print_message;
+    // use crate::fuzz_target::print_message;
     // print_message::_print_type_full_names(&api_dependency_graph);
     // print_message::_print_generated_test_functions(&api_dependency_graph);
     // print_message::_print_generic_functions(&api_dependency_graph);
     // print_message::_print_type_in_current_crate(&api_dependency_graph);
     // print_message::_print_traits_in_current_crate(&api_dependency_graph);
-    print_message::_print_pretty_functions(&api_dependency_graph, true);
+    // print_message::_print_pretty_functions(&api_dependency_graph, true);
     // print_message::_print_pretty_functions(&api_dependency_graph, false);
     // print_message::_print_pretty_sequences(&api_dependency_graph);
     // print_message::_print_generated_afl_file(&api_dependency_graph);
-    // println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
-    //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
-    //use crate::html::afl_util;
-    //afl_util::_AflHelpers::_print_all();
     if file_util::can_write_to_file(&api_dependency_graph._crate_name, random_strategy) {
         //whether to use random strategy
         let file_helper = file_util::FileHelper::new(&api_dependency_graph, random_strategy);
-        //println!("file_helper:{:?}", file_helper);
         file_helper.write_files();
 
         if file_util::can_generate_libfuzzer_target(&api_dependency_graph._crate_name) {
@@ -1589,18 +1587,14 @@ impl Context {
         mut api_dependency_graph: &mut api_graph::ApiGraph,
     ) -> Result<(), Error> {
         let mut krate = raw_krate.clone();
-        //println!("analyse clean krate");
         let mut item = match krate.module.take() {
             Some(i) => i,
             None => return Ok(()),
         };
-        //let span = &item.source;
-        //println!("span = {:?}",span);
 
         let krate_name = krate.name.clone();
         item.name = Some(krate_name);
 
-        //let mut all = AllTypes::new();
         {
             let mut work = vec![(self.clone(), item)];
             while let Some((mut cx, item)) = work.pop() {
@@ -1814,7 +1808,6 @@ impl Context {
                 let full_name = full_path(self, &item);
                 match item.inner {
                     clean::FunctionItem(ref func) => {
-                        //println!("func = {:?}",func);
                         let decl = func.decl.clone();
                         let clean::FnDecl { inputs, output, .. } = decl;
                         let generics = func.generics.clone();

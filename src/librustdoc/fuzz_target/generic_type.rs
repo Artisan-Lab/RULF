@@ -101,15 +101,15 @@ impl ReplaceType {
 
     pub fn _print_replace_massage(&self, generic: &str, type_name_map: &TypeNameMap) {
         match self {
-            ReplaceType::Numeric => println!("{} can be replaced with numeric", generic),
-            ReplaceType::U8Slice => println!("{} can be replaced with &[u8]", generic),
-            ReplaceType::MutU8Slice => println!("{} can be replaced with &mut [u8]", generic),
-            ReplaceType::Str => println!("{} can be replaced with str", generic),
+            ReplaceType::Numeric => info!("{} can be replaced with numeric", generic),
+            ReplaceType::U8Slice => info!("{} can be replaced with &[u8]", generic),
+            ReplaceType::MutU8Slice => info!("{} can be replaced with &mut [u8]", generic),
+            ReplaceType::Str => info!("{} can be replaced with str", generic),
             ReplaceType::DefinedType(type_)
             | ReplaceType::RefTrait(type_)
             | ReplaceType::IntoTrait(type_) => {
                 let type_full_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
-                println!("{} can be replaced with {}", generic, type_full_name);
+                info!("{} can be replaced with {}", generic, type_full_name);
             }
         }
     }

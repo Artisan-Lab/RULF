@@ -79,9 +79,15 @@ impl ApiFunction {
 
     pub fn contains_prelude_type_prefix(&self, prefixes: &HashSet<String>) -> bool {
         let function_name_contains_prelude_type =
-            prefixes.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
+            prefixes.iter().any(|prelude_type| {
+                let prelude_type_prefix = format!("{}::", prelude_type);
+                self.full_name.starts_with(prelude_type_prefix.as_str())
+            });
         let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
-            prefixes.iter().any(|prelude_type| trait_name.starts_with(prelude_type))
+            prefixes.iter().any(|prelude_type|{
+                let prelude_type_prefix = format!("{}::", prelude_type);
+                trait_name.starts_with(prelude_type_prefix.as_str())
+            } )
         } else {
             false
         };
