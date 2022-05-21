@@ -11,7 +11,7 @@ The recommended workflow to use this tool to fuzz a library is as follows:
 
 ### Cite Our work
 
-If you want to cite our work, you can cite our ASE'21 paper. Our paper is open access on both [Arxiv](https://arxiv.org/pdf/2104.12064.pdf) and [IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/9678813). The bibtex is as follows:
+If you want to cite our work, you can cite our ASE'21 paper. Our paper can be accessed on both [Arxiv](https://arxiv.org/pdf/2104.12064.pdf) and [IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/9678813). The bibtex is as follows:
 
 ```
 @article{jiang2021rulf,
