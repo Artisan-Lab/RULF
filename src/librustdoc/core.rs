@@ -702,6 +702,7 @@ pub fn fuzz_target_generator_run_core(
         registry: rustc_driver::diagnostics_registry(),
     };
 
+    trace!("create_compiler_and_run");
     interface::create_compiler_and_run(config, |compiler| {
         compiler.enter(|queries| {
             let sess = compiler.session();

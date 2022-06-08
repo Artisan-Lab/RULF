@@ -52,11 +52,11 @@ lazy_static! {
 
 lazy_static! {
     static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
-        m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
-        m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
-        m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
-        m.insert("semver_parser", "/home/jjf/libfuzzer_work/sem-libfuzzer-targets");
+        let m = HashMap::new();
+        // m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
+        // m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
+        // m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
+        // m.insert("semver_parser", "/home/jjf/libfuzzer_work/sem-libfuzzer-targets");
         m
     };
 }

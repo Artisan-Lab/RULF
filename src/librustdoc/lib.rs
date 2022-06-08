@@ -556,8 +556,11 @@ fn main_options(options: config::Options) -> i32 {
     // then generated from the cleaned AST of the crate. This runs all the
     // plug/cleaning passes.
     let result = rustc_driver::catch_fatal_errors(move || {
+        info!("crate name: {:?}", options.crate_name);
         let crate_name = options.crate_name.clone();
+        info!("crate version: {:?}", options.crate_version);
         let crate_version = options.crate_version.clone();
+        info!("run core");
         let (mut krate, renderinfo, renderopts) = core::run_core(options);
 
         info!("finished with rustc");
@@ -619,14 +622,18 @@ fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
 
     // First, parse the crate and extract all relevant information.
     info!("starting to run rustc");
+    trace!("fuzz");
 
     // Interpret the input file as a rust source file, passing it through the
     // compiler all the way through the analysis passes. The rustdoc output is
     // then generated from the cleaned AST of the crate. This runs all the
     // plug/cleaning passes.
     let result = rustc_driver::catch_fatal_errors(move || {
+        trace!("crate name: {:?}", options.crate_name);
         let crate_name = options.crate_name.clone();
+        trace!("crate version: {:?}", options.crate_version);
         let crate_version = options.crate_version.clone();
+        trace!("run core");
         let (mut krate, renderinfo, renderopts) = core::fuzz_target_generator_run_core(options);
 
         info!("finished with rustc");
