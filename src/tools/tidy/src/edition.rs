@@ -1,29 +1,15 @@
-//! Tidy check to ensure that crate `edition` is '2018'
-//!
+//! Tidy check to ensure that crate `edition` is '2018' or '2021'.
 
+use crate::walk::{filter_dirs, walk};
 use std::path::Path;
 
-fn filter_dirs(path: &Path) -> bool {
-    // FIXME: just use super::filter_dirs after the submodules are updated.
-    if super::filter_dirs(path) {
-        return true;
-    }
-    let skip = [
-        "src/doc/book/second-edition",
-        "src/doc/book/2018-edition",
-        "src/doc/book/ci/stable-check",
-        "src/doc/reference/stable-check",
-    ];
-    skip.iter().any(|p| path.ends_with(p))
-}
-
-fn is_edition_2018(mut line: &str) -> bool {
+fn is_edition_2021(mut line: &str) -> bool {
     line = line.trim();
-    line == "edition = \"2018\"" || line == "edition = \'2018\'"
+    line == "edition = \"2021\""
 }
 
 pub fn check(path: &Path, bad: &mut bool) {
-    super::walk(
+    walk(
         path,
         &mut |path| filter_dirs(path) || path.ends_with("src/test"),
         &mut |entry, contents| {
@@ -32,11 +18,12 @@ pub fn check(path: &Path, bad: &mut bool) {
             if filename != "Cargo.toml" {
                 return;
             }
-            let has_edition = contents.lines().any(is_edition_2018);
-            if !has_edition {
+
+            let is_2021 = contents.lines().any(is_edition_2021);
+            if !is_2021 {
                 tidy_error!(
                     bad,
-                    "{} doesn't have `edition = \"2018\"` on a separate line",
+                    "{} doesn't have `edition = \"2021\"` on a separate line",
                     file.display()
                 );
             }

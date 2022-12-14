@@ -1,11 +1,13 @@
-use crate::consts::{
+use clippy_utils::consts::{
     constant, constant_simple, Constant,
-    Constant::{F32, F64},
+    Constant::{Int, F32, F64},
 };
-use crate::utils::{higher, numeric_literal, span_lint_and_sugg, sugg, SpanlessEq};
+use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::higher;
+use clippy_utils::{eq_expr_value, get_parent_expr, in_constant, numeric_literal, peel_blocks, sugg};
 use if_chain::if_chain;
 use rustc_errors::Applicability;
-use rustc_hir::{BinOpKind, Expr, ExprKind, UnOp};
+use rustc_hir::{BinOpKind, Expr, ExprKind, PathSegment, UnOp};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
@@ -17,16 +19,15 @@ use std::f64::consts as f64_consts;
 use sugg::Sugg;
 
 declare_clippy_lint! {
-    /// **What it does:** Looks for floating-point expressions that
+    /// ### What it does
+    /// Looks for floating-point expressions that
     /// can be expressed using built-in methods to improve accuracy
     /// at the cost of performance.
     ///
-    /// **Why is this bad?** Negatively impacts accuracy.
+    /// ### Why is this bad?
+    /// Negatively impacts accuracy.
     ///
-    /// **Known problems:** None
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
     /// let a = 3f32;
     /// let _ = a.powf(1.0 / 3.0);
@@ -34,30 +35,29 @@ declare_clippy_lint! {
     /// let _ = a.exp() - 1.0;
     /// ```
     ///
-    /// is better expressed as
-    ///
+    /// Use instead:
     /// ```rust
     /// let a = 3f32;
     /// let _ = a.cbrt();
     /// let _ = a.ln_1p();
     /// let _ = a.exp_m1();
     /// ```
+    #[clippy::version = "1.43.0"]
     pub IMPRECISE_FLOPS,
     nursery,
     "usage of imprecise floating point operations"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Looks for floating-point expressions that
+    /// ### What it does
+    /// Looks for floating-point expressions that
     /// can be expressed using built-in methods to improve both
     /// accuracy and performance.
     ///
-    /// **Why is this bad?** Negatively impacts accuracy and performance.
+    /// ### Why is this bad?
+    /// Negatively impacts accuracy and performance.
     ///
-    /// **Known problems:** None
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
     /// use std::f32::consts::E;
     ///
@@ -99,6 +99,7 @@ declare_clippy_lint! {
     /// let _ = a.abs();
     /// let _ = -a.abs();
     /// ```
+    #[clippy::version = "1.43.0"]
     pub SUBOPTIMAL_FLOPS,
     nursery,
     "usage of sub-optimal floating point operations"
@@ -112,7 +113,7 @@ declare_lint_pass!(FloatingPointArithmetic => [
 // Returns the specialized log method for a given base if base is constant
 // and is one of 2, 10 and e
 fn get_specialized_log_method(cx: &LateContext<'_>, base: &Expr<'_>) -> Option<&'static str> {
-    if let Some((value, _)) = constant(cx, cx.tables(), base) {
+    if let Some((value, _)) = constant(cx, cx.typeck_results(), base) {
         if F32(2.0) == value || F64(2.0) == value {
             return Some("log2");
         } else if F32(10.0) == value || F64(10.0) == value {
@@ -129,20 +130,19 @@ fn get_specialized_log_method(cx: &LateContext<'_>, base: &Expr<'_>) -> Option<&
 fn prepare_receiver_sugg<'a>(cx: &LateContext<'_>, mut expr: &'a Expr<'a>) -> Sugg<'a> {
     let mut suggestion = Sugg::hir(cx, expr, "..");
 
-    if let ExprKind::Unary(UnOp::UnNeg, inner_expr) = &expr.kind {
-        expr = &inner_expr;
+    if let ExprKind::Unary(UnOp::Neg, inner_expr) = &expr.kind {
+        expr = inner_expr;
     }
 
     if_chain! {
         // if the expression is a float literal and it is unsuffixed then
         // add a suffix so the suggestion is valid and unambiguous
-        if let ty::Float(float_ty) = cx.tables().expr_ty(expr).kind;
+        if let ty::Float(float_ty) = cx.typeck_results().expr_ty(expr).kind();
         if let ExprKind::Lit(lit) = &expr.kind;
         if let ast::LitKind::Float(sym, ast::LitFloatType::Unsuffixed) = lit.node;
         then {
             let op = format!(
-                "{}{}{}",
-                suggestion,
+                "{suggestion}{}{}",
                 // Check for float literals without numbers following the decimal
                 // separator such as `2.` and adds a trailing zero
                 if sym.as_str().ends_with('.') {
@@ -163,15 +163,15 @@ fn prepare_receiver_sugg<'a>(cx: &LateContext<'_>, mut expr: &'a Expr<'a>) -> Su
     suggestion.maybe_par()
 }
 
-fn check_log_base(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
-    if let Some(method) = get_specialized_log_method(cx, &args[1]) {
+fn check_log_base(cx: &LateContext<'_>, expr: &Expr<'_>, receiver: &Expr<'_>, args: &[Expr<'_>]) {
+    if let Some(method) = get_specialized_log_method(cx, &args[0]) {
         span_lint_and_sugg(
             cx,
             SUBOPTIMAL_FLOPS,
             expr.span,
             "logarithm for bases 2, 10 and e can be computed more accurately",
             "consider using",
-            format!("{}.{}()", Sugg::hir(cx, &args[0], ".."), method),
+            format!("{}.{method}()", Sugg::hir(cx, receiver, "..").maybe_par()),
             Applicability::MachineApplicable,
         );
     }
@@ -179,16 +179,19 @@ fn check_log_base(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
 
 // TODO: Lint expressions of the form `(x + y).ln()` where y > 1 and
 // suggest usage of `(x + (y - 1)).ln_1p()` instead
-fn check_ln1p(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
+fn check_ln1p(cx: &LateContext<'_>, expr: &Expr<'_>, receiver: &Expr<'_>) {
     if let ExprKind::Binary(
         Spanned {
             node: BinOpKind::Add, ..
         },
         lhs,
         rhs,
-    ) = &args[0].kind
+    ) = receiver.kind
     {
-        let recv = match (constant(cx, cx.tables(), lhs), constant(cx, cx.tables(), rhs)) {
+        let recv = match (
+            constant(cx, cx.typeck_results(), lhs),
+            constant(cx, cx.typeck_results(), rhs),
+        ) {
             (Some((value, _)), _) if F32(1.0) == value || F64(1.0) == value => rhs,
             (_, Some((value, _))) if F32(1.0) == value || F64(1.0) == value => lhs,
             _ => return,
@@ -210,7 +213,7 @@ fn check_ln1p(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
 // converted to an integer without loss of precision. For now we only check
 // ranges [-16777215, 16777216) for type f32 as whole number floats outside
 // this range are lossy and ambiguous.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn get_integer_from_float_constant(value: &Constant) -> Option<i32> {
     match value {
         F32(num) if num.fract() == 0.0 => {
@@ -231,41 +234,41 @@ fn get_integer_from_float_constant(value: &Constant) -> Option<i32> {
     }
 }
 
-fn check_powf(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
+fn check_powf(cx: &LateContext<'_>, expr: &Expr<'_>, receiver: &Expr<'_>, args: &[Expr<'_>]) {
     // Check receiver
-    if let Some((value, _)) = constant(cx, cx.tables(), &args[0]) {
-        let method = if F32(f32_consts::E) == value || F64(f64_consts::E) == value {
-            "exp"
+    if let Some((value, _)) = constant(cx, cx.typeck_results(), receiver) {
+        if let Some(method) = if F32(f32_consts::E) == value || F64(f64_consts::E) == value {
+            Some("exp")
         } else if F32(2.0) == value || F64(2.0) == value {
-            "exp2"
+            Some("exp2")
         } else {
-            return;
-        };
-
-        span_lint_and_sugg(
-            cx,
-            SUBOPTIMAL_FLOPS,
-            expr.span,
-            "exponent for bases 2 and e can be computed more accurately",
-            "consider using",
-            format!("{}.{}()", prepare_receiver_sugg(cx, &args[1]), method),
-            Applicability::MachineApplicable,
-        );
+            None
+        } {
+            span_lint_and_sugg(
+                cx,
+                SUBOPTIMAL_FLOPS,
+                expr.span,
+                "exponent for bases 2 and e can be computed more accurately",
+                "consider using",
+                format!("{}.{method}()", prepare_receiver_sugg(cx, &args[0])),
+                Applicability::MachineApplicable,
+            );
+        }
     }
 
     // Check argument
-    if let Some((value, _)) = constant(cx, cx.tables(), &args[1]) {
+    if let Some((value, _)) = constant(cx, cx.typeck_results(), &args[0]) {
         let (lint, help, suggestion) = if F32(1.0 / 2.0) == value || F64(1.0 / 2.0) == value {
             (
                 SUBOPTIMAL_FLOPS,
                 "square-root of a number can be computed more efficiently and accurately",
-                format!("{}.sqrt()", Sugg::hir(cx, &args[0], "..")),
+                format!("{}.sqrt()", Sugg::hir(cx, receiver, "..").maybe_par()),
             )
         } else if F32(1.0 / 3.0) == value || F64(1.0 / 3.0) == value {
             (
                 IMPRECISE_FLOPS,
                 "cube-root of a number can be computed more accurately",
-                format!("{}.cbrt()", Sugg::hir(cx, &args[0], "..")),
+                format!("{}.cbrt()", Sugg::hir(cx, receiver, "..").maybe_par()),
             )
         } else if let Some(exponent) = get_integer_from_float_constant(&value) {
             (
@@ -273,7 +276,7 @@ fn check_powf(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
                 "exponentiation with integer powers can be computed more efficiently",
                 format!(
                     "{}.powi({})",
-                    Sugg::hir(cx, &args[0], ".."),
+                    Sugg::hir(cx, receiver, "..").maybe_par(),
                     numeric_literal::format(&exponent.to_string(), None, false)
                 ),
             )
@@ -293,16 +296,129 @@ fn check_powf(cx: &LateContext<'_>, expr: &Expr<'_>, args: &[Expr<'_>]) {
     }
 }
 
+fn check_powi(cx: &LateContext<'_>, expr: &Expr<'_>, receiver: &Expr<'_>, args: &[Expr<'_>]) {
+    if let Some((value, _)) = constant(cx, cx.typeck_results(), &args[0]) {
+        if value == Int(2) {
+            if let Some(parent) = get_parent_expr(cx, expr) {
+                if let Some(grandparent) = get_parent_expr(cx, parent) {
+                    if let ExprKind::MethodCall(PathSegment { ident: method_name, .. }, receiver, ..) = grandparent.kind
+                    {
+                        if method_name.as_str() == "sqrt" && detect_hypot(cx, receiver).is_some() {
+                            return;
+                        }
+                    }
+                }
+
+                if let ExprKind::Binary(
+                    Spanned {
+                        node: op @ (BinOpKind::Add | BinOpKind::Sub),
+                        ..
+                    },
+                    lhs,
+                    rhs,
+                ) = parent.kind
+                {
+                    let other_addend = if lhs.hir_id == expr.hir_id { rhs } else { lhs };
+
+                    // Negate expr if original code has subtraction and expr is on the right side
+                    let maybe_neg_sugg = |expr, hir_id| {
+                        let sugg = Sugg::hir(cx, expr, "..");
+                        if matches!(op, BinOpKind::Sub) && hir_id == rhs.hir_id {
+                            format!("-{sugg}")
+                        } else {
+                            sugg.to_string()
+                        }
+                    };
+
+                    span_lint_and_sugg(
+                        cx,
+                        SUBOPTIMAL_FLOPS,
+                        parent.span,
+                        "multiply and add expressions can be calculated more efficiently and accurately",
+                        "consider using",
+                        format!(
+                            "{}.mul_add({}, {})",
+                            Sugg::hir(cx, receiver, "..").maybe_par(),
+                            maybe_neg_sugg(receiver, expr.hir_id),
+                            maybe_neg_sugg(other_addend, other_addend.hir_id),
+                        ),
+                        Applicability::MachineApplicable,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn detect_hypot(cx: &LateContext<'_>, receiver: &Expr<'_>) -> Option<String> {
+    if let ExprKind::Binary(
+        Spanned {
+            node: BinOpKind::Add, ..
+        },
+        add_lhs,
+        add_rhs,
+    ) = receiver.kind
+    {
+        // check if expression of the form x * x + y * y
+        if_chain! {
+            if let ExprKind::Binary(Spanned { node: BinOpKind::Mul, .. }, lmul_lhs, lmul_rhs) = add_lhs.kind;
+            if let ExprKind::Binary(Spanned { node: BinOpKind::Mul, .. }, rmul_lhs, rmul_rhs) = add_rhs.kind;
+            if eq_expr_value(cx, lmul_lhs, lmul_rhs);
+            if eq_expr_value(cx, rmul_lhs, rmul_rhs);
+            then {
+                return Some(format!("{}.hypot({})", Sugg::hir(cx, lmul_lhs, "..").maybe_par(), Sugg::hir(cx, rmul_lhs, "..")));
+            }
+        }
+
+        // check if expression of the form x.powi(2) + y.powi(2)
+        if_chain! {
+            if let ExprKind::MethodCall(
+                PathSegment { ident: lmethod_name, .. },
+                largs_0, [largs_1, ..],
+                _
+            ) = &add_lhs.kind;
+            if let ExprKind::MethodCall(
+                PathSegment { ident: rmethod_name, .. },
+                rargs_0, [rargs_1, ..],
+                _
+            ) = &add_rhs.kind;
+            if lmethod_name.as_str() == "powi" && rmethod_name.as_str() == "powi";
+            if let Some((lvalue, _)) = constant(cx, cx.typeck_results(), largs_1);
+            if let Some((rvalue, _)) = constant(cx, cx.typeck_results(), rargs_1);
+            if Int(2) == lvalue && Int(2) == rvalue;
+            then {
+                return Some(format!("{}.hypot({})", Sugg::hir(cx, largs_0, "..").maybe_par(), Sugg::hir(cx, rargs_0, "..")));
+            }
+        }
+    }
+
+    None
+}
+
+fn check_hypot(cx: &LateContext<'_>, expr: &Expr<'_>, receiver: &Expr<'_>) {
+    if let Some(message) = detect_hypot(cx, receiver) {
+        span_lint_and_sugg(
+            cx,
+            IMPRECISE_FLOPS,
+            expr.span,
+            "hypotenuse can be computed more accurately",
+            "consider using",
+            message,
+            Applicability::MachineApplicable,
+        );
+    }
+}
+
 // TODO: Lint expressions of the form `x.exp() - y` where y > 1
 // and suggest usage of `x.exp_m1() - (y - 1)` instead
 fn check_expm1(cx: &LateContext<'_>, expr: &Expr<'_>) {
     if_chain! {
-        if let ExprKind::Binary(Spanned { node: BinOpKind::Sub, .. }, ref lhs, ref rhs) = expr.kind;
-        if cx.tables().expr_ty(lhs).is_floating_point();
-        if let Some((value, _)) = constant(cx, cx.tables(), rhs);
+        if let ExprKind::Binary(Spanned { node: BinOpKind::Sub, .. }, lhs, rhs) = expr.kind;
+        if cx.typeck_results().expr_ty(lhs).is_floating_point();
+        if let Some((value, _)) = constant(cx, cx.typeck_results(), rhs);
         if F32(1.0) == value || F64(1.0) == value;
-        if let ExprKind::MethodCall(ref path, _, ref method_args, _) = lhs.kind;
-        if cx.tables().expr_ty(&method_args[0]).is_floating_point();
+        if let ExprKind::MethodCall(path, self_arg, ..) = &lhs.kind;
+        if cx.typeck_results().expr_ty(self_arg).is_floating_point();
         if path.ident.name.as_str() == "exp";
         then {
             span_lint_and_sugg(
@@ -313,7 +429,7 @@ fn check_expm1(cx: &LateContext<'_>, expr: &Expr<'_>) {
                 "consider using",
                 format!(
                     "{}.exp_m1()",
-                    Sugg::hir(cx, &method_args[0], "..")
+                    Sugg::hir(cx, self_arg, "..").maybe_par()
                 ),
                 Applicability::MachineApplicable,
             );
@@ -323,9 +439,9 @@ fn check_expm1(cx: &LateContext<'_>, expr: &Expr<'_>) {
 
 fn is_float_mul_expr<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<(&'a Expr<'a>, &'a Expr<'a>)> {
     if_chain! {
-        if let ExprKind::Binary(Spanned { node: BinOpKind::Mul, .. }, ref lhs, ref rhs) = &expr.kind;
-        if cx.tables().expr_ty(lhs).is_floating_point();
-        if cx.tables().expr_ty(rhs).is_floating_point();
+        if let ExprKind::Binary(Spanned { node: BinOpKind::Mul, .. }, lhs, rhs) = &expr.kind;
+        if cx.typeck_results().expr_ty(lhs).is_floating_point();
+        if cx.typeck_results().expr_ty(rhs).is_floating_point();
         then {
             return Some((lhs, rhs));
         }
@@ -338,16 +454,42 @@ fn is_float_mul_expr<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<(&'
 fn check_mul_add(cx: &LateContext<'_>, expr: &Expr<'_>) {
     if let ExprKind::Binary(
         Spanned {
-            node: BinOpKind::Add, ..
+            node: op @ (BinOpKind::Add | BinOpKind::Sub),
+            ..
         },
         lhs,
         rhs,
     ) = &expr.kind
     {
+        if let Some(parent) = get_parent_expr(cx, expr) {
+            if let ExprKind::MethodCall(PathSegment { ident: method_name, .. }, receiver, ..) = parent.kind {
+                if method_name.as_str() == "sqrt" && detect_hypot(cx, receiver).is_some() {
+                    return;
+                }
+            }
+        }
+
+        let maybe_neg_sugg = |expr| {
+            let sugg = Sugg::hir(cx, expr, "..");
+            if let BinOpKind::Sub = op {
+                format!("-{sugg}")
+            } else {
+                sugg.to_string()
+            }
+        };
+
         let (recv, arg1, arg2) = if let Some((inner_lhs, inner_rhs)) = is_float_mul_expr(cx, lhs) {
-            (inner_lhs, inner_rhs, rhs)
+            (
+                inner_lhs,
+                Sugg::hir(cx, inner_rhs, "..").to_string(),
+                maybe_neg_sugg(rhs),
+            )
         } else if let Some((inner_lhs, inner_rhs)) = is_float_mul_expr(cx, rhs) {
-            (inner_lhs, inner_rhs, lhs)
+            (
+                inner_lhs,
+                maybe_neg_sugg(inner_rhs),
+                Sugg::hir(cx, lhs, "..").to_string(),
+            )
         } else {
             return;
         };
@@ -358,12 +500,7 @@ fn check_mul_add(cx: &LateContext<'_>, expr: &Expr<'_>) {
             expr.span,
             "multiply and add expressions can be calculated more efficiently and accurately",
             "consider using",
-            format!(
-                "{}.mul_add({}, {})",
-                prepare_receiver_sugg(cx, recv),
-                Sugg::hir(cx, arg1, ".."),
-                Sugg::hir(cx, arg2, ".."),
-            ),
+            format!("{}.mul_add({arg1}, {arg2})", prepare_receiver_sugg(cx, recv)),
             Applicability::MachineApplicable,
         );
     }
@@ -376,8 +513,8 @@ fn check_mul_add(cx: &LateContext<'_>, expr: &Expr<'_>) {
 fn is_testing_positive(cx: &LateContext<'_>, expr: &Expr<'_>, test: &Expr<'_>) -> bool {
     if let ExprKind::Binary(Spanned { node: op, .. }, left, right) = expr.kind {
         match op {
-            BinOpKind::Gt | BinOpKind::Ge => is_zero(cx, right) && are_exprs_equal(cx, left, test),
-            BinOpKind::Lt | BinOpKind::Le => is_zero(cx, left) && are_exprs_equal(cx, right, test),
+            BinOpKind::Gt | BinOpKind::Ge => is_zero(cx, right) && eq_expr_value(cx, left, test),
+            BinOpKind::Lt | BinOpKind::Le => is_zero(cx, left) && eq_expr_value(cx, right, test),
             _ => false,
         }
     } else {
@@ -389,8 +526,8 @@ fn is_testing_positive(cx: &LateContext<'_>, expr: &Expr<'_>, test: &Expr<'_>) -
 fn is_testing_negative(cx: &LateContext<'_>, expr: &Expr<'_>, test: &Expr<'_>) -> bool {
     if let ExprKind::Binary(Spanned { node: op, .. }, left, right) = expr.kind {
         match op {
-            BinOpKind::Gt | BinOpKind::Ge => is_zero(cx, left) && are_exprs_equal(cx, right, test),
-            BinOpKind::Lt | BinOpKind::Le => is_zero(cx, right) && are_exprs_equal(cx, left, test),
+            BinOpKind::Gt | BinOpKind::Ge => is_zero(cx, left) && eq_expr_value(cx, right, test),
+            BinOpKind::Lt | BinOpKind::Le => is_zero(cx, right) && eq_expr_value(cx, left, test),
             _ => false,
         }
     } else {
@@ -398,13 +535,9 @@ fn is_testing_negative(cx: &LateContext<'_>, expr: &Expr<'_>, test: &Expr<'_>) -
     }
 }
 
-fn are_exprs_equal(cx: &LateContext<'_>, expr1: &Expr<'_>, expr2: &Expr<'_>) -> bool {
-    SpanlessEq::new(cx).ignore_fn().eq_expr(expr1, expr2)
-}
-
 /// Returns true iff expr is some zero literal
 fn is_zero(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
-    match constant_simple(cx, cx.tables(), expr) {
+    match constant_simple(cx, cx.typeck_results(), expr) {
         Some(Constant::Int(i)) => i == 0,
         Some(Constant::F32(f)) => f == 0.0,
         Some(Constant::F64(f)) => f == 0.0,
@@ -419,13 +552,13 @@ fn is_zero(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
 /// If the two expressions are not negations of each other, then it
 /// returns None.
 fn are_negated<'a>(cx: &LateContext<'_>, expr1: &'a Expr<'a>, expr2: &'a Expr<'a>) -> Option<(bool, &'a Expr<'a>)> {
-    if let ExprKind::Unary(UnOp::UnNeg, expr1_negated) = &expr1.kind {
-        if are_exprs_equal(cx, expr1_negated, expr2) {
+    if let ExprKind::Unary(UnOp::Neg, expr1_negated) = &expr1.kind {
+        if eq_expr_value(cx, expr1_negated, expr2) {
             return Some((false, expr2));
         }
     }
-    if let ExprKind::Unary(UnOp::UnNeg, expr2_negated) = &expr2.kind {
-        if are_exprs_equal(cx, expr1, expr2_negated) {
+    if let ExprKind::Unary(UnOp::Neg, expr2_negated) = &expr2.kind {
+        if eq_expr_value(cx, expr1, expr2_negated) {
             return Some((true, expr1));
         }
     }
@@ -434,22 +567,18 @@ fn are_negated<'a>(cx: &LateContext<'_>, expr1: &'a Expr<'a>, expr2: &'a Expr<'a
 
 fn check_custom_abs(cx: &LateContext<'_>, expr: &Expr<'_>) {
     if_chain! {
-        if let Some((cond, body, Some(else_body))) = higher::if_block(&expr);
-        if let ExprKind::Block(block, _) = body.kind;
-        if block.stmts.is_empty();
-        if let Some(if_body_expr) = block.expr;
-        if let ExprKind::Block(else_block, _) = else_body.kind;
-        if else_block.stmts.is_empty();
-        if let Some(else_body_expr) = else_block.expr;
+        if let Some(higher::If { cond, then, r#else: Some(r#else) }) = higher::If::hir(expr);
+        let if_body_expr = peel_blocks(then);
+        let else_body_expr = peel_blocks(r#else);
         if let Some((if_expr_positive, body)) = are_negated(cx, if_body_expr, else_body_expr);
         then {
             let positive_abs_sugg = (
                 "manual implementation of `abs` method",
-                format!("{}.abs()", Sugg::hir(cx, body, "..")),
+                format!("{}.abs()", Sugg::hir(cx, body, "..").maybe_par()),
             );
             let negative_abs_sugg = (
                 "manual implementation of negation of `abs` method",
-                format!("-{}.abs()", Sugg::hir(cx, body, "..")),
+                format!("-{}.abs()", Sugg::hir(cx, body, "..").maybe_par()),
             );
             let sugg = if is_testing_positive(cx, cond, body) {
                 if if_expr_positive {
@@ -479,16 +608,143 @@ fn check_custom_abs(cx: &LateContext<'_>, expr: &Expr<'_>) {
     }
 }
 
+fn are_same_base_logs(cx: &LateContext<'_>, expr_a: &Expr<'_>, expr_b: &Expr<'_>) -> bool {
+    if_chain! {
+        if let ExprKind::MethodCall(PathSegment { ident: method_name_a, .. }, _, args_a, _) = expr_a.kind;
+        if let ExprKind::MethodCall(PathSegment { ident: method_name_b, .. }, _, args_b, _) = expr_b.kind;
+        then {
+            return method_name_a.as_str() == method_name_b.as_str() &&
+                args_a.len() == args_b.len() &&
+                (
+                    ["ln", "log2", "log10"].contains(&method_name_a.as_str()) ||
+                    method_name_a.as_str() == "log" && args_a.len() == 1 && eq_expr_value(cx, &args_a[0], &args_b[0])
+                );
+        }
+    }
+
+    false
+}
+
+fn check_log_division(cx: &LateContext<'_>, expr: &Expr<'_>) {
+    // check if expression of the form x.logN() / y.logN()
+    if_chain! {
+        if let ExprKind::Binary(
+            Spanned {
+                node: BinOpKind::Div, ..
+            },
+            lhs,
+            rhs,
+        ) = &expr.kind;
+        if are_same_base_logs(cx, lhs, rhs);
+        if let ExprKind::MethodCall(_, largs_self, ..) = &lhs.kind;
+        if let ExprKind::MethodCall(_, rargs_self, ..) = &rhs.kind;
+        then {
+            span_lint_and_sugg(
+                cx,
+                SUBOPTIMAL_FLOPS,
+                expr.span,
+                "log base can be expressed more clearly",
+                "consider using",
+                format!("{}.log({})", Sugg::hir(cx, largs_self, "..").maybe_par(), Sugg::hir(cx, rargs_self, ".."),),
+                Applicability::MachineApplicable,
+            );
+        }
+    }
+}
+
+fn check_radians(cx: &LateContext<'_>, expr: &Expr<'_>) {
+    if_chain! {
+        if let ExprKind::Binary(
+            Spanned {
+                node: BinOpKind::Div, ..
+            },
+            div_lhs,
+            div_rhs,
+        ) = &expr.kind;
+        if let ExprKind::Binary(
+            Spanned {
+                node: BinOpKind::Mul, ..
+            },
+            mul_lhs,
+            mul_rhs,
+        ) = &div_lhs.kind;
+        if let Some((rvalue, _)) = constant(cx, cx.typeck_results(), div_rhs);
+        if let Some((lvalue, _)) = constant(cx, cx.typeck_results(), mul_rhs);
+        then {
+            // TODO: also check for constant values near PI/180 or 180/PI
+            if (F32(f32_consts::PI) == rvalue || F64(f64_consts::PI) == rvalue) &&
+               (F32(180_f32) == lvalue || F64(180_f64) == lvalue)
+            {
+                let mut proposal = format!("{}.to_degrees()", Sugg::hir(cx, mul_lhs, "..").maybe_par());
+                if_chain! {
+                    if let ExprKind::Lit(ref literal) = mul_lhs.kind;
+                    if let ast::LitKind::Float(ref value, float_type) = literal.node;
+                    if float_type == ast::LitFloatType::Unsuffixed;
+                    then {
+                        if value.as_str().ends_with('.') {
+                            proposal = format!("{}0_f64.to_degrees()", Sugg::hir(cx, mul_lhs, ".."));
+                        } else {
+                            proposal = format!("{}_f64.to_degrees()", Sugg::hir(cx, mul_lhs, ".."));
+                        }
+                    }
+                }
+                span_lint_and_sugg(
+                    cx,
+                    SUBOPTIMAL_FLOPS,
+                    expr.span,
+                    "conversion to degrees can be done more accurately",
+                    "consider using",
+                    proposal,
+                    Applicability::MachineApplicable,
+                );
+            } else if
+                (F32(180_f32) == rvalue || F64(180_f64) == rvalue) &&
+                (F32(f32_consts::PI) == lvalue || F64(f64_consts::PI) == lvalue)
+            {
+                let mut proposal = format!("{}.to_radians()", Sugg::hir(cx, mul_lhs, "..").maybe_par());
+                if_chain! {
+                    if let ExprKind::Lit(ref literal) = mul_lhs.kind;
+                    if let ast::LitKind::Float(ref value, float_type) = literal.node;
+                    if float_type == ast::LitFloatType::Unsuffixed;
+                    then {
+                        if value.as_str().ends_with('.') {
+                            proposal = format!("{}0_f64.to_radians()", Sugg::hir(cx, mul_lhs, ".."));
+                        } else {
+                            proposal = format!("{}_f64.to_radians()", Sugg::hir(cx, mul_lhs, ".."));
+                        }
+                    }
+                }
+                span_lint_and_sugg(
+                    cx,
+                    SUBOPTIMAL_FLOPS,
+                    expr.span,
+                    "conversion to radians can be done more accurately",
+                    "consider using",
+                    proposal,
+                    Applicability::MachineApplicable,
+                );
+            }
+        }
+    }
+}
+
 impl<'tcx> LateLintPass<'tcx> for FloatingPointArithmetic {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::MethodCall(ref path, _, args, _) = &expr.kind {
-            let recv_ty = cx.tables().expr_ty(&args[0]);
+        // All of these operations are currently not const.
+        if in_constant(cx, expr.hir_id) {
+            return;
+        }
+
+        if let ExprKind::MethodCall(path, receiver, args, _) = &expr.kind {
+            let recv_ty = cx.typeck_results().expr_ty(receiver);
 
             if recv_ty.is_floating_point() {
-                match &*path.ident.name.as_str() {
-                    "ln" => check_ln1p(cx, expr, args),
-                    "log" => check_log_base(cx, expr, args),
-                    "powf" => check_powf(cx, expr, args),
+                match path.ident.name.as_str() {
+                    "ln" => check_ln1p(cx, expr, receiver),
+                    "log" => check_log_base(cx, expr, receiver, args),
+                    "powf" => check_powf(cx, expr, receiver, args),
+                    "powi" => check_powi(cx, expr, receiver, args),
+                    "sqrt" => check_hypot(cx, expr, receiver),
                     _ => {},
                 }
             }
@@ -496,6 +752,8 @@ impl<'tcx> LateLintPass<'tcx> for FloatingPointArithmetic {
             check_expm1(cx, expr);
             check_mul_add(cx, expr);
             check_custom_abs(cx, expr);
+            check_log_division(cx, expr);
+            check_radians(cx, expr);
         }
     }
 }

@@ -23,10 +23,10 @@ impl Trait for () {
     type T = Self;
 
     #[inline] //~ ERROR attribute should be applied to function or closure
-    type U = impl Trait; //~ ERROR could not find defining uses
+    type U = impl Trait; //~ ERROR unconstrained opaque type
 }
 
-extern {
+extern "C" {
     #[inline] //~ ERROR attribute should be applied to function or closure
     static X: u32;
 

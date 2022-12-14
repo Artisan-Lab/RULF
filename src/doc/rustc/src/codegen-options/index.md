@@ -1,4 +1,4 @@
-# Codegen options
+# Codegen Options
 
 All of these options are passed to `rustc` via the `-C` flag, short for "codegen." You can see
 a version of this list for your exact compiler by running `rustc -C help`.
@@ -12,7 +12,7 @@ This option is deprecated and does nothing.
 This option lets you choose which code model to use. \
 Code models put constraints on address ranges that the program and its symbols may use. \
 With smaller address ranges machine instructions
-may be able to use use more compact addressing modes.
+may be able to use more compact addressing modes.
 
 The specific ranges depend on target architectures and addressing modes available to them. \
 For x86 more detailed description of its code models can be found in
@@ -41,6 +41,18 @@ generated code, but may be slower to compile.
 
 The default value, if not specified, is 16 for non-incremental builds. For
 incremental builds the default is 256 which allows caching to be more granular.
+
+## control-flow-guard
+
+This flag controls whether LLVM enables the Windows [Control Flow
+Guard](https://docs.microsoft.com/en-us/windows/win32/secbp/control-flow-guard)
+platform security feature. This flag is currently ignored for non-Windows targets.
+It takes one of the following values:
+
+* `y`, `yes`, `on`, `checks`, or no value: enable Control Flow Guard.
+* `nochecks`: emit Control Flow Guard metadata without runtime enforcement checks (this
+should only be used for testing purposes as it does not provide security enforcement).
+* `n`, `no`, `off`: do not enable Control Flow Guard (the default).
 
 ## debug-assertions
 
@@ -137,8 +149,7 @@ values:
 
 * `y`, `yes`, `on`, or no value: Unwind tables are forced to be generated.
 * `n`, `no`, or `off`: Unwind tables are not forced to be generated. If unwind
-  tables are required by the target or `-C panic=unwind`, an error will be
-  emitted.
+  tables are required by the target an error will be emitted.
 
 The default if not specified depends on the target.
 
@@ -166,6 +177,15 @@ The default depends on the [opt-level](#opt-level):
 | s         | 75 |
 | z         | 25 |
 
+## instrument-coverage
+
+This option enables instrumentation-based code coverage support. See the
+chapter on [instrumentation-based code coverage] for more information.
+
+Note that while the `-C instrument-coverage` option is stable, the profile data
+format produced by the resulting instrumentation may change, and may not work
+with coverage tools other than those built and shipped with the compiler.
+
 ## link-arg
 
 This flag lets you append a single extra argument to the linker invocation.
@@ -187,6 +207,18 @@ the following values:
 
 An example of when this flag might be useful is when trying to construct code coverage
 metrics.
+
+## link-self-contained
+
+On targets that support it this flag controls whether the linker will use libraries and objects
+shipped with Rust instead or those in the system.
+It takes one of the following values:
+
+* no value: rustc will use heuristic to disable self-contained mode if system has necessary tools.
+* `y`, `yes`, `on`: use only libraries/objects shipped with Rust.
+* `n`, `no`, or `off`: rely on the user or the linker to provide non-Rust libraries/objects.
+
+This allows overriding cases when detection fails or user wants to use shipped libraries.
 
 ## linker
 
@@ -210,6 +242,8 @@ flavor. Valid options are:
 * `ptx-linker`: use
   [`rust-ptx-linker`](https://github.com/denzp/rust-ptx-linker) for Nvidia
   NVPTX GPGPU support.
+* `bpf-linker`: use
+  [`bpf-linker`](https://github.com/alessandrod/bpf-linker) for eBPF support.
 * `wasm-ld`: use the [`wasm-ld`](https://lld.llvm.org/WebAssembly.html)
   executable, a port of LLVM `lld` for WebAssembly.
 * `ld64.lld`: use the LLVM `lld` executable with the [`-flavor darwin`
@@ -275,9 +309,9 @@ opt-level=0`](#opt-level)). That is:
 * When `-C lto` is not specified:
   * `codegen-units=1`: disable LTO.
   * `opt-level=0`: disable LTO.
-* When `-C lto=true`:
-  * `lto=true`: 16 codegen units, perform fat LTO across crates.
-  * `codegen-units=1` + `lto=true`: 1 codegen unit, fat LTO across crates.
+* When `-C lto` is specified:
+  * `lto`: 16 codegen units, perform fat LTO across crates.
+  * `codegen-units=1` + `lto`: 1 codegen unit, fat LTO across crates.
 
 See also [linker-plugin-lto](#linker-plugin-lto) for cross-language LTO.
 
@@ -410,6 +444,10 @@ Equivalent to the "uppercase" `-fPIC` or `-fPIE` options in other compilers,
 depending on the produced crate types.  \
 This is the default model for majority of supported targets.
 
+- `pie` - position independent executable, relocatable code but without support for symbol
+interpositioning (replacing symbols by name using `LD_PRELOAD` and similar). Equivalent to the "uppercase" `-fPIE` option in other compilers. `pie`
+code cannot be linked into shared libraries (you'll get a linking error on attempt to do this).
+
 #### Special relocation models
 
 - `dynamic-no-pic` - relocatable external references, non-relocatable code.  \
@@ -468,13 +506,74 @@ point instructions in software. It takes one of the following values:
 * `y`, `yes`, `on`, or no value: use soft floats.
 * `n`, `no`, or `off`: use hardware floats (the default).
 
+## split-debuginfo
+
+This option controls the emission of "split debuginfo" for debug information
+that `rustc` generates. The default behavior of this option is
+platform-specific, and not all possible values for this option work on all
+platforms. Possible values are:
+
+* `off` - This is the default for platforms with ELF binaries and windows-gnu
+  (not Windows MSVC and not macOS). This typically means that DWARF debug
+  information can be found in the final artifact in sections of the executable.
+  This option is not supported on Windows MSVC. On macOS this options prevents
+  the final execution of `dsymutil` to generate debuginfo.
+
+* `packed` - This is the default for Windows MSVC and macOS. The term
+  "packed" here means that all the debug information is packed into a separate
+  file from the main executable. On Windows MSVC this is a `*.pdb` file, on
+  macOS this is a `*.dSYM` folder, and on other platforms this is a `*.dwp`
+  file.
+
+* `unpacked` - This means that debug information will be found in separate
+  files for each compilation unit (object file). This is not supported on
+  Windows MSVC. On macOS this means the original object files will contain
+  debug information. On other Unix platforms this means that `*.dwo` files will
+  contain debug information.
+
+Note that `packed` and `unpacked` are gated behind `-Z unstable-options` on
+non-macOS platforms at this time.
+
+## strip
+
+The option `-C strip=val` controls stripping of debuginfo and similar auxiliary
+data from binaries during linking.
+
+Supported values for this option are:
+
+- `none` - debuginfo and symbols (if they exist) are copied to the produced
+  binary or separate files depending on the target (e.g. `.pdb` files in case
+  of MSVC).
+- `debuginfo` - debuginfo sections and debuginfo symbols from the symbol table
+  section are stripped at link time and are not copied to the produced binary
+  or separate files.
+- `symbols` - same as `debuginfo`, but the rest of the symbol table section is
+  stripped as well if the linker supports it.
+
+## symbol-mangling-version
+
+This option controls the [name mangling] format for encoding Rust item names
+for the purpose of generating object code and linking.
+
+Supported values for this option are:
+
+* `v0` — The "v0" mangling scheme. The specific format is not specified at
+  this time.
+
+The default if not specified will use a compiler-chosen default which may
+change in the future.
+
+[name mangling]: https://en.wikipedia.org/wiki/Name_mangling
+
 ## target-cpu
 
 This instructs `rustc` to generate code specifically for a particular processor.
 
 You can run `rustc --print target-cpus` to see the valid options to pass
-here. Additionally, `native` can be passed to use the processor of the host
-machine. Each target has a default base CPU.
+here. Each target has a default base CPU. Special values include:
+
+* `native` can be passed to use the processor of the host machine.
+* `generic` refers to an LLVM target with minimal features but modern tuning.
 
 ## target-feature
 
@@ -506,7 +605,22 @@ This also supports the feature `+crt-static` and `-crt-static` to control
 Each target and [`target-cpu`](#target-cpu) has a default set of enabled
 features.
 
+## tune-cpu
+
+This instructs `rustc` to schedule code specifically for a particular
+processor. This does not affect the compatibility (instruction sets or ABI),
+but should make your code slightly more efficient on the selected CPU.
+
+The valid options are the same as those for [`target-cpu`](#target-cpu).
+The default is `None`, which LLVM translates as the `target-cpu`.
+
+This is an unstable option. Use `-Z tune-cpu=machine` to specify a value.
+
+Due to limitations in LLVM (12.0.0-git9218f92), this option is currently
+effective only for x86 targets.
+
 [option-emit]: ../command-line-arguments.md#option-emit
 [option-o-optimize]: ../command-line-arguments.md#option-o-optimize
+[instrumentation-based code coverage]: ../instrument-coverage.md
 [profile-guided optimization]: ../profile-guided-optimization.md
 [option-g-debug]: ../command-line-arguments.md#option-g-debug

@@ -1,19 +1,39 @@
-error: concrete type differs from previous defining opaque type use
-  --> $DIR/generic_duplicate_param_use6.rs:14:1
+error[E0277]: `T` doesn't implement `Debug`
+  --> $DIR/generic_duplicate_param_use6.rs:11:5
    |
-LL | / fn three<T: Copy + Debug, U: Debug>(t: T, u: U) -> Two<T, U> {
-LL | |
-LL | |     (u, t)
-LL | | }
-   | |_^ expected `(T, T)`, got `(U, T)`
+LL |     (t, t)
+   |     ^^^^^^ `T` cannot be formatted using `{:?}` because it doesn't implement `Debug`
    |
-note: previous use here
-  --> $DIR/generic_duplicate_param_use6.rs:10:1
+   = note: required for `(T, T)` to implement `Debug`
+help: consider restricting type parameter `T`
    |
-LL | / fn two<T: Copy + Debug, U: Debug>(t: T, u: U) -> Two<T, U> {
-LL | |     (t, t)
-LL | | }
-   | |_^
+LL | type Two<T: std::fmt::Debug, U> = impl Debug;
+   |           +++++++++++++++++
 
-error: aborting due to previous error
+error[E0277]: `U` doesn't implement `Debug`
+  --> $DIR/generic_duplicate_param_use6.rs:16:5
+   |
+LL |     (u, t)
+   |     ^^^^^^ `U` cannot be formatted using `{:?}` because it doesn't implement `Debug`
+   |
+   = note: required for `(U, T)` to implement `Debug`
+help: consider restricting type parameter `U`
+   |
+LL | type Two<T, U: std::fmt::Debug> = impl Debug;
+   |              +++++++++++++++++
 
+error[E0277]: `T` doesn't implement `Debug`
+  --> $DIR/generic_duplicate_param_use6.rs:16:5
+   |
+LL |     (u, t)
+   |     ^^^^^^ `T` cannot be formatted using `{:?}` because it doesn't implement `Debug`
+   |
+   = note: required for `(U, T)` to implement `Debug`
+help: consider restricting type parameter `T`
+   |
+LL | type Two<T: std::fmt::Debug, U> = impl Debug;
+   |           +++++++++++++++++
+
+error: aborting due to 3 previous errors
+
+For more information about this error, try `rustc --explain E0277`.

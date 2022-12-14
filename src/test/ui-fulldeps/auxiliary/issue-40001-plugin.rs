@@ -1,28 +1,27 @@
-#![feature(box_syntax, plugin, plugin_registrar, rustc_private)]
+#![feature(plugin, rustc_private)]
 #![crate_type = "dylib"]
 
 extern crate rustc_ast_pretty;
 extern crate rustc_driver;
 extern crate rustc_hir;
-#[macro_use]
 extern crate rustc_lint;
 #[macro_use]
 extern crate rustc_session;
-extern crate rustc_span;
 extern crate rustc_ast;
+extern crate rustc_span;
 
 use rustc_ast_pretty::pprust;
 use rustc_driver::plugin::Registry;
 use rustc_hir as hir;
 use rustc_hir::intravisit;
 use rustc_hir::Node;
-use rustc_lint::{LateContext, LateLintPass, LintArray, LintContext, LintPass};
+use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_span::source_map;
 
-#[plugin_registrar]
-pub fn plugin_registrar(reg: &mut Registry) {
+#[no_mangle]
+fn __rustc_plugin_registrar(reg: &mut Registry) {
     reg.lint_store.register_lints(&[&MISSING_ALLOWED_ATTR]);
-    reg.lint_store.register_late_pass(|| box MissingAllowedAttrPass);
+    reg.lint_store.register_late_pass(|_| Box::new(MissingAllowedAttrPass));
 }
 
 declare_lint! {
@@ -45,14 +44,16 @@ impl<'tcx> LateLintPass<'tcx> for MissingAllowedAttrPass {
     ) {
         let item = match cx.tcx.hir().get(id) {
             Node::Item(item) => item,
-            _ => cx.tcx.hir().expect_item(cx.tcx.hir().get_parent_item(id)),
+            _ => cx.tcx.hir().expect_item(cx.tcx.hir().get_parent_item(id).def_id),
         };
 
         let allowed = |attr| pprust::attribute_to_string(attr).contains("allowed_attr");
-        if !item.attrs.iter().any(allowed) {
-            cx.lint(MISSING_ALLOWED_ATTR, |lint| {
-                lint.build("Missing 'allowed_attr' attribute").set_span(span).emit()
-            });
+        if !cx.tcx.hir().attrs(item.hir_id()).iter().any(allowed) {
+            cx.lint(
+                MISSING_ALLOWED_ATTR,
+                "Missing 'allowed_attr' attribute",
+                |lint| lint.set_span(span)
+            );
         }
     }
 }

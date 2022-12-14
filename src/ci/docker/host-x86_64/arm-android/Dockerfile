@@ -1,5 +1,6 @@
-FROM ubuntu:16.04
+FROM ubuntu:22.04
 
+ARG DEBIAN_FRONTEND=noninteractive
 COPY scripts/android-base-apt-get.sh /scripts/
 RUN sh /scripts/android-base-apt-get.sh
 
@@ -13,7 +14,7 @@ RUN dpkg --add-architecture i386 && \
   libgl1-mesa-glx \
   libpulse0 \
   libstdc++6:i386 \
-  openjdk-9-jre-headless \
+  openjdk-8-jre-headless \
   tzdata \
   wget \
   python3
@@ -31,7 +32,7 @@ ENV TARGETS=arm-linux-androideabi
 
 ENV RUST_CONFIGURE_ARGS --arm-linux-androideabi-ndk=/android/ndk/arm-14
 
-ENV SCRIPT python3 ../x.py test --target $TARGETS
+ENV SCRIPT python3 ../x.py --stage 2 test --host='' --target $TARGETS
 
 COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh

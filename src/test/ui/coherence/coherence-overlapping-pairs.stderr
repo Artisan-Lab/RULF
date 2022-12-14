@@ -1,10 +1,10 @@
-error[E0117]: only traits defined in the current crate can be implemented for arbitrary types
+error[E0117]: only traits defined in the current crate can be implemented for types defined outside of the crate
   --> $DIR/coherence-overlapping-pairs.rs:8:1
    |
 LL | impl<T> Remote for lib::Pair<T,Foo> { }
    | ^^^^^^^^^^^^^^^^^^^----------------
    | |                  |
-   | |                  `lib::Pair` is not defined in the current crate
+   | |                  `Pair` is not defined in the current crate
    | impl doesn't use only types from inside the current crate
    |
    = note: define and implement a trait or new type instead

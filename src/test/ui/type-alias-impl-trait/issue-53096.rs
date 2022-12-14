@@ -1,9 +1,11 @@
-// check-pass
-#![feature(const_fn)]
+#![feature(rustc_attrs)]
 #![feature(type_alias_impl_trait)]
 
 type Foo = impl Fn() -> usize;
-const fn bar() -> Foo { || 0usize }
+const fn bar() -> Foo {
+    || 0usize
+}
 const BAZR: Foo = bar();
 
-fn main() {}
+#[rustc_error]
+fn main() {} //~ ERROR

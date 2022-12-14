@@ -19,50 +19,39 @@
 
 #![feature(rustc_private)]
 
+extern crate rustc_ast;
 extern crate rustc_ast_pretty;
 extern crate rustc_data_structures;
-extern crate rustc_ast;
 extern crate rustc_parse;
 extern crate rustc_session;
 extern crate rustc_span;
 
+use rustc_ast::mut_visit::{self, visit_clobber, MutVisitor};
+use rustc_ast::ptr::P;
+use rustc_ast::*;
 use rustc_ast_pretty::pprust;
-use rustc_data_structures::thin_vec::ThinVec;
 use rustc_parse::new_parser_from_source_str;
 use rustc_session::parse::ParseSess;
-use rustc_span::source_map::{Spanned, DUMMY_SP, FileName};
 use rustc_span::source_map::FilePathMapping;
+use rustc_span::source_map::{FileName, Spanned, DUMMY_SP};
 use rustc_span::symbol::Ident;
-use rustc_ast::ast::*;
-use rustc_ast::mut_visit::{self, MutVisitor, visit_clobber};
-use rustc_ast::ptr::P;
 
 fn parse_expr(ps: &ParseSess, src: &str) -> Option<P<Expr>> {
     let src_as_string = src.to_string();
 
-    let mut p = new_parser_from_source_str(
-        ps,
-        FileName::Custom(src_as_string.clone()),
-        src_as_string,
-    );
-    p.parse_expr().map_err(|mut e| e.cancel()).ok()
+    let mut p =
+        new_parser_from_source_str(ps, FileName::Custom(src_as_string.clone()), src_as_string);
+    p.parse_expr().map_err(|e| e.cancel()).ok()
 }
-
 
 // Helper functions for building exprs
 fn expr(kind: ExprKind) -> P<Expr> {
-    P(Expr {
-        id: DUMMY_NODE_ID,
-        kind,
-        span: DUMMY_SP,
-        attrs: ThinVec::new(),
-        tokens: None
-    })
+    P(Expr { id: DUMMY_NODE_ID, kind, span: DUMMY_SP, attrs: AttrVec::new(), tokens: None })
 }
 
 fn make_x() -> P<Expr> {
     let seg = PathSegment::from_ident(Ident::from_str("x"));
-    let path = Path { segments: vec![seg], span: DUMMY_SP };
+    let path = Path { segments: vec![seg], span: DUMMY_SP, tokens: None };
     expr(ExprKind::Path(None, path))
 }
 
@@ -83,11 +72,13 @@ fn iter_exprs(depth: usize, f: &mut dyn FnMut(P<Expr>)) {
             1 => iter_exprs(depth - 1, &mut |e| g(ExprKind::Call(e, vec![]))),
             2 => {
                 let seg = PathSegment::from_ident(Ident::from_str("x"));
-                iter_exprs(depth - 1, &mut |e| g(ExprKind::MethodCall(
-                            seg.clone(), vec![e, make_x()], DUMMY_SP)));
-                iter_exprs(depth - 1, &mut |e| g(ExprKind::MethodCall(
-                            seg.clone(), vec![make_x(), e], DUMMY_SP)));
-            },
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::MethodCall(seg.clone(), e, vec![make_x()], DUMMY_SP))
+                });
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::MethodCall(seg.clone(), make_x(), vec![e], DUMMY_SP))
+                });
+            }
             3..=8 => {
                 let op = Spanned {
                     span: DUMMY_SP,
@@ -99,79 +90,84 @@ fn iter_exprs(depth: usize, f: &mut dyn FnMut(P<Expr>)) {
                         7 => BinOpKind::Or,
                         8 => BinOpKind::Lt,
                         _ => unreachable!(),
-                    }
+                    },
                 };
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Binary(op, e, make_x())));
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Binary(op, make_x(), e)));
-            },
+            }
             9 => {
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Unary(UnOp::Deref, e)));
-            },
+            }
             10 => {
                 let block = P(Block {
                     stmts: Vec::new(),
                     id: DUMMY_NODE_ID,
                     rules: BlockCheckMode::Default,
                     span: DUMMY_SP,
+                    tokens: None,
+                    could_be_bare_literal: false,
                 });
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::If(e, block.clone(), None)));
-            },
+            }
             11 => {
-                let decl = P(FnDecl {
-                    inputs: vec![],
-                    output: FnRetTy::Default(DUMMY_SP),
+                let decl = P(FnDecl { inputs: vec![], output: FnRetTy::Default(DUMMY_SP) });
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::Closure(
+                        ClosureBinder::NotPresent,
+                        CaptureBy::Value,
+                        Async::No,
+                        Movability::Movable,
+                        decl.clone(),
+                        e,
+                        DUMMY_SP,
+                    ))
                 });
-                iter_exprs(depth - 1, &mut |e| g(
-                        ExprKind::Closure(CaptureBy::Value,
-                                          Async::No,
-                                          Movability::Movable,
-                                          decl.clone(),
-                                          e,
-                                          DUMMY_SP)));
-            },
+            }
             12 => {
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Assign(e, make_x(), DUMMY_SP)));
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Assign(make_x(), e, DUMMY_SP)));
-            },
+            }
             13 => {
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Field(e, Ident::from_str("f"))));
-            },
+            }
             14 => {
-                iter_exprs(depth - 1, &mut |e| g(ExprKind::Range(
-                            Some(e), Some(make_x()), RangeLimits::HalfOpen)));
-                iter_exprs(depth - 1, &mut |e| g(ExprKind::Range(
-                            Some(make_x()), Some(e), RangeLimits::HalfOpen)));
-            },
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::Range(Some(e), Some(make_x()), RangeLimits::HalfOpen))
+                });
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::Range(Some(make_x()), Some(e), RangeLimits::HalfOpen))
+                });
+            }
             15 => {
-                iter_exprs(
-                    depth - 1,
-                    &mut |e| g(ExprKind::AddrOf(BorrowKind::Ref, Mutability::Not, e)),
-                );
-            },
+                iter_exprs(depth - 1, &mut |e| {
+                    g(ExprKind::AddrOf(BorrowKind::Ref, Mutability::Not, e))
+                });
+            }
             16 => {
                 g(ExprKind::Ret(None));
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Ret(Some(e))));
-            },
+            }
             17 => {
                 let path = Path::from_ident(Ident::from_str("S"));
-                g(ExprKind::Struct(path, vec![], Some(make_x())));
-            },
+                g(ExprKind::Struct(P(StructExpr {
+                    qself: None,
+                    path,
+                    fields: vec![],
+                    rest: StructRest::Base(make_x()),
+                })));
+            }
             18 => {
                 iter_exprs(depth - 1, &mut |e| g(ExprKind::Try(e)));
-            },
+            }
             19 => {
-                let pat = P(Pat {
-                    id: DUMMY_NODE_ID,
-                    kind: PatKind::Wild,
-                    span: DUMMY_SP,
-                });
-                iter_exprs(depth - 1, &mut |e| g(ExprKind::Let(pat.clone(), e)))
-            },
+                let pat =
+                    P(Pat { id: DUMMY_NODE_ID, kind: PatKind::Wild, span: DUMMY_SP, tokens: None });
+                iter_exprs(depth - 1, &mut |e| g(ExprKind::Let(pat.clone(), e, DUMMY_SP)))
+            }
             _ => panic!("bad counter value in iter_exprs"),
         }
     }
 }
-
 
 // Folders for manipulating the placement of `Paren` nodes. See below for why this is needed.
 
@@ -188,7 +184,6 @@ impl MutVisitor for RemoveParens {
     }
 }
 
-
 /// `MutVisitor` that inserts `ExprKind::Paren` nodes around every `Expr`.
 struct AddParens;
 
@@ -200,15 +195,15 @@ impl MutVisitor for AddParens {
                 id: DUMMY_NODE_ID,
                 kind: ExprKind::Paren(e),
                 span: DUMMY_SP,
-                attrs: ThinVec::new(),
-                tokens: None
+                attrs: AttrVec::new(),
+                tokens: None,
             })
         });
     }
 }
 
 fn main() {
-    rustc_ast::with_default_session_globals(|| run());
+    rustc_span::create_default_session_globals_then(|| run());
 }
 
 fn run() {
@@ -234,9 +229,12 @@ fn run() {
             RemoveParens.visit_expr(&mut parsed);
             AddParens.visit_expr(&mut parsed);
             let text2 = pprust::expr_to_string(&parsed);
-            assert!(text1 == text2,
-                    "exprs are not equal:\n  e =      {:?}\n  parsed = {:?}",
-                    text1, text2);
+            assert!(
+                text1 == text2,
+                "exprs are not equal:\n  e =      {:?}\n  parsed = {:?}",
+                text1,
+                text2
+            );
         }
     });
 }

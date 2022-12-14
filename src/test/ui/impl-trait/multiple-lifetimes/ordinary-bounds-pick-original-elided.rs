@@ -1,12 +1,8 @@
 // edition:2018
-// build-pass (FIXME(62277): could be check-pass?)
-// revisions: migrate mir
-//[mir]compile-flags: -Z borrowck=mir
+// build-pass (FIXME(62277): could be check-pass?
 
-#![feature(member_constraints)]
-
-trait Trait<'a, 'b> { }
-impl<T> Trait<'_, '_> for T { }
+trait Trait<'a, 'b> {}
+impl<T> Trait<'_, '_> for T {}
 
 // Test case where we have elision in the impl trait and we have to
 // pick the right region.
@@ -26,4 +22,4 @@ fn upper_bounds3<'b>(a: &u8) -> impl Trait<'_, 'b> {
     (a, a)
 }
 
-fn main() { }
+fn main() {}

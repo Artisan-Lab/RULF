@@ -1,4 +1,5 @@
 // run-pass
+#![allow(unused_macro_rules)]
 
 //{{{ issue 40569 ==============================================================
 
@@ -249,7 +250,7 @@ macro_rules! test_path {
 test_path!();
 test_path!(,);
 test_path!(::std);
-test_path!(std::u8,);
+test_path!(std::ops,);
 test_path!(any, super, super::super::self::path, X<Y>::Z<'a, T=U>);
 
 macro_rules! test_lifetime {

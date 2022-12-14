@@ -1,11 +1,11 @@
 [package]
-authors = ["The Rust Project Developers"]
 name = "bootstrap"
 version = "0.0.0"
-edition = "2018"
+edition = "2021"
+build = "build.rs"
+default-run = "bootstrap"
 
 [lib]
-name = "bootstrap"
 path = "lib.rs"
 doctest = false
 
@@ -35,24 +35,51 @@ path = "bin/llvm-config-wrapper.rs"
 test = false
 
 [dependencies]
-build_helper = { path = "../build_helper" }
 cmake = "0.1.38"
+fd-lock = "3.0.6"
 filetime = "0.2"
-num_cpus = "1.0"
 getopts = "0.2.19"
-cc = "1.0.35"
+cc = "1.0.69"
 libc = "0.2"
+hex = "0.4"
 serde = { version = "1.0.8", features = ["derive"] }
 serde_json = "1.0.2"
+sha2 = "0.10"
+tar = "0.4"
 toml = "0.5"
-lazy_static = "1.3.0"
-time = "0.1"
 ignore = "0.4.10"
-opener = "0.4"
+opener = "0.5"
+once_cell = "1.7.2"
+xz2 = "0.1"
+walkdir = "2"
+
+# Dependencies needed by the build-metrics feature
+sysinfo = { version = "0.24.1", optional = true }
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["fileapi", "ioapiset", "jobapi2", "handleapi", "winioctl"]
+features = [
+    "fileapi",
+    "ioapiset",
+    "jobapi2",
+    "handleapi",
+    "winioctl",
+    "psapi",
+    "impl-default",
+    "timezoneapi",
+    "winbase",
+]
 
 [dev-dependencies]
-pretty_assertions = "0.6"
+pretty_assertions = "0.7"
+
+[features]
+build-metrics = ["sysinfo"]
+
+# We care a lot about bootstrap's compile times, so don't include debuginfo for
+# dependencies, only bootstrap itself.
+[profile.dev]
+debug = 0
+[profile.dev.package]
+# Only use debuginfo=1 to further reduce compile times.
+bootstrap.debug = 1

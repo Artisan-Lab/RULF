@@ -1,6 +1,10 @@
 # needs-profiler-support
+# ignore-windows-gnu
 
--include ../tools.mk
+# FIXME(mati865): MinGW GCC miscompiles compiler-rt profiling library but with Clang it works
+# properly. Since we only have GCC on the CI ignore the test for now.
+
+include ../tools.mk
 
 # This test makes sure that PGO profiling data leads to cold functions being
 # marked as `cold` and hot functions with `inlinehint`.
@@ -8,20 +12,11 @@
 # `else` branch. Accordingly, we expect the function that is never called to
 # be marked as cold.
 #
-# The program is compiled with `-Copt-level=s` because this setting disables
-# LLVM's pre-inlining pass (i.e. a pass that does some inlining before it adds
-# the profiling instrumentation). Disabling this pass leads to rather
-# predictable IR which we need for this test to be stable.
+# Disable the pre-inlining pass (i.e. a pass that does some inlining before
+# it adds the profiling instrumentation). Disabling this pass leads to
+# rather predictable IR which we need for this test to be stable.
 
-COMMON_FLAGS=-Copt-level=s -Ccodegen-units=1
-
-# LLVM doesn't support instrumenting binaries that use SEH:
-# https://github.com/rust-lang/rust/issues/61002
-#
-# Things work fine with -Cpanic=abort though.
-ifdef IS_MSVC
-COMMON_FLAGS+= -Cpanic=abort
-endif
+COMMON_FLAGS=-Copt-level=2 -Ccodegen-units=1 -Cllvm-args=-disable-preinline
 
 ifeq ($(UNAME),Darwin)
 # macOS does not have the `tac` command, but `tail -r` does the same thing

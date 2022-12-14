@@ -17,7 +17,7 @@ exit 1
   trap "$on_err" ERR
   bash -c "while true; do sleep 30; echo \$(date) - building ...; done" &
   PING_LOOP_PID=$!
-  $@ &> /tmp/build.log
+  "$@" &> /tmp/build.log
   trap - ERR
   kill $PING_LOOP_PID
   set -x
@@ -39,7 +39,7 @@ rm -rf binutils
 
 # Next, download the DragonFly libc and relevant header files
 
-URL=http://mirror-master.dragonflybsd.org/iso-images/dfly-x86_64-5.0.0_REL.iso.bz2
+URL=https://mirror-master.dragonflybsd.org/iso-images/dfly-x86_64-5.0.0_REL.iso.bz2
 mkdir dragonfly
 curl $URL | bzcat | bsdtar xf - -C dragonfly ./usr/include ./usr/lib ./lib
 

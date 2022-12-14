@@ -3,6 +3,7 @@
 #![allow(unused_assignments)]
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::deref_addrof)]
+#![allow(clippy::nonminimal_bool)]
 
 fn foo() -> bool {
     true
@@ -10,91 +11,6 @@ fn foo() -> bool {
 
 #[rustfmt::skip]
 fn main() {
-    // weird `else` formatting:
-    if foo() {
-    } {
-    }
-
-    if foo() {
-    } if foo() {
-    }
-
-    let _ = { // if as the last expression
-        let _ = 0;
-
-        if foo() {
-        } if foo() {
-        }
-        else {
-        }
-    };
-
-    let _ = { // if in the middle of a block
-        if foo() {
-        } if foo() {
-        }
-        else {
-        }
-
-        let _ = 0;
-    };
-
-    if foo() {
-    } else
-    {
-    }
-
-    if foo() {
-    }
-    else
-    {
-    }
-
-    if foo() {
-    } else
-    if foo() { // the span of the above error should continue here
-    }
-
-    if foo() {
-    }
-    else
-    if foo() { // the span of the above error should continue here
-    }
-
-    // those are ok:
-    if foo() {
-    }
-    {
-    }
-
-    if foo() {
-    } else {
-    }
-
-    if foo() {
-    }
-    else {
-    }
-
-    if foo() {
-    }
-    if foo() {
-    }
-
-    if foo() {
-    } else if foo() {
-    }
-
-    if foo() {
-    }
-    else if foo() {
-    }
-
-    if foo() {
-    }
-    else if
-    foo() {}
-
     // weird op_eq formatting:
     let mut a = 42;
     a =- 35;
@@ -146,10 +62,10 @@ fn main() {
 
     // don't lint if the indentation suggests not to
     let _ = &[
-        1 + 2, 3 
+        1 + 2, 3
                 - 4, 5
     ];
-    // lint if it doesnt
+    // lint if it doesn't
     let _ = &[
         -1
         -4,

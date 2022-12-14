@@ -10,10 +10,11 @@ pub fn main() {
     match &12 {
         &0...9 => {}
         //~^ WARN `...` range patterns are deprecated
+        //~| WARN this is accepted in the current edition
         //~| HELP use `..=` for an inclusive range
         &10..=15 => {}
         //~^ ERROR the range pattern here has ambiguous interpretation
-        //~^^ HELP add parentheses to clarify the precedence
+        //~| HELP add parentheses to clarify the precedence
         &(16..=20) => {}
         _ => {}
     }

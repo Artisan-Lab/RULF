@@ -10,12 +10,12 @@
 // const-evaluator computes a value that *does* meet the conditions for
 // structural-match, but the const expression itself has abstractions (like
 // calls to const functions) that may fit better with a type-based analysis
-// rather than a committment to a specific value.
+// rather than a commitment to a specific value.
 
 #![warn(indirect_structural_match)]
 
 #[derive(Copy, Clone, Debug)]
-struct NoDerive(u32);
+struct NoDerive(#[allow(unused_tuple_struct_fields)] u32);
 
 // This impl makes `NoDerive` irreflexive.
 impl PartialEq for NoDerive { fn eq(&self, _: &Self) -> bool { false } }

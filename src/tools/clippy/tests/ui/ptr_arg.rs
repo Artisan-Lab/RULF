@@ -1,14 +1,15 @@
+#![feature(lint_reasons)]
 #![allow(unused, clippy::many_single_char_names, clippy::redundant_clone)]
 #![warn(clippy::ptr_arg)]
 
 use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 
 fn do_vec(x: &Vec<i64>) {
     //Nothing here
 }
 
 fn do_vec_mut(x: &mut Vec<i64>) {
-    // no error here
     //Nothing here
 }
 
@@ -17,7 +18,14 @@ fn do_str(x: &String) {
 }
 
 fn do_str_mut(x: &mut String) {
-    // no error here
+    //Nothing here either
+}
+
+fn do_path(x: &PathBuf) {
+    //Nothing here either
+}
+
+fn do_path_mut(x: &mut PathBuf) {
     //Nothing here either
 }
 
@@ -42,12 +50,20 @@ fn cloned(x: &Vec<u8>) -> Vec<u8> {
     let e = x.clone();
     let f = e.clone(); // OK
     let g = x;
-    let h = g.clone(); // Alas, we cannot reliably detect this without following data.
+    let h = g.clone();
     let i = (e).clone();
     x.clone()
 }
 
 fn str_cloned(x: &String) -> String {
+    let a = x.clone();
+    let b = x.clone();
+    let c = b.clone();
+    let d = a.clone().clone().clone();
+    x.clone()
+}
+
+fn path_cloned(x: &PathBuf) -> PathBuf {
     let a = x.clone();
     let b = x.clone();
     let c = b.clone();
@@ -87,20 +103,27 @@ impl Foo2 for String {
 // Check that the allow attribute on parameters is honored
 mod issue_5644 {
     use std::borrow::Cow;
+    use std::path::PathBuf;
 
     fn allowed(
         #[allow(clippy::ptr_arg)] _v: &Vec<u32>,
         #[allow(clippy::ptr_arg)] _s: &String,
+        #[allow(clippy::ptr_arg)] _p: &PathBuf,
         #[allow(clippy::ptr_arg)] _c: &Cow<[i32]>,
+        #[expect(clippy::ptr_arg)] _expect: &Cow<[i32]>,
     ) {
     }
 
-    struct S {}
+    fn some_allowed(#[allow(clippy::ptr_arg)] _v: &Vec<u32>, _s: &String) {}
+
+    struct S;
     impl S {
         fn allowed(
             #[allow(clippy::ptr_arg)] _v: &Vec<u32>,
             #[allow(clippy::ptr_arg)] _s: &String,
+            #[allow(clippy::ptr_arg)] _p: &PathBuf,
             #[allow(clippy::ptr_arg)] _c: &Cow<[i32]>,
+            #[expect(clippy::ptr_arg)] _expect: &Cow<[i32]>,
         ) {
         }
     }
@@ -109,8 +132,106 @@ mod issue_5644 {
         fn allowed(
             #[allow(clippy::ptr_arg)] _v: &Vec<u32>,
             #[allow(clippy::ptr_arg)] _s: &String,
+            #[allow(clippy::ptr_arg)] _p: &PathBuf,
             #[allow(clippy::ptr_arg)] _c: &Cow<[i32]>,
+            #[expect(clippy::ptr_arg)] _expect: &Cow<[i32]>,
         ) {
         }
     }
+}
+
+mod issue6509 {
+    use std::path::PathBuf;
+
+    fn foo_vec(vec: &Vec<u8>) {
+        let _ = vec.clone().pop();
+        let _ = vec.clone().clone();
+    }
+
+    fn foo_path(path: &PathBuf) {
+        let _ = path.clone().pop();
+        let _ = path.clone().clone();
+    }
+
+    fn foo_str(str: &PathBuf) {
+        let _ = str.clone().pop();
+        let _ = str.clone().clone();
+    }
+}
+
+fn mut_vec_slice_methods(v: &mut Vec<u32>) {
+    v.copy_within(1..5, 10);
+}
+
+fn mut_vec_vec_methods(v: &mut Vec<u32>) {
+    v.clear();
+}
+
+fn vec_contains(v: &Vec<u32>) -> bool {
+    [vec![], vec![0]].as_slice().contains(v)
+}
+
+fn fn_requires_vec(v: &Vec<u32>) -> bool {
+    vec_contains(v)
+}
+
+fn impl_fn_requires_vec(v: &Vec<u32>, f: impl Fn(&Vec<u32>)) {
+    f(v);
+}
+
+fn dyn_fn_requires_vec(v: &Vec<u32>, f: &dyn Fn(&Vec<u32>)) {
+    f(v);
+}
+
+// No error for types behind an alias (#7699)
+type A = Vec<u8>;
+fn aliased(a: &A) {}
+
+// Issue #8366
+pub trait Trait {
+    fn f(v: &mut Vec<i32>);
+    fn f2(v: &mut Vec<i32>) {}
+}
+
+// Issue #8463
+fn two_vecs(a: &mut Vec<u32>, b: &mut Vec<u32>) {
+    a.push(0);
+    a.push(0);
+    a.push(0);
+    b.push(1);
+}
+
+// Issue #8495
+fn cow_conditional_to_mut(a: &mut Cow<str>) {
+    if a.is_empty() {
+        a.to_mut().push_str("foo");
+    }
+}
+
+// Issue #9542
+fn dyn_trait_ok(a: &mut Vec<u32>, b: &mut String, c: &mut PathBuf) {
+    trait T {}
+    impl<U> T for Vec<U> {}
+    impl T for String {}
+    impl T for PathBuf {}
+    fn takes_dyn(_: &mut dyn T) {}
+
+    takes_dyn(a);
+    takes_dyn(b);
+    takes_dyn(c);
+}
+
+fn dyn_trait(a: &mut Vec<u32>, b: &mut String, c: &mut PathBuf) {
+    trait T {}
+    impl<U> T for Vec<U> {}
+    impl<U> T for [U] {}
+    impl T for String {}
+    impl T for str {}
+    impl T for PathBuf {}
+    impl T for Path {}
+    fn takes_dyn(_: &mut dyn T) {}
+
+    takes_dyn(a);
+    takes_dyn(b);
+    takes_dyn(c);
 }

@@ -1,9 +1,9 @@
-#![feature(const_raw_ptr_deref)]
+#![feature(const_mut_refs)]
 
-const REG_ADDR: *const u8 = 0x5f3759df as *const u8;
+const REG_ADDR: *mut u8 = 0x5f3759df as *mut u8;
 
 const VALUE: u8 = unsafe { *REG_ADDR };
-//~^ ERROR any use of this value will cause an error
+//~^ ERROR evaluation of constant value failed
 
 fn main() {
 }

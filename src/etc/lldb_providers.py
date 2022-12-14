@@ -63,6 +63,8 @@ class ValueBuilder:
 def unwrap_unique_or_non_null(unique_or_nonnull):
     # BACKCOMPAT: rust 1.32
     # https://github.com/rust-lang/rust/commit/7a0911528058e87d22ea305695f4047572c5e067
+    # BACKCOMPAT: rust 1.60
+    # https://github.com/rust-lang/rust/commit/2a91eeac1a2d27dd3de1bf55515d765da20fd86f
     ptr = unique_or_nonnull.GetChildMemberWithName("pointer")
     return ptr if ptr.TypeIsPointerType() else ptr.GetChildAtIndex(0)
 
@@ -268,7 +270,9 @@ class StdVecSyntheticProvider:
     struct RawVec<T> { ptr: Unique<T>, cap: usize, ... }
     rust 1.31.1: struct Unique<T: ?Sized> { pointer: NonZero<*const T>, ... }
     rust 1.33.0: struct Unique<T: ?Sized> { pointer: *const T, ... }
+    rust 1.62.0: struct Unique<T: ?Sized> { pointer: NonNull<T>, ... }
     struct NonZero<T>(T)
+    struct NonNull<T> { pointer: *const T }
     """
 
     def __init__(self, valobj, dict):
@@ -514,6 +518,8 @@ class StdHashMapSyntheticProvider:
         # type: (int) -> SBValue
         pairs_start = self.data_ptr.GetValueAsUnsigned()
         idx = self.valid_indices[index]
+        if self.new_layout:
+            idx = -(idx + 1)
         address = pairs_start + idx * self.pair_type_size
         element = self.data_ptr.CreateValueFromAddress("[%s]" % index, address, self.pair_type)
         if self.show_values:
@@ -524,14 +530,23 @@ class StdHashMapSyntheticProvider:
 
     def update(self):
         # type: () -> None
-        table = self.valobj.GetChildMemberWithName("base").GetChildMemberWithName("table")
-        capacity = table.GetChildMemberWithName("bucket_mask").GetValueAsUnsigned() + 1
-        ctrl = table.GetChildMemberWithName("ctrl").GetChildAtIndex(0)
+        table = self.table()
+        inner_table = table.GetChildMemberWithName("table")
 
-        self.size = table.GetChildMemberWithName("items").GetValueAsUnsigned()
-        self.data_ptr = table.GetChildMemberWithName("data").GetChildAtIndex(0)
-        self.pair_type = self.data_ptr.Dereference().GetType()
+        capacity = inner_table.GetChildMemberWithName("bucket_mask").GetValueAsUnsigned() + 1
+        ctrl = inner_table.GetChildMemberWithName("ctrl").GetChildAtIndex(0)
+
+        self.size = inner_table.GetChildMemberWithName("items").GetValueAsUnsigned()
+        self.pair_type = table.type.template_args[0]
+        if self.pair_type.IsTypedefType():
+            self.pair_type = self.pair_type.GetTypedefedType()
         self.pair_type_size = self.pair_type.GetByteSize()
+
+        self.new_layout = not inner_table.GetChildMemberWithName("data").IsValid()
+        if self.new_layout:
+            self.data_ptr = ctrl.Cast(self.pair_type.GetPointerType())
+        else:
+            self.data_ptr = inner_table.GetChildMemberWithName("data").GetChildAtIndex(0)
 
         u8_type = self.valobj.GetTarget().GetBasicType(eBasicTypeUnsignedChar)
         u8_type_size = self.valobj.GetTarget().GetBasicType(eBasicTypeUnsignedChar).GetByteSize()
@@ -544,6 +559,17 @@ class StdHashMapSyntheticProvider:
             is_present = value & 128 == 0
             if is_present:
                 self.valid_indices.append(idx)
+
+    def table(self):
+        # type: () -> SBValue
+        if self.show_values:
+            hashbrown_hashmap = self.valobj.GetChildMemberWithName("base")
+        else:
+            # BACKCOMPAT: rust 1.47
+            # HashSet wraps either std HashMap or hashbrown::HashSet, which both
+            # wrap hashbrown::HashMap, so either way we "unwrap" twice.
+            hashbrown_hashmap = self.valobj.GetChildAtIndex(0).GetChildAtIndex(0)
+        return hashbrown_hashmap.GetChildMemberWithName("table")
 
     def has_children(self):
         # type: () -> bool
@@ -713,3 +739,11 @@ class StdRefSyntheticProvider:
     def has_children(self):
         # type: () -> bool
         return True
+
+
+def StdNonZeroNumberSummaryProvider(valobj, _dict):
+    # type: (SBValue, dict) -> str
+    objtype = valobj.GetType()
+    field = objtype.GetFieldAtIndex(0)
+    element = valobj.GetChildMemberWithName(field.name)
+    return element.GetValue()

@@ -68,7 +68,7 @@ fn column() {
     let _ = column!();
 }
 
-// compile_error! is in a companion to this test in compile-fail
+// compile_error! is in a check-fail companion to this test
 
 #[test]
 fn concat() {
@@ -190,6 +190,12 @@ fn include_str() {
 #[test]
 fn line() {
     let _ = line!();
+}
+
+#[test]
+fn matches() {
+    let _ = matches!(1, x if x > 0);
+    let _ = matches!(1, x if x > 0,);
 }
 
 #[test]

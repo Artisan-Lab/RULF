@@ -1,3 +1,6 @@
+use std::cell::Cell;
+
 fn main() {
-    let _: Vec<&str, "a"> = Vec::new(); //~ ERROR wrong number of const arguments
+    let _: Cell<&str, "a"> = Cell::new("");
+    //~^ ERROR this struct takes 1 generic argument but 2 generic arguments were supplied
 }

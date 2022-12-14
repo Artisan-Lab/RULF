@@ -1,4 +1,5 @@
-#![allow(unused, clippy::many_single_char_names)]
+#![feature(lint_reasons)]
+#![allow(unused, clippy::diverging_sub_expression)]
 #![warn(clippy::nonminimal_bool)]
 
 fn main() {
@@ -49,4 +50,16 @@ fn issue4548() {
     let j = 0;
 
     if i != j && f(i, j) != 0 || i == j && f(i, j) != 1 {}
+}
+
+fn check_expect() {
+    let a: bool = unimplemented!();
+    #[expect(clippy::nonminimal_bool)]
+    let _ = !!a;
+}
+
+fn issue9428() {
+    if matches!(true, true) && true {
+        println!("foo");
+    }
 }

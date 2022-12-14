@@ -1,6 +1,8 @@
-#![feature(untagged_unions)]
-#![allow(dead_code)]
 // run-pass
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
+
+#![allow(dead_code)]
 
 use std::mem::needs_drop;
 use std::mem::ManuallyDrop;

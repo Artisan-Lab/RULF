@@ -11,6 +11,7 @@
 
 #![deny(clippy::unused_unit)]
 #![allow(dead_code)]
+#![allow(clippy::from_over_into)]
 
 struct Unitter;
 impl Unitter {
@@ -69,4 +70,20 @@ fn foo() {
     foo! {
         recv(rx) -> _x => ()
     }
+}
+
+#[rustfmt::skip]
+fn test()->(){}
+
+#[rustfmt::skip]
+fn test2() ->(){}
+
+#[rustfmt::skip]
+fn test3()-> (){}
+
+fn macro_expr() {
+    macro_rules! e {
+        () => (());
+    }
+    e!()
 }

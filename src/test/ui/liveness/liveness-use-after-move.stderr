@@ -1,12 +1,15 @@
 error[E0382]: borrow of moved value: `x`
   --> $DIR/liveness-use-after-move.rs:6:20
    |
-LL |     let x: Box<_> = box 5;
-   |         - move occurs because `x` has type `std::boxed::Box<i32>`, which does not implement the `Copy` trait
+LL |     let x: Box<_> = 5.into();
+   |         - move occurs because `x` has type `Box<i32>`, which does not implement the `Copy` trait
 LL |     let y = x;
    |             - value moved here
+LL |
 LL |     println!("{}", *x);
    |                    ^^ value borrowed here after move
+   |
+   = note: this error originates in the macro `$crate::format_args_nl` which comes from the expansion of the macro `println` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: aborting due to previous error
 

@@ -1,48 +1,125 @@
-// run-rustfix
 #![warn(clippy::all)]
-#![allow(clippy::boxed_local, clippy::needless_pass_by_value)]
-#![allow(clippy::blacklisted_name, unused_variables, dead_code)]
+#![allow(clippy::boxed_local, clippy::disallowed_names)]
 
-use std::boxed::Box;
-use std::rc::Rc;
-
-pub struct MyStruct {}
+pub struct MyStruct;
 
 pub struct SubT<T> {
     foo: T,
 }
 
-pub enum MyEnum {
-    One,
-    Two,
+mod outer_box {
+    use crate::MyStruct;
+    use crate::SubT;
+    use std::boxed::Box;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    pub fn box_test6<T>(foo: Box<Rc<T>>) {}
+
+    pub fn box_test7<T>(foo: Box<Arc<T>>) {}
+
+    pub fn box_test8() -> Box<Rc<SubT<usize>>> {
+        unimplemented!();
+    }
+
+    pub fn box_test9<T>(foo: Box<Arc<T>>) -> Box<Arc<SubT<T>>> {
+        unimplemented!();
+    }
 }
 
-// Rc<&T>
+mod outer_rc {
+    use crate::MyStruct;
+    use crate::SubT;
+    use std::boxed::Box;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
-pub fn test1<T>(foo: Rc<&T>) {}
+    pub fn rc_test5(a: Rc<Box<bool>>) {}
 
-pub fn test2(foo: Rc<&MyStruct>) {}
+    pub fn rc_test7(a: Rc<Arc<bool>>) {}
 
-pub fn test3(foo: Rc<&MyEnum>) {}
+    pub fn rc_test8() -> Rc<Box<SubT<usize>>> {
+        unimplemented!();
+    }
 
-pub fn test4_neg(foo: Rc<SubT<&usize>>) {}
+    pub fn rc_test9<T>(foo: Rc<Arc<T>>) -> Rc<Arc<SubT<T>>> {
+        unimplemented!();
+    }
+}
 
-// Rc<Rc<T>>
+mod outer_arc {
+    use crate::MyStruct;
+    use crate::SubT;
+    use std::boxed::Box;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
-pub fn test5(a: Rc<Rc<bool>>) {}
+    pub fn arc_test5(a: Arc<Box<bool>>) {}
 
-// Rc<Box<T>>
+    pub fn arc_test6(a: Arc<Rc<bool>>) {}
 
-pub fn test6(a: Rc<Box<bool>>) {}
+    pub fn arc_test8() -> Arc<Box<SubT<usize>>> {
+        unimplemented!();
+    }
 
-// Box<&T>
+    pub fn arc_test9<T>(foo: Arc<Rc<T>>) -> Arc<Rc<SubT<T>>> {
+        unimplemented!();
+    }
+}
 
-pub fn test7<T>(foo: Box<&T>) {}
+// https://github.com/rust-lang/rust-clippy/issues/7487
+mod box_dyn {
+    use std::boxed::Box;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
-pub fn test8(foo: Box<&MyStruct>) {}
+    pub trait T {}
 
-pub fn test9(foo: Box<&MyEnum>) {}
+    struct S {
+        a: Box<Box<dyn T>>,
+        b: Rc<Box<dyn T>>,
+        c: Arc<Box<dyn T>>,
+    }
 
-pub fn test10_neg(foo: Box<SubT<&usize>>) {}
+    pub fn test_box(_: Box<Box<dyn T>>) {}
+    pub fn test_rc(_: Rc<Box<dyn T>>) {}
+    pub fn test_arc(_: Arc<Box<dyn T>>) {}
+    pub fn test_rc_box(_: Rc<Box<Box<dyn T>>>) {}
+}
+
+// https://github.com/rust-lang/rust-clippy/issues/8604
+mod box_fat_ptr {
+    use std::boxed::Box;
+    use std::path::Path;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    pub struct DynSized {
+        foo: [usize],
+    }
+
+    struct S {
+        a: Box<Box<str>>,
+        b: Rc<Box<str>>,
+        c: Arc<Box<str>>,
+
+        e: Box<Box<[usize]>>,
+        f: Box<Box<Path>>,
+        g: Box<Box<DynSized>>,
+    }
+
+    pub fn test_box_str(_: Box<Box<str>>) {}
+    pub fn test_rc_str(_: Rc<Box<str>>) {}
+    pub fn test_arc_str(_: Arc<Box<str>>) {}
+
+    pub fn test_box_slice(_: Box<Box<[usize]>>) {}
+    pub fn test_box_path(_: Box<Box<Path>>) {}
+    pub fn test_box_custom(_: Box<Box<DynSized>>) {}
+
+    pub fn test_rc_box_str(_: Rc<Box<Box<str>>>) {}
+    pub fn test_rc_box_slice(_: Rc<Box<Box<[usize]>>>) {}
+    pub fn test_rc_box_path(_: Rc<Box<Box<Path>>>) {}
+    pub fn test_rc_box_custom(_: Rc<Box<Box<DynSized>>>) {}
+}
 
 fn main() {}

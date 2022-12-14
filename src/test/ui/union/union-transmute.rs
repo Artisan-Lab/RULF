@@ -1,7 +1,6 @@
 // run-pass
-
-extern crate core;
-use core::f32;
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
 
 union U {
     a: (u8, u8),

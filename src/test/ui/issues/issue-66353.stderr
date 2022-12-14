@@ -7,11 +7,10 @@ LL |     _Func::< <() as _A>::AssocT >::func(());
 error[E0277]: the trait bound `(): _Func<_>` is not satisfied
   --> $DIR/issue-66353.rs:12:41
    |
-LL |     fn func(_: Self);
-   |     ----------------- required by `_Func::func`
-...
 LL |     _Func::< <() as _A>::AssocT >::func(());
-   |                                         ^^ the trait `_Func<_>` is not implemented for `()`
+   |     ----------------------------------- ^^ the trait `_Func<_>` is not implemented for `()`
+   |     |
+   |     required by a bound introduced by this call
 
 error: aborting due to 2 previous errors
 

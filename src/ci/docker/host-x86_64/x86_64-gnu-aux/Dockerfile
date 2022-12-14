@@ -1,8 +1,10 @@
-FROM ubuntu:16.04
+FROM ubuntu:22.04
 
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
   g++ \
   make \
+  ninja-build \
   file \
   curl \
   ca-certificates \
@@ -16,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libgl1-mesa-dev \
   llvm-dev \
   libfreetype6-dev \
-  libexpat1-dev
+  libexpat1-dev \
+  tidy
 
 COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh

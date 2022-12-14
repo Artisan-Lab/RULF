@@ -1,17 +1,10 @@
 note: external requirements
   --> $DIR/ty-param-closure-outlives-from-where-clause.rs:27:26
    |
-LL |       with_signature(a, b, |x, y| {
-   |  __________________________^
-LL | |
-LL | |         //
-LL | |         // See `correct_region`, which explains the point of this
-...  |
-LL | |         require(&x, &y)
-LL | |     })
-   | |_____^
+LL |     with_signature(a, b, |x, y| {
+   |                          ^^^^^^
    |
-   = note: defining type: no_region::<T>::{{closure}}#0 with closure substs [
+   = note: defining type: no_region::<T>::{closure#0} with closure substs [
                i32,
                extern "rust-call" fn((std::cell::Cell<&'_#1r ()>, T)),
                (),
@@ -23,14 +16,8 @@ LL | |     })
 note: no external requirements
   --> $DIR/ty-param-closure-outlives-from-where-clause.rs:26:1
    |
-LL | / fn no_region<'a, T>(a: Cell<&'a ()>, b: T) {
-LL | |     with_signature(a, b, |x, y| {
-LL | |
-LL | |         //
-...  |
-LL | |     })
-LL | | }
-   | |_^
+LL | fn no_region<'a, T>(a: Cell<&'a ()>, b: T) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: defining type: no_region::<T>
 
@@ -45,24 +32,20 @@ LL | |         // See `correct_region`, which explains the point of this
 ...  |
 LL | |         require(&x, &y)
 LL | |     })
-   | |_____^
+   | |_____^ ...so that the type `T` will meet its required lifetime bounds
    |
-   = help: consider adding an explicit lifetime bound `T: 'a`...
+help: consider adding an explicit lifetime bound...
+   |
+LL | fn no_region<'a, T: 'a>(a: Cell<&'a ()>, b: T) {
+   |                   ++++
 
 note: external requirements
   --> $DIR/ty-param-closure-outlives-from-where-clause.rs:43:26
    |
-LL |       with_signature(a, b, |x, y| {
-   |  __________________________^
-LL | |         // Key point of this test:
-LL | |         //
-LL | |         // The *closure* is being type-checked with all of its free
-...  |
-LL | |         require(&x, &y)
-LL | |     })
-   | |_____^
+LL |     with_signature(a, b, |x, y| {
+   |                          ^^^^^^
    |
-   = note: defining type: correct_region::<'_#1r, T>::{{closure}}#0 with closure substs [
+   = note: defining type: correct_region::<'_#1r, T>::{closure#0} with closure substs [
                i32,
                extern "rust-call" fn((std::cell::Cell<&'_#2r ()>, T)),
                (),
@@ -76,26 +59,17 @@ note: no external requirements
 LL | / fn correct_region<'a, T>(a: Cell<&'a ()>, b: T)
 LL | | where
 LL | |     T: 'a,
-LL | | {
-...  |
-LL | |     })
-LL | | }
-   | |_^
+   | |__________^
    |
    = note: defining type: correct_region::<'_#1r, T>
 
 note: external requirements
   --> $DIR/ty-param-closure-outlives-from-where-clause.rs:64:26
    |
-LL |       with_signature(a, b, |x, y| {
-   |  __________________________^
-LL | |
-LL | |         // See `correct_region`
-LL | |         require(&x, &y)
-LL | |     })
-   | |_____^
+LL |     with_signature(a, b, |x, y| {
+   |                          ^^^^^^
    |
-   = note: defining type: wrong_region::<'_#1r, T>::{{closure}}#0 with closure substs [
+   = note: defining type: wrong_region::<'_#1r, T>::{closure#0} with closure substs [
                i32,
                extern "rust-call" fn((std::cell::Cell<&'_#2r ()>, T)),
                (),
@@ -110,11 +84,7 @@ note: no external requirements
 LL | / fn wrong_region<'a, 'b, T>(a: Cell<&'a ()>, b: T)
 LL | | where
 LL | |     T: 'b,
-LL | | {
-...  |
-LL | |     })
-LL | | }
-   | |_^
+   | |__________^
    |
    = note: defining type: wrong_region::<'_#1r, T>
 
@@ -127,21 +97,20 @@ LL | |
 LL | |         // See `correct_region`
 LL | |         require(&x, &y)
 LL | |     })
-   | |_____^
+   | |_____^ ...so that the type `T` will meet its required lifetime bounds
    |
-   = help: consider adding an explicit lifetime bound `T: 'a`...
+help: consider adding an explicit lifetime bound...
+   |
+LL |     T: 'b + 'a,
+   |           ++++
 
 note: external requirements
   --> $DIR/ty-param-closure-outlives-from-where-clause.rs:77:26
    |
-LL |       with_signature(a, b, |x, y| {
-   |  __________________________^
-LL | |         // See `correct_region`
-LL | |         require(&x, &y)
-LL | |     })
-   | |_____^
+LL |     with_signature(a, b, |x, y| {
+   |                          ^^^^^^
    |
-   = note: defining type: outlives_region::<'_#1r, '_#2r, T>::{{closure}}#0 with closure substs [
+   = note: defining type: outlives_region::<'_#1r, '_#2r, T>::{closure#0} with closure substs [
                i32,
                extern "rust-call" fn((std::cell::Cell<&'_#3r ()>, T)),
                (),
@@ -156,10 +125,7 @@ LL | / fn outlives_region<'a, 'b, T>(a: Cell<&'a ()>, b: T)
 LL | | where
 LL | |     T: 'b,
 LL | |     'b: 'a,
-...  |
-LL | |     })
-LL | | }
-   | |_^
+   | |___________^
    |
    = note: defining type: outlives_region::<'_#1r, '_#2r, T>
 

@@ -2,7 +2,9 @@
     unused_variables,
     unused_assignments,
     clippy::similar_names,
-    clippy::blacklisted_name
+    clippy::disallowed_names,
+    clippy::branches_sharing_code,
+    clippy::needless_late_init
 )]
 #![warn(clippy::useless_let_if_seq)]
 
@@ -33,6 +35,7 @@ fn issue985_alt() -> i32 {
     x
 }
 
+#[allow(clippy::manual_strip)]
 fn issue975() -> String {
     let mut udn = "dummy".to_string();
     if udn.starts_with("uuid:") {

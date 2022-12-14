@@ -1,21 +1,24 @@
 // compile-flags: -Zunleash-the-miri-inside-of-you
 #![feature(core_intrinsics)]
-#![allow(const_err)]
 
-// During CTFE, we prevent pointer comparison and pointer-to-int casts.
+// During CTFE, we prevent pointer-to-int casts.
+// Pointer comparisons are prevented in the trait system.
 
-static CMP: () = {
-    let x = &0 as *const _;
-    let _v = x == x;
+static PTR_INT_CAST: () = {
+    let x = &0 as *const _ as usize;
     //~^ ERROR could not evaluate static initializer
-    //~| NOTE pointer arithmetic or comparison
+    //~| exposing pointers
+    let _v = x == x;
 };
 
-static INT_PTR_ARITH: () = unsafe {
+static PTR_INT_TRANSMUTE: () = unsafe {
     let x: usize = std::mem::transmute(&0);
     let _v = x + 0;
     //~^ ERROR could not evaluate static initializer
-    //~| NOTE pointer-to-integer cast
+    //~| unable to turn pointer into raw bytes
 };
+
+// I'd love to test pointer comparison, but that is not possible since
+// their `PartialEq` impl is non-`const`.
 
 fn main() {}

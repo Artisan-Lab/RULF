@@ -14,6 +14,10 @@ struct SomeStruct<'x, 'y, 'z: 'x> {
     f: &'y dyn for<'a, 'b> Fn(&'a Foo<'b>) -> &'a Foo<'b>,
 }
 
+// Without this, the wf-check will fail early so we'll never see the
+// error in SOME_STRUCT's body.
+unsafe impl<'x, 'y, 'z: 'x> Sync for SomeStruct<'x, 'y, 'z> {}
+
 fn id<T>(t: T) -> T {
     t
 }
@@ -23,6 +27,9 @@ static SOME_STRUCT: &SomeStruct = &SomeStruct {
     bar: &Bar { bools: &[true, true] },
     f: &id,
     //~^ ERROR mismatched types
+    //~| ERROR mismatched types
+    //~| ERROR implementation of `FnOnce` is not general enough
+    //~| ERROR implementation of `FnOnce` is not general enough
 };
 
 // very simple test for a 'static static with default lifetime

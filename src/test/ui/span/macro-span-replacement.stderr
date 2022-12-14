@@ -1,11 +1,11 @@
-warning: struct is never constructed: `S`
-  --> $DIR/macro-span-replacement.rs:7:14
+warning: struct `S` is never constructed
+  --> $DIR/macro-span-replacement.rs:7:12
    |
 LL |         $b $a;
-   |              ^
+   |            ^^
 ...
 LL |     m!(S struct);
-   |     ------------- in this macro invocation
+   |     ------------ in this macro invocation
    |
 note: the lint level is defined here
   --> $DIR/macro-span-replacement.rs:3:9
@@ -13,7 +13,7 @@ note: the lint level is defined here
 LL | #![warn(unused)]
    |         ^^^^^^
    = note: `#[warn(dead_code)]` implied by `#[warn(unused)]`
-   = note: this warning originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this warning originates in the macro `m` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 warning: 1 warning emitted
 

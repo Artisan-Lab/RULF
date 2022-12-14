@@ -5,12 +5,10 @@ pub trait Bar<T> {
 }
 
 type Foo = impl Bar<Foo, Item = Foo>;
-//~^ ERROR: could not find defining uses
+//~^ ERROR: unconstrained opaque type
 
 fn crash(x: Foo) -> Foo {
     x
 }
 
-fn main() {
-
-}
+fn main() {}

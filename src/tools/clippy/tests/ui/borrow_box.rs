@@ -1,7 +1,8 @@
 #![deny(clippy::borrowed_box)]
-#![allow(clippy::blacklisted_name)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
+#![allow(dead_code, unused_variables)]
+#![allow(clippy::uninlined_format_args, clippy::disallowed_names)]
+
+use std::fmt::Display;
 
 pub fn test1(foo: &mut Box<bool>) {
     // Although this function could be changed to "&mut bool",
@@ -88,6 +89,20 @@ pub fn test13(boxed_slice: &mut Box<[i32]>) {
     let mut data = vec![12];
     *boxed_slice = data.into_boxed_slice();
 }
+
+// The suggestion should include proper parentheses to avoid a syntax error.
+pub fn test14(_display: &Box<dyn Display>) {}
+pub fn test15(_display: &Box<dyn Display + Send>) {}
+pub fn test16<'a>(_display: &'a Box<dyn Display + 'a>) {}
+
+pub fn test17(_display: &Box<impl Display>) {}
+pub fn test18(_display: &Box<impl Display + Send>) {}
+pub fn test19<'a>(_display: &'a Box<impl Display + 'a>) {}
+
+// This exists only to check what happens when parentheses are already present.
+// Even though the current implementation doesn't put extra parentheses,
+// it's fine that unnecessary parentheses appear in the future for some reason.
+pub fn test20(_display: &Box<(dyn Display + Send)>) {}
 
 fn main() {
     test1(&mut Box::new(false));

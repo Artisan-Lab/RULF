@@ -19,7 +19,9 @@ pub trait Trait {
 
 impl Trait for u8 {
     type Pub = impl Default;
-    fn method() -> Self::Pub { Priv }
+    fn method() -> Self::Pub {
+        Priv
+    }
 }
 
 fn main() {}

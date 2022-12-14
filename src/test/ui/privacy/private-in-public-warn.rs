@@ -29,7 +29,7 @@ mod types {
         fn f2() -> Priv { panic!() } //~ ERROR private type `types::Priv` in public interface
         //~^ WARNING hard error
     }
-    extern {
+    extern "C" {
         pub static ES: Priv; //~ ERROR private type `types::Priv` in public interface
         //~^ WARNING hard error
         pub fn ef1(arg: Priv); //~ ERROR private type `types::Priv` in public interface
@@ -55,16 +55,15 @@ mod traits {
     pub trait Tr2<T: PrivTr> {} //~ ERROR private trait `traits::PrivTr` in public interface
         //~^ WARNING hard error
     pub trait Tr3 {
+        type Alias: PrivTr;
         //~^ ERROR private trait `traits::PrivTr` in public interface
         //~| WARNING hard error
-        type Alias: PrivTr;
         fn f<T: PrivTr>(arg: T) {} //~ ERROR private trait `traits::PrivTr` in public interface
         //~^ WARNING hard error
     }
     impl<T: PrivTr> Pub<T> {} //~ ERROR private trait `traits::PrivTr` in public interface
         //~^ WARNING hard error
-    impl<T: PrivTr> PubTr for Pub<T> {} //~ ERROR private trait `traits::PrivTr` in public interface
-        //~^ WARNING hard error
+    impl<T: PrivTr> PubTr for Pub<T> {} // OK, trait impl predicates
 }
 
 mod traits_where {
@@ -87,9 +86,7 @@ mod traits_where {
     impl<T> Pub<T> where T: PrivTr {}
         //~^ ERROR private trait `traits_where::PrivTr` in public interface
         //~| WARNING hard error
-    impl<T> PubTr for Pub<T> where T: PrivTr {}
-        //~^ ERROR private trait `traits_where::PrivTr` in public interface
-        //~| WARNING hard error
+    impl<T> PubTr for Pub<T> where T: PrivTr {} // OK, trait impl predicates
 }
 
 mod generics {
@@ -247,12 +244,12 @@ mod aliases_priv {
     }
 
     pub trait Tr1: PrivUseAliasTr {}
-        //~^ ERROR private trait `aliases_priv::PrivTr1` in public interface
+        //~^ ERROR private trait `PrivTr1` in public interface
         //~| WARNING hard error
     pub trait Tr2: PrivUseAliasTr<PrivAlias> {}
-        //~^ ERROR private trait `aliases_priv::PrivTr1<aliases_priv::Priv2>` in public interface
+        //~^ ERROR private trait `PrivTr1<Priv2>` in public interface
         //~| WARNING hard error
-        //~| ERROR private type `aliases_priv::Priv2` in public interface
+        //~| ERROR private type `Priv2` in public interface
         //~| WARNING hard error
 
     impl PrivUseAlias {

@@ -2,8 +2,8 @@
 // in the type of `p` includes the points after `&v[0]` up to (but not
 // including) the call to `use_x`. The `else` branch is not included.
 
-// compile-flags:-Zborrowck=mir -Zverbose
-//                              ^^^^^^^^^ force compiler to dump more region information
+// compile-flags:-Zverbose
+//               ^^^^^^^^^ force compiler to dump more region information
 
 #![allow(warnings)]
 
@@ -12,7 +12,7 @@ fn use_x(_: usize) -> bool {
 }
 
 // EMIT_MIR_FOR_EACH_BIT_WIDTH
-// EMIT_MIR rustc.main.nll.0.mir
+// EMIT_MIR region_subtyping_basic.main.nll.0.mir
 fn main() {
     let mut v = [1, 2, 3];
     let p = &v[0];

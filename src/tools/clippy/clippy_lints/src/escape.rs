@@ -1,14 +1,16 @@
+use clippy_utils::diagnostics::span_lint_hir;
 use rustc_hir::intravisit;
-use rustc_hir::{self, Body, FnDecl, HirId, HirIdSet, ItemKind, Node};
+use rustc_hir::{self, AssocItemKind, Body, FnDecl, HirId, HirIdSet, Impl, ItemKind, Node, Pat, PatKind};
+use rustc_hir_typeck::expr_use_visitor::{Delegate, ExprUseVisitor, PlaceBase, PlaceWithHirId};
 use rustc_infer::infer::TyCtxtInferExt;
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_middle::ty::{self, Ty};
+use rustc_middle::mir::FakeReadCause;
+use rustc_middle::ty::layout::LayoutOf;
+use rustc_middle::ty::{self, TraitRef, Ty};
 use rustc_session::{declare_tool_lint, impl_lint_pass};
 use rustc_span::source_map::Span;
-use rustc_target::abi::LayoutOf;
-use rustc_typeck::expr_use_visitor::{ConsumeMode, Delegate, ExprUseVisitor, PlaceBase, PlaceWithHirId};
-
-use crate::utils::span_lint;
+use rustc_span::symbol::kw;
+use rustc_target::spec::abi::Abi;
 
 #[derive(Copy, Clone)]
 pub struct BoxedLocal {
@@ -16,29 +18,25 @@ pub struct BoxedLocal {
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for usage of `Box<T>` where an unboxed `T` would
+    /// ### What it does
+    /// Checks for usage of `Box<T>` where an unboxed `T` would
     /// work fine.
     ///
-    /// **Why is this bad?** This is an unnecessary allocation, and bad for
+    /// ### Why is this bad?
+    /// This is an unnecessary allocation, and bad for
     /// performance. It is only necessary to allocate if you wish to move the box
     /// into something.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
+    /// ### Example
     /// ```rust
-    /// # fn foo(bar: usize) {}
-    ///
-    /// // Bad
-    /// let x = Box::new(1);
-    /// foo(*x);
-    /// println!("{}", *x);
-    ///
-    /// // Good
-    /// let x = 1;
-    /// foo(x);
-    /// println!("{}", x);
+    /// fn foo(x: Box<u32>) {}
     /// ```
+    ///
+    /// Use instead:
+    /// ```rust
+    /// fn foo(x: u32) {}
+    /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub BOXED_LOCAL,
     perf,
     "using `Box<T>` where unnecessary"
@@ -51,6 +49,7 @@ fn is_non_trait_box(ty: Ty<'_>) -> bool {
 struct EscapeDelegate<'a, 'tcx> {
     cx: &'a LateContext<'tcx>,
     set: HirIdSet,
+    trait_self_ty: Option<Ty<'tcx>>,
     too_large_for_stack: u64,
 }
 
@@ -60,37 +59,61 @@ impl<'tcx> LateLintPass<'tcx> for BoxedLocal {
     fn check_fn(
         &mut self,
         cx: &LateContext<'tcx>,
-        _: intravisit::FnKind<'tcx>,
+        fn_kind: intravisit::FnKind<'tcx>,
         _: &'tcx FnDecl<'_>,
         body: &'tcx Body<'_>,
         _: Span,
         hir_id: HirId,
     ) {
-        // If the method is an impl for a trait, don't warn.
-        let parent_id = cx.tcx.hir().get_parent_item(hir_id);
-        let parent_node = cx.tcx.hir().find(parent_id);
-
-        if let Some(Node::Item(item)) = parent_node {
-            if let ItemKind::Impl { of_trait: Some(_), .. } = item.kind {
+        if let Some(header) = fn_kind.header() {
+            if header.abi != Abi::Rust {
                 return;
+            }
+        }
+
+        let parent_id = cx.tcx.hir().get_parent_item(hir_id).def_id;
+        let parent_node = cx.tcx.hir().find_by_def_id(parent_id);
+
+        let mut trait_self_ty = None;
+        if let Some(Node::Item(item)) = parent_node {
+            // If the method is an impl for a trait, don't warn.
+            if let ItemKind::Impl(Impl { of_trait: Some(_), .. }) = item.kind {
+                return;
+            }
+
+            // find `self` ty for this trait if relevant
+            if let ItemKind::Trait(_, _, _, _, items) = item.kind {
+                for trait_item in items {
+                    if trait_item.id.hir_id() == hir_id {
+                        // be sure we have `self` parameter in this function
+                        if trait_item.kind == (AssocItemKind::Fn { has_self: true }) {
+                            trait_self_ty = Some(
+                                TraitRef::identity(cx.tcx, trait_item.id.owner_id.to_def_id())
+                                    .self_ty()
+                                    .skip_binder(),
+                            );
+                        }
+                    }
+                }
             }
         }
 
         let mut v = EscapeDelegate {
             cx,
             set: HirIdSet::default(),
+            trait_self_ty,
             too_large_for_stack: self.too_large_for_stack,
         };
 
         let fn_def_id = cx.tcx.hir().local_def_id(hir_id);
-        cx.tcx.infer_ctxt().enter(|infcx| {
-            ExprUseVisitor::new(&mut v, &infcx, fn_def_id, cx.param_env, cx.tables()).consume_body(body);
-        });
+        let infcx = cx.tcx.infer_ctxt().build();
+        ExprUseVisitor::new(&mut v, &infcx, fn_def_id, cx.param_env, cx.typeck_results()).consume_body(body);
 
         for node in v.set {
-            span_lint(
+            span_lint_hir(
                 cx,
                 BOXED_LOCAL,
+                node,
                 cx.tcx.hir().span(node),
                 "local variable doesn't need to be boxed here",
             );
@@ -101,38 +124,18 @@ impl<'tcx> LateLintPass<'tcx> for BoxedLocal {
 // TODO: Replace with Map::is_argument(..) when it's fixed
 fn is_argument(map: rustc_middle::hir::map::Map<'_>, id: HirId) -> bool {
     match map.find(id) {
-        Some(Node::Binding(_)) => (),
+        Some(Node::Pat(Pat {
+            kind: PatKind::Binding(..),
+            ..
+        })) => (),
         _ => return false,
     }
 
-    match map.find(map.get_parent_node(id)) {
-        Some(Node::Param(_)) => true,
-        _ => false,
-    }
+    matches!(map.find(map.get_parent_node(id)), Some(Node::Param(_)))
 }
 
 impl<'a, 'tcx> Delegate<'tcx> for EscapeDelegate<'a, 'tcx> {
-    fn consume(&mut self, cmt: &PlaceWithHirId<'tcx>, mode: ConsumeMode) {
-        if cmt.place.projections.is_empty() {
-            if let PlaceBase::Local(lid) = cmt.place.base {
-                if let ConsumeMode::Move = mode {
-                    // moved out or in. clearly can't be localized
-                    self.set.remove(&lid);
-                }
-                let map = &self.cx.tcx.hir();
-                if let Some(Node::Binding(_)) = map.find(cmt.hir_id) {
-                    if self.set.contains(&lid) {
-                        // let y = x where x is known
-                        // remove x, insert y
-                        self.set.insert(cmt.hir_id);
-                        self.set.remove(&lid);
-                    }
-                }
-            }
-        }
-    }
-
-    fn borrow(&mut self, cmt: &PlaceWithHirId<'tcx>, _: ty::BorrowKind) {
+    fn consume(&mut self, cmt: &PlaceWithHirId<'tcx>, _: HirId) {
         if cmt.place.projections.is_empty() {
             if let PlaceBase::Local(lid) = cmt.place.base {
                 self.set.remove(&lid);
@@ -140,7 +143,15 @@ impl<'a, 'tcx> Delegate<'tcx> for EscapeDelegate<'a, 'tcx> {
         }
     }
 
-    fn mutate(&mut self, cmt: &PlaceWithHirId<'tcx>) {
+    fn borrow(&mut self, cmt: &PlaceWithHirId<'tcx>, _: HirId, _: ty::BorrowKind) {
+        if cmt.place.projections.is_empty() {
+            if let PlaceBase::Local(lid) = cmt.place.base {
+                self.set.remove(&lid);
+            }
+        }
+    }
+
+    fn mutate(&mut self, cmt: &PlaceWithHirId<'tcx>, _: HirId) {
         if cmt.place.projections.is_empty() {
             let map = &self.cx.tcx.hir();
             if is_argument(*map, cmt.hir_id) {
@@ -150,12 +161,27 @@ impl<'a, 'tcx> Delegate<'tcx> for EscapeDelegate<'a, 'tcx> {
                     return;
                 }
 
+                // skip if there is a `self` parameter binding to a type
+                // that contains `Self` (i.e.: `self: Box<Self>`), see #4804
+                if let Some(trait_self_ty) = self.trait_self_ty {
+                    if map.name(cmt.hir_id) == kw::SelfLower && cmt.place.ty().contains(trait_self_ty) {
+                        return;
+                    }
+                }
+
                 if is_non_trait_box(cmt.place.ty()) && !self.is_large_box(cmt.place.ty()) {
                     self.set.insert(cmt.hir_id);
                 }
-                return;
             }
         }
+    }
+
+    fn fake_read(
+        &mut self,
+        _: &rustc_hir_typeck::expr_use_visitor::PlaceWithHirId<'tcx>,
+        _: FakeReadCause,
+        _: HirId,
+    ) {
     }
 }
 

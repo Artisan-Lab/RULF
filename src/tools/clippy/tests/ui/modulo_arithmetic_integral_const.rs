@@ -1,11 +1,9 @@
 #![warn(clippy::modulo_arithmetic)]
 #![allow(
-    unused,
-    clippy::shadow_reuse,
-    clippy::shadow_unrelated,
     clippy::no_effect,
     clippy::unnecessary_operation,
-    clippy::modulo_one
+    clippy::modulo_one,
+    clippy::identity_op
 )]
 
 fn main() {

@@ -1,5 +1,5 @@
-#![allow(unused)]
-#![warn(clippy::invalid_regex, clippy::trivial_regex, clippy::regex_macro)]
+#![allow(unused, clippy::needless_borrow)]
+#![warn(clippy::invalid_regex, clippy::trivial_regex)]
 
 extern crate regex;
 
@@ -71,6 +71,9 @@ fn trivial_regex() {
     let non_trivial_ends_with = Regex::new("foo|bar");
     let non_trivial_binary = BRegex::new("foo|bar");
     let non_trivial_binary_builder = BRegexBuilder::new("foo|bar");
+
+    // #6005: unicode classes in bytes::Regex
+    let a_byte_of_unicode = BRegex::new(r"\p{C}");
 }
 
 fn main() {

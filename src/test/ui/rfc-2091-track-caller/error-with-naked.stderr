@@ -1,5 +1,5 @@
 error[E0736]: cannot use `#[track_caller]` with `#[naked]`
-  --> $DIR/error-with-naked.rs:3:1
+  --> $DIR/error-with-naked.rs:6:1
    |
 LL | #[track_caller]
    | ^^^^^^^^^^^^^^^
@@ -10,12 +10,19 @@ error[E0736]: cannot use `#[track_caller]` with `#[naked]`
 LL |     #[track_caller]
    |     ^^^^^^^^^^^^^^^
 
-error[E0736]: cannot use `#[track_caller]` with `#[naked]`
-  --> $DIR/error-with-naked.rs:10:5
+error[E0737]: `#[track_caller]` requires Rust ABI
+  --> $DIR/error-with-naked.rs:6:1
+   |
+LL | #[track_caller]
+   | ^^^^^^^^^^^^^^^
+
+error[E0737]: `#[track_caller]` requires Rust ABI
+  --> $DIR/error-with-naked.rs:16:5
    |
 LL |     #[track_caller]
    |     ^^^^^^^^^^^^^^^
 
-error: aborting due to 3 previous errors
+error: aborting due to 4 previous errors
 
-For more information about this error, try `rustc --explain E0736`.
+Some errors have detailed explanations: E0736, E0737.
+For more information about an error, try `rustc --explain E0736`.

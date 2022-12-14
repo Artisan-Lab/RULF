@@ -12,17 +12,12 @@ fn main() {
 
     let y = "x";
     x.split(y);
-    // Not yet testing for multi-byte characters
-    // Changing `r.len() == 1` to `r.chars().count() == 1` in `lint_clippy::single_char_pattern`
-    // should have done this but produced an ICE
-    //
-    // We may not want to suggest changing these anyway
-    // See: https://github.com/rust-lang/rust-clippy/issues/650#issuecomment-184328984
     x.split("ß");
     x.split("ℝ");
     x.split("💣");
     // Can't use this lint for unicode code points which don't fit in a char
     x.split("❤️");
+    x.split_inclusive("x");
     x.contains("x");
     x.starts_with("x");
     x.ends_with("x");
@@ -31,14 +26,20 @@ fn main() {
     x.rsplit("x");
     x.split_terminator("x");
     x.rsplit_terminator("x");
-    x.splitn(0, "x");
-    x.rsplitn(0, "x");
+    x.splitn(2, "x");
+    x.rsplitn(2, "x");
+    x.split_once("x");
+    x.rsplit_once("x");
     x.matches("x");
     x.rmatches("x");
     x.match_indices("x");
     x.rmatch_indices("x");
     x.trim_start_matches("x");
     x.trim_end_matches("x");
+    x.strip_prefix("x");
+    x.strip_suffix("x");
+    x.replace("x", "y");
+    x.replacen("x", "y", 3);
     // Make sure we escape characters correctly.
     x.split("\n");
     x.split("'");
@@ -47,7 +48,7 @@ fn main() {
     let h = HashSet::<String>::new();
     h.contains("X"); // should not warn
 
-    x.replace(";", ",").split(","); // issue #2978
+    x.replace(';', ",").split(","); // issue #2978
     x.starts_with("\x03"); // issue #2996
 
     // Issue #3204
@@ -60,4 +61,7 @@ fn main() {
     x.split(r###"a"###);
     x.split(r###"'"###);
     x.split(r###"#"###);
+    // Must escape backslash in raw strings when converting to char #8060
+    x.split(r#"\"#);
+    x.split(r"\");
 }

@@ -1,11 +1,13 @@
 // run-pass
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
+
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
 // Drop works for union itself.
 
-#![feature(untagged_unions)]
-
+#[derive(Copy, Clone)]
 struct S;
 
 union U {
@@ -48,6 +50,11 @@ fn main() {
         {
             let y = Y { a: S };
         }
-        assert_eq!(CHECK, 2); // 2, dtor of Y is called
+        assert_eq!(CHECK, 2); // 2, Y has no dtor
+        {
+            let u2 = U { a: 1 };
+            std::mem::forget(u2);
+        }
+        assert_eq!(CHECK, 2); // 2, dtor of U *not* called for u2
     }
 }

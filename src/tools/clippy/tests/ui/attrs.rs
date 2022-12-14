@@ -1,5 +1,7 @@
 #![warn(clippy::inline_always, clippy::deprecated_semver)]
 #![allow(clippy::assertions_on_constants)]
+#![allow(clippy::missing_docs_in_private_items, clippy::panic, clippy::unreachable)]
+
 #[inline(always)]
 fn test_attr_lint() {
     assert!(true)

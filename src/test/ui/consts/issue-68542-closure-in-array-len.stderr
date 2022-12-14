@@ -1,16 +1,12 @@
-error[E0015]: calls in constants are limited to constant functions, tuple structs and tuple variants
+error[E0015]: cannot call non-const closure in constants
   --> $DIR/issue-68542-closure-in-array-len.rs:6:13
    |
 LL |     a: [(); (|| { 0 })()]
    |             ^^^^^^^^^^^^
-
-error[E0080]: evaluation of constant value failed
-  --> $DIR/issue-68542-closure-in-array-len.rs:6:13
    |
-LL |     a: [(); (|| { 0 })()]
-   |             ^^^^^^^^^^^^ calling non-const function `Bug::a::{{constant}}#0::{{closure}}#0`
+   = note: closures need an RFC before allowed to be called in constants
+   = note: calls in constants are limited to constant functions, tuple structs and tuple variants
 
-error: aborting due to 2 previous errors
+error: aborting due to previous error
 
-Some errors have detailed explanations: E0015, E0080.
-For more information about an error, try `rustc --explain E0015`.
+For more information about this error, try `rustc --explain E0015`.

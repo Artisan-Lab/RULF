@@ -1,10 +1,9 @@
 #![crate_name = "foo"]
 
-// ignore-tidy-linelength
-
-// @has foo/fn.bar.html '//*[@class="tooltip compile_fail"]/span' "This example deliberately fails to compile"
-// @has foo/fn.bar.html '//*[@class="tooltip ignore"]/span' "This example is not tested"
-// @has foo/fn.bar.html '//*[@class="tooltip should_panic"]/span' "This example panics"
+// @has foo/fn.bar.html '//*[@class="example-wrap compile_fail"]/*[@class="tooltip"]' "ⓘ"
+// @has foo/fn.bar.html '//*[@class="example-wrap ignore"]/*[@class="tooltip"]' "ⓘ"
+// @has foo/fn.bar.html '//*[@class="example-wrap should_panic"]/*[@class="tooltip"]' "ⓘ"
+// @has foo/fn.bar.html '//*[@data-edition="2018"]' "ⓘ"
 
 /// foo
 ///
@@ -20,7 +19,7 @@
 /// hoo();
 /// ```
 ///
-/// ```
+/// ```edition2018
 /// let x = 0;
 /// ```
 pub fn bar() -> usize { 2 }

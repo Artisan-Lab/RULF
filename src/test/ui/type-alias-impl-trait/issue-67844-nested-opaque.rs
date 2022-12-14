@@ -5,7 +5,9 @@
 
 #![feature(type_alias_impl_trait)]
 
-trait WithAssoc { type AssocType; }
+trait WithAssoc {
+    type AssocType;
+}
 
 trait WithParam<A> {}
 
@@ -19,7 +21,6 @@ struct MyStruct;
 impl WithAssoc for MyStruct {
     type AssocType = MyParam;
 }
-
 
 fn my_fun<A>() -> Return<A> {
     MyStruct

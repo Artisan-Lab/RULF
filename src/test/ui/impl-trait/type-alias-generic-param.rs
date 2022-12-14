@@ -11,7 +11,8 @@ trait Meow {
 }
 
 impl<T, I> Meow for I
-    where I: Iterator<Item = T>
+where
+    I: Iterator<Item = T>,
 {
     type MeowType = impl Iterator<Item = T>;
     fn meow(self) -> Self::MeowType {

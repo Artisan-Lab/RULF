@@ -1,5 +1,3 @@
-// ignore-tidy-linelength
-
 // min-lldb-version: 310
 
 // compile-flags:-g
@@ -30,7 +28,6 @@
 // lldbr-check:(boxed_struct::StructWithDestructor) *boxed_with_dtor = { x = 77 y = 777 z = 7777 w = 77777 }
 
 #![allow(unused_variables)]
-#![feature(box_syntax)]
 #![feature(omit_gdb_pretty_printer_section)]
 #![omit_gdb_pretty_printer_section]
 
@@ -54,9 +51,19 @@ impl Drop for StructWithDestructor {
 
 fn main() {
 
-    let boxed_with_padding: Box<_> = box StructWithSomePadding { x: 99, y: 999, z: 9999, w: 99999 };
+    let boxed_with_padding: Box<_> = Box::new(StructWithSomePadding {
+        x: 99,
+        y: 999,
+        z: 9999,
+        w: 99999,
+    });
 
-    let boxed_with_dtor: Box<_> = box StructWithDestructor { x: 77, y: 777, z: 7777, w: 77777 };
+    let boxed_with_dtor: Box<_> = Box::new(StructWithDestructor {
+        x: 77,
+        y: 777,
+        z: 7777,
+        w: 77777,
+    });
     zzz(); // #break
 }
 

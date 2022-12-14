@@ -88,7 +88,7 @@ mod no_lint_if_stmt_borrows {
             ret
         }
 
-        struct Bar {}
+        struct Bar;
 
         impl Bar {
             fn new() -> Self {
@@ -117,7 +117,11 @@ mod no_lint_if_stmt_borrows {
             fn drop(&mut self) {}
         }
 
-        impl Foo<'_> {
+        impl<'a> Foo<'a> {
+            fn new(inner: &'a Inner) -> Self {
+                Self { inner }
+            }
+
             fn value(&self) -> i32 {
                 42
             }
@@ -131,6 +135,33 @@ mod no_lint_if_stmt_borrows {
             let x = Inner {};
             let value = some_foo(&x).value();
             value
+        }
+
+        fn test2() -> i32 {
+            let x = Inner {};
+            let value = Foo::new(&x).value();
+            value
+        }
+    }
+}
+
+mod issue_5729 {
+    use std::sync::Arc;
+
+    trait Foo {}
+
+    trait FooStorage {
+        fn foo_cloned(&self) -> Arc<dyn Foo>;
+    }
+
+    struct FooStorageImpl<T: Foo> {
+        foo: Arc<T>,
+    }
+
+    impl<T: Foo + 'static> FooStorage for FooStorageImpl<T> {
+        fn foo_cloned(&self) -> Arc<dyn Foo> {
+            let clone = Arc::clone(&self.foo);
+            clone
         }
     }
 }

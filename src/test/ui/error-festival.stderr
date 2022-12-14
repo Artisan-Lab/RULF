@@ -36,15 +36,27 @@ error[E0600]: cannot apply unary operator `!` to type `Question`
 LL |     !Question::Yes;
    |     ^^^^^^^^^^^^^^ cannot apply unary operator `!`
    |
-   = note: an implementation of `std::ops::Not` might be missing for `Question`
+note: an implementation of `Not` might be missing for `Question`
+  --> $DIR/error-festival.rs:1:1
+   |
+LL | enum Question {
+   | ^^^^^^^^^^^^^ must implement `Not`
+note: the following trait must be implemented
+  --> $SRC_DIR/core/src/ops/bit.rs:LL:COL
+   |
+LL | pub trait Not {
+   | ^^^^^^^^^^^^^
 
 error[E0604]: only `u8` can be cast as `char`, not `u32`
   --> $DIR/error-festival.rs:25:5
    |
 LL |     0u32 as char;
-   |     ^^^^^^^^^^^^ invalid cast
+   |     ^^^^^^^^^^^^
+   |     |
+   |     invalid cast
+   |     help: try `char::from_u32` instead: `char::from_u32(0u32)`
 
-error[E0605]: non-primitive cast: `u8` as `std::vec::Vec<u8>`
+error[E0605]: non-primitive cast: `u8` as `Vec<u8>`
   --> $DIR/error-festival.rs:29:5
    |
 LL |     x as Vec<u8>;

@@ -1,7 +1,8 @@
 //! lint on indexing and slicing operations
 
-use crate::consts::{constant, Constant};
-use crate::utils::{higher, span_lint, span_lint_and_help};
+use clippy_utils::consts::{constant, Constant};
+use clippy_utils::diagnostics::{span_lint, span_lint_and_help};
+use clippy_utils::higher;
 use rustc_ast::ast::RangeLimits;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
@@ -9,75 +10,73 @@ use rustc_middle::ty;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for out of bounds array indexing with a constant
+    /// ### What it does
+    /// Checks for out of bounds array indexing with a constant
     /// index.
     ///
-    /// **Why is this bad?** This will always panic at runtime.
+    /// ### Why is this bad?
+    /// This will always panic at runtime.
     ///
-    /// **Known problems:** Hopefully none.
-    ///
-    /// **Example:**
-    /// ```no_run
-    /// # #![allow(const_err)]
+    /// ### Example
+    /// ```rust,no_run
     /// let x = [1, 2, 3, 4];
     ///
-    /// // Bad
     /// x[9];
     /// &x[2..9];
+    /// ```
     ///
-    /// // Good
+    /// Use instead:
+    /// ```rust
+    /// # let x = [1, 2, 3, 4];
+    /// // Index within bounds
+    ///
     /// x[0];
     /// x[3];
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub OUT_OF_BOUNDS_INDEXING,
     correctness,
     "out of bounds constant indexing"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for usage of indexing or slicing. Arrays are special cases, this lint
+    /// ### What it does
+    /// Checks for usage of indexing or slicing. Arrays are special cases, this lint
     /// does report on arrays if we can tell that slicing operations are in bounds and does not
     /// lint on constant `usize` indexing on arrays because that is handled by rustc's `const_err` lint.
     ///
-    /// **Why is this bad?** Indexing and slicing can panic at runtime and there are
+    /// ### Why is this bad?
+    /// Indexing and slicing can panic at runtime and there are
     /// safe alternatives.
     ///
-    /// **Known problems:** Hopefully none.
-    ///
-    /// **Example:**
+    /// ### Example
     /// ```rust,no_run
     /// // Vector
     /// let x = vec![0; 5];
     ///
-    /// // Bad
     /// x[2];
     /// &x[2..100];
-    /// &x[2..];
-    /// &x[..100];
-    ///
-    /// // Good
-    /// x.get(2);
-    /// x.get(2..100);
-    /// x.get(2..);
-    /// x.get(..100);
     ///
     /// // Array
     /// let y = [0, 1, 2, 3];
     ///
-    /// // Bad
     /// &y[10..100];
     /// &y[10..];
-    /// &y[..100];
+    /// ```
     ///
-    /// // Good
-    /// &y[2..];
-    /// &y[..2];
-    /// &y[0..3];
+    /// Use instead:
+    /// ```rust
+    /// # #![allow(unused)]
+    ///
+    /// # let x = vec![0; 5];
+    /// # let y = [0, 1, 2, 3];
+    /// x.get(2);
+    /// x.get(2..100);
+    ///
     /// y.get(10);
     /// y.get(10..100);
-    /// y.get(10..);
-    /// y.get(..100);
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub INDEXING_SLICING,
     restriction,
     "indexing/slicing usage"
@@ -87,11 +86,15 @@ declare_lint_pass!(IndexingSlicing => [INDEXING_SLICING, OUT_OF_BOUNDS_INDEXING]
 
 impl<'tcx> LateLintPass<'tcx> for IndexingSlicing {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
-        if let ExprKind::Index(ref array, ref index) = &expr.kind {
-            let ty = cx.tables().expr_ty(array);
-            if let Some(range) = higher::range(cx, index) {
+        if cx.tcx.hir().is_inside_const_context(expr.hir_id) {
+            return;
+        }
+
+        if let ExprKind::Index(array, index) = &expr.kind {
+            let ty = cx.typeck_results().expr_ty(array).peel_refs();
+            if let Some(range) = higher::Range::hir(index) {
                 // Ranged indexes, i.e., &x[n..m], &x[n..], &x[..n] and &x[..]
-                if let ty::Array(_, s) = ty.kind {
+                if let ty::Array(_, s) = ty.kind() {
                     let size: u128 = if let Some(size) = s.try_eval_usize(cx.tcx, cx.param_env) {
                         size.into()
                     } else {
@@ -132,18 +135,22 @@ impl<'tcx> LateLintPass<'tcx> for IndexingSlicing {
                 }
 
                 let help_msg = match (range.start, range.end) {
-                    (None, Some(_)) => "Consider using `.get(..n)`or `.get_mut(..n)` instead",
-                    (Some(_), None) => "Consider using `.get(n..)` or .get_mut(n..)` instead",
-                    (Some(_), Some(_)) => "Consider using `.get(n..m)` or `.get_mut(n..m)` instead",
+                    (None, Some(_)) => "consider using `.get(..n)`or `.get_mut(..n)` instead",
+                    (Some(_), None) => "consider using `.get(n..)` or .get_mut(n..)` instead",
+                    (Some(_), Some(_)) => "consider using `.get(n..m)` or `.get_mut(n..m)` instead",
                     (None, None) => return, // [..] is ok.
                 };
 
-                span_lint_and_help(cx, INDEXING_SLICING, expr.span, "slicing may panic.", None, help_msg);
+                span_lint_and_help(cx, INDEXING_SLICING, expr.span, "slicing may panic", None, help_msg);
             } else {
                 // Catchall non-range index, i.e., [n] or [n << m]
-                if let ty::Array(..) = ty.kind {
+                if let ty::Array(..) = ty.kind() {
+                    // Index is a const block.
+                    if let ExprKind::ConstBlock(..) = index.kind {
+                        return;
+                    }
                     // Index is a constant uint.
-                    if let Some(..) = constant(cx, cx.tables(), index) {
+                    if let Some(..) = constant(cx, cx.typeck_results(), index) {
                         // Let rustc's `const_err` lint handle constant `usize` indexing on arrays.
                         return;
                     }
@@ -153,9 +160,9 @@ impl<'tcx> LateLintPass<'tcx> for IndexingSlicing {
                     cx,
                     INDEXING_SLICING,
                     expr.span,
-                    "indexing may panic.",
+                    "indexing may panic",
                     None,
-                    "Consider using `.get(n)` or `.get_mut(n)` instead",
+                    "consider using `.get(n)` or `.get_mut(n)` instead",
                 );
             }
         }
@@ -169,14 +176,18 @@ fn to_const_range<'tcx>(
     range: higher::Range<'_>,
     array_size: u128,
 ) -> (Option<u128>, Option<u128>) {
-    let s = range.start.map(|expr| constant(cx, cx.tables(), expr).map(|(c, _)| c));
+    let s = range
+        .start
+        .map(|expr| constant(cx, cx.typeck_results(), expr).map(|(c, _)| c));
     let start = match s {
         Some(Some(Constant::Int(x))) => Some(x),
         Some(_) => None,
         None => Some(0),
     };
 
-    let e = range.end.map(|expr| constant(cx, cx.tables(), expr).map(|(c, _)| c));
+    let e = range
+        .end
+        .map(|expr| constant(cx, cx.typeck_results(), expr).map(|(c, _)| c));
     let end = match e {
         Some(Some(Constant::Int(x))) => {
             if range.limits == RangeLimits::Closed {

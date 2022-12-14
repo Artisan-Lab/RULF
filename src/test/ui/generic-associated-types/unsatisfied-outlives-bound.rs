@@ -1,13 +1,10 @@
-#![allow(incomplete_features)]
-#![feature(generic_associated_types)]
-
 trait ATy {
     type Item<'a>: 'a;
 }
 
 impl<'b> ATy for &'b () {
     type Item<'a> = &'b ();
-    //~^ ERROR does not fulfill the required lifetime
+    //~^ ERROR  the type `&'b ()` does not fulfill the required lifetime
 }
 
 trait StaticTy {
@@ -16,7 +13,7 @@ trait StaticTy {
 
 impl StaticTy for () {
     type Item<'a> = &'a ();
-    //~^ ERROR does not fulfill the required lifetime
+    //~^ ERROR  the type `&'a ()` does not fulfill the required lifetime
 }
 
 fn main() {}

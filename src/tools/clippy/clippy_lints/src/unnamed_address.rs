@@ -1,4 +1,5 @@
-use crate::utils::{match_def_path, paths, span_lint, span_lint_and_help};
+use clippy_utils::diagnostics::{span_lint, span_lint_and_help};
+use clippy_utils::{match_def_path, paths};
 use if_chain::if_chain;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
@@ -6,16 +7,15 @@ use rustc_middle::ty;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for comparisons with an address of a function item.
+    /// ### What it does
+    /// Checks for comparisons with an address of a function item.
     ///
-    /// **Why is this bad?** Function item address is not guaranteed to be unique and could vary
+    /// ### Why is this bad?
+    /// Function item address is not guaranteed to be unique and could vary
     /// between different code generation units. Furthermore different function items could have
     /// the same address after being merged together.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
     /// type F = fn();
     /// fn a() {}
@@ -24,23 +24,23 @@ declare_clippy_lint! {
     ///     // ...
     /// }
     /// ```
+    #[clippy::version = "1.44.0"]
     pub FN_ADDRESS_COMPARISONS,
     correctness,
     "comparison with an address of a function item"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for comparisons with an address of a trait vtable.
+    /// ### What it does
+    /// Checks for comparisons with an address of a trait vtable.
     ///
-    /// **Why is this bad?** Comparing trait objects pointers compares an vtable addresses which
+    /// ### Why is this bad?
+    /// Comparing trait objects pointers compares an vtable addresses which
     /// are not guaranteed to be unique and could vary between different code generation units.
     /// Furthermore vtables for different types could have the same address after being merged
     /// together.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust,ignore
     /// let a: Rc<dyn Trait> = ...
     /// let b: Rc<dyn Trait> = ...
@@ -48,6 +48,7 @@ declare_clippy_lint! {
     ///     ...
     /// }
     /// ```
+    #[clippy::version = "1.44.0"]
     pub VTABLE_ADDRESS_COMPARISONS,
     correctness,
     "comparison with an address of a trait vtable"
@@ -58,29 +59,25 @@ declare_lint_pass!(UnnamedAddress => [FN_ADDRESS_COMPARISONS, VTABLE_ADDRESS_COM
 impl LateLintPass<'_> for UnnamedAddress {
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
         fn is_comparison(binop: BinOpKind) -> bool {
-            match binop {
-                BinOpKind::Eq | BinOpKind::Lt | BinOpKind::Le | BinOpKind::Ne | BinOpKind::Ge | BinOpKind::Gt => true,
-                _ => false,
-            }
+            matches!(
+                binop,
+                BinOpKind::Eq | BinOpKind::Lt | BinOpKind::Le | BinOpKind::Ne | BinOpKind::Ge | BinOpKind::Gt
+            )
         }
 
         fn is_trait_ptr(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
-            match cx.tables().expr_ty_adjusted(expr).kind {
+            match cx.typeck_results().expr_ty_adjusted(expr).kind() {
                 ty::RawPtr(ty::TypeAndMut { ty, .. }) => ty.is_trait(),
                 _ => false,
             }
         }
 
         fn is_fn_def(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
-            if let ty::FnDef(..) = cx.tables().expr_ty(expr).kind {
-                true
-            } else {
-                false
-            }
+            matches!(cx.typeck_results().expr_ty(expr).kind(), ty::FnDef(..))
         }
 
         if_chain! {
-            if let ExprKind::Binary(binop, ref left, ref right) = expr.kind;
+            if let ExprKind::Binary(binop, left, right) = expr.kind;
             if is_comparison(binop.node);
             if is_trait_ptr(cx, left) && is_trait_ptr(cx, right);
             then {
@@ -96,13 +93,13 @@ impl LateLintPass<'_> for UnnamedAddress {
         }
 
         if_chain! {
-            if let ExprKind::Call(ref func, [ref _left, ref _right]) = expr.kind;
+            if let ExprKind::Call(func, [ref _left, ref _right]) = expr.kind;
             if let ExprKind::Path(ref func_qpath) = func.kind;
             if let Some(def_id) = cx.qpath_res(func_qpath, func.hir_id).opt_def_id();
             if match_def_path(cx, def_id, &paths::PTR_EQ) ||
                 match_def_path(cx, def_id, &paths::RC_PTR_EQ) ||
                 match_def_path(cx, def_id, &paths::ARC_PTR_EQ);
-            let ty_param = cx.tables().node_substs(func.hir_id).type_at(0);
+            let ty_param = cx.typeck_results().node_substs(func.hir_id).type_at(0);
             if ty_param.is_trait();
             then {
                 span_lint_and_help(
@@ -117,10 +114,10 @@ impl LateLintPass<'_> for UnnamedAddress {
         }
 
         if_chain! {
-            if let ExprKind::Binary(binop, ref left, ref right) = expr.kind;
+            if let ExprKind::Binary(binop, left, right) = expr.kind;
             if is_comparison(binop.node);
-            if cx.tables().expr_ty_adjusted(left).is_fn_ptr() &&
-                cx.tables().expr_ty_adjusted(right).is_fn_ptr();
+            if cx.typeck_results().expr_ty_adjusted(left).is_fn_ptr();
+            if cx.typeck_results().expr_ty_adjusted(right).is_fn_ptr();
             if is_fn_def(cx, left) || is_fn_def(cx, right);
             then {
                 span_lint(

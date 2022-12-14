@@ -1,7 +1,6 @@
 from sys import version_info
 
 import gdb
-from gdb import lookup_type
 
 if version_info[0] >= 3:
     xrange = range
@@ -13,8 +12,10 @@ FIRST_FIELD = "__1"
 def unwrap_unique_or_non_null(unique_or_nonnull):
     # BACKCOMPAT: rust 1.32
     # https://github.com/rust-lang/rust/commit/7a0911528058e87d22ea305695f4047572c5e067
+    # BACKCOMPAT: rust 1.60
+    # https://github.com/rust-lang/rust/commit/2a91eeac1a2d27dd3de1bf55515d765da20fd86f
     ptr = unique_or_nonnull["pointer"]
-    return ptr if ptr.type.code == gdb.TYPE_CODE_PTR else ptr[ZERO_FIELD]
+    return ptr if ptr.type.code == gdb.TYPE_CODE_PTR else ptr[ptr.type.fields()[0]]
 
 
 class EnumProvider:
@@ -86,6 +87,39 @@ class StdStrProvider:
     def display_hint():
         return "string"
 
+def _enumerate_array_elements(element_ptrs):
+    for (i, element_ptr) in enumerate(element_ptrs):
+        key = "[{}]".format(i)
+        element = element_ptr.dereference()
+
+        try:
+            # rust-lang/rust#64343: passing deref expr to `str` allows
+            # catching exception on garbage pointer
+            str(element)
+        except RuntimeError:
+            yield key, "inaccessible"
+
+            break
+
+        yield key, element
+
+class StdSliceProvider:
+    def __init__(self, valobj):
+        self.valobj = valobj
+        self.length = int(valobj["length"])
+        self.data_ptr = valobj["data_ptr"]
+
+    def to_string(self):
+        return "{}(size={})".format(self.valobj.type, self.length)
+
+    def children(self):
+        return _enumerate_array_elements(
+            self.data_ptr + index for index in xrange(self.length)
+        )
+
+    @staticmethod
+    def display_hint():
+        return "array"
 
 class StdVecProvider:
     def __init__(self, valobj):
@@ -97,19 +131,9 @@ class StdVecProvider:
         return "Vec(size={})".format(self.length)
 
     def children(self):
-        saw_inaccessible = False
-        for index in xrange(self.length):
-            element_ptr = self.data_ptr + index
-            if saw_inaccessible:
-                return
-            try:
-                # rust-lang/rust#64343: passing deref expr to `str` allows
-                # catching exception on garbage pointer
-                str(element_ptr.dereference())
-                yield "[{}]".format(index), element_ptr.dereference()
-            except RuntimeError:
-                saw_inaccessible = True
-                yield str(index), "inaccessible"
+        return _enumerate_array_elements(
+            self.data_ptr + index for index in xrange(self.length)
+        )
 
     @staticmethod
     def display_hint():
@@ -132,9 +156,9 @@ class StdVecDequeProvider:
         return "VecDeque(size={})".format(self.size)
 
     def children(self):
-        for index in xrange(0, self.size):
-            value = (self.data_ptr + ((self.tail + index) % self.cap)).dereference()
-            yield "[{}]".format(index), value
+        return _enumerate_array_elements(
+            (self.data_ptr + ((self.tail + index) % self.cap)) for index in xrange(self.size)
+        )
 
     @staticmethod
     def display_hint():
@@ -207,30 +231,57 @@ class StdRefCellProvider:
         yield "borrow", self.borrow
 
 
-# Yield each key (and optionally value) from a BoxedNode.
-def children_of_node(boxed_node, height, want_values):
-    def cast_to_internal(node):
-        internal_type_name = str(node.type.target()).replace("LeafNode", "InternalNode", 1)
-        internal_type = lookup_type(internal_type_name)
-        return node.cast(internal_type.pointer())
+class StdNonZeroNumberProvider:
+    def __init__(self, valobj):
+        fields = valobj.type.fields()
+        assert len(fields) == 1
+        field = list(fields)[0]
+        self.value = str(valobj[field.name])
 
-    node_ptr = unwrap_unique_or_non_null(boxed_node["ptr"])
-    node_ptr = cast_to_internal(node_ptr) if height > 0 else node_ptr
-    leaf = node_ptr["data"] if height > 0 else node_ptr.dereference()
-    keys = leaf["keys"]
-    values = leaf["vals"]
-    length = int(leaf["len"])
+    def to_string(self):
+        return self.value
 
-    for i in xrange(0, length + 1):
-        if height > 0:
-            child_ptr = node_ptr["edges"][i]["value"]["value"]
-            for child in children_of_node(child_ptr, height - 1, want_values):
-                yield child
-        if i < length:
-            if want_values:
-                yield keys[i]["value"]["value"], values[i]["value"]["value"]
-            else:
-                yield keys[i]["value"]["value"]
+
+# Yields children (in a provider's sense of the word) for a BTreeMap.
+def children_of_btree_map(map):
+    # Yields each key/value pair in the node and in any child nodes.
+    def children_of_node(node_ptr, height):
+        def cast_to_internal(node):
+            internal_type_name = node.type.target().name.replace("LeafNode", "InternalNode", 1)
+            internal_type = gdb.lookup_type(internal_type_name)
+            return node.cast(internal_type.pointer())
+
+        if node_ptr.type.name.startswith("alloc::collections::btree::node::BoxedNode<"):
+            # BACKCOMPAT: rust 1.49
+            node_ptr = node_ptr["ptr"]
+        node_ptr = unwrap_unique_or_non_null(node_ptr)
+        leaf = node_ptr.dereference()
+        keys = leaf["keys"]
+        vals = leaf["vals"]
+        edges = cast_to_internal(node_ptr)["edges"] if height > 0 else None
+        length = leaf["len"]
+
+        for i in xrange(0, length + 1):
+            if height > 0:
+                child_ptr = edges[i]["value"]["value"]
+                for child in children_of_node(child_ptr, height - 1):
+                    yield child
+            if i < length:
+                # Avoid "Cannot perform pointer math on incomplete type" on zero-sized arrays.
+                key_type_size = keys.type.sizeof
+                val_type_size = vals.type.sizeof
+                key = keys[i]["value"]["value"] if key_type_size > 0 else gdb.parse_and_eval("()")
+                val = vals[i]["value"]["value"] if val_type_size > 0 else gdb.parse_and_eval("()")
+                yield key, val
+
+    if map["length"] > 0:
+        root = map["root"]
+        if root.type.name.startswith("core::option::Option<"):
+            root = root.cast(gdb.lookup_type(root.type.name[21:-1]))
+        node_ptr = root["node"]
+        height = root["height"]
+        for child in children_of_node(node_ptr, height):
+            yield child
 
 
 class StdBTreeSetProvider:
@@ -242,15 +293,8 @@ class StdBTreeSetProvider:
 
     def children(self):
         inner_map = self.valobj["map"]
-        if inner_map["length"] > 0:
-            root = inner_map["root"]
-            if "core::option::Option<" in root.type.name:
-                type_name = str(root.type.name).replace("core::option::Option<", "", 1)[:-1]
-                root = root.cast(gdb.lookup_type(type_name))
-
-            node_ptr = root["node"]
-            for i, child in enumerate(children_of_node(node_ptr, root["height"], False)):
-                yield "[{}]".format(i), child
+        for i, (child, _) in enumerate(children_of_btree_map(inner_map)):
+            yield "[{}]".format(i), child
 
     @staticmethod
     def display_hint():
@@ -265,16 +309,9 @@ class StdBTreeMapProvider:
         return "BTreeMap(size={})".format(self.valobj["length"])
 
     def children(self):
-        if self.valobj["length"] > 0:
-            root = self.valobj["root"]
-            if "core::option::Option<" in root.type.name:
-                type_name = str(root.type.name).replace("core::option::Option<", "", 1)[:-1]
-                root = root.cast(gdb.lookup_type(type_name))
-
-            node_ptr = root["node"]
-            for i, child in enumerate(children_of_node(node_ptr, root["height"], True)):
-                yield "key{}".format(i), child[0]
-                yield "val{}".format(i), child[1]
+        for i, (key, val) in enumerate(children_of_btree_map(self.valobj)):
+            yield "key{}".format(i), key
+            yield "val{}".format(i), val
 
     @staticmethod
     def display_hint():
@@ -347,13 +384,19 @@ class StdHashMapProvider:
         self.valobj = valobj
         self.show_values = show_values
 
-        table = self.valobj["base"]["table"]
-        capacity = int(table["bucket_mask"]) + 1
-        ctrl = table["ctrl"]["pointer"]
+        table = self.table()
+        table_inner = table["table"]
+        capacity = int(table_inner["bucket_mask"]) + 1
+        ctrl = table_inner["ctrl"]["pointer"]
 
-        self.size = int(table["items"])
-        self.data_ptr = table["data"]["pointer"]
-        self.pair_type = self.data_ptr.dereference().type
+        self.size = int(table_inner["items"])
+        self.pair_type = table.type.template_argument(0).strip_typedefs()
+
+        self.new_layout = not table_inner.type.has_key("data")
+        if self.new_layout:
+            self.data_ptr = ctrl.cast(self.pair_type.pointer())
+        else:
+            self.data_ptr = table_inner["data"]["pointer"]
 
         self.valid_indices = []
         for idx in range(capacity):
@@ -362,6 +405,18 @@ class StdHashMapProvider:
             is_presented = value & 128 == 0
             if is_presented:
                 self.valid_indices.append(idx)
+
+    def table(self):
+        if self.show_values:
+            hashbrown_hashmap = self.valobj["base"]
+        elif self.valobj.type.fields()[0].name == "map":
+            # BACKCOMPAT: rust 1.47
+            # HashSet wraps std::collections::HashMap, which wraps hashbrown::HashMap
+            hashbrown_hashmap = self.valobj["map"]["base"]
+        else:
+            # HashSet wraps hashbrown::HashSet, which wraps hashbrown::HashMap
+            hashbrown_hashmap = self.valobj["base"]["map"]
+        return hashbrown_hashmap["table"]
 
     def to_string(self):
         if self.show_values:
@@ -374,6 +429,8 @@ class StdHashMapProvider:
 
         for index in range(self.size):
             idx = self.valid_indices[index]
+            if self.new_layout:
+                idx = -(idx + 1)
             element = (pairs_start + idx).dereference()
             if self.show_values:
                 yield "key{}".format(index), element[ZERO_FIELD]

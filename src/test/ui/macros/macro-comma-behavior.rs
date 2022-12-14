@@ -9,6 +9,7 @@
 #[cfg(std)] use std::fmt;
 #[cfg(core)] use core::fmt;
 #[cfg(core)] #[lang = "eh_personality"] fn eh_personality() {}
+#[cfg(core)] #[lang = "eh_catch_typeinfo"] static EH_CATCH_TYPEINFO: u8 = 0;
 #[cfg(core)] #[lang = "panic_impl"] fn panic_impl(panic: &core::panic::PanicInfo) -> ! { loop {} }
 
 // (see documentation of the similarly-named test in run-pass)
@@ -39,10 +40,8 @@ fn to_format_or_not_to_format() {
     }
 
     #[cfg(std)] {
-        // FIXME: compile-fail says "expected error not found" even though
-        //        rustc does emit an error
-        // eprintln!("{}",);
-        // <DISABLED> [std]~^ ERROR no arguments
+        eprintln!("{}",);
+        //[std]~^ ERROR no arguments
     }
 
     #[cfg(std)] {
@@ -62,10 +61,8 @@ fn to_format_or_not_to_format() {
     }
 
     #[cfg(std)] {
-        // FIXME: compile-fail says "expected error not found" even though
-        //        rustc does emit an error
-        // println!("{}",);
-        // <DISABLED> [std]~^ ERROR no arguments
+        println!("{}",);
+        //[std]~^ ERROR no arguments
     }
 
     unimplemented!("{}",);
@@ -81,11 +78,9 @@ fn to_format_or_not_to_format() {
             //[core]~^ ERROR no arguments
             //[std]~^^ ERROR no arguments
 
-            // FIXME: compile-fail says "expected error not found" even though
-            //        rustc does emit an error
-            // writeln!(f, "{}",)?;
-            // <DISABLED> [core]~^ ERROR no arguments
-            // <DISABLED> [std]~^^ ERROR no arguments
+            writeln!(f, "{}",)?;
+            //[core]~^ ERROR no arguments
+            //[std]~^^ ERROR no arguments
             Ok(())
         }
     }

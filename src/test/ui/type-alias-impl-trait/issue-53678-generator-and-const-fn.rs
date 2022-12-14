@@ -1,6 +1,5 @@
-// check-pass
-
-#![feature(const_fn, generators, generator_trait, type_alias_impl_trait)]
+#![feature(generators, generator_trait, rustc_attrs)]
+#![feature(type_alias_impl_trait)]
 
 use std::ops::Generator;
 
@@ -16,4 +15,5 @@ const fn const_generator<Y, R>(yielding: Y, returning: R) -> GenOnce<Y, R> {
 
 const FOO: GenOnce<usize, usize> = const_generator(10, 100);
 
-fn main() {}
+#[rustc_error]
+fn main() {} //~ ERROR

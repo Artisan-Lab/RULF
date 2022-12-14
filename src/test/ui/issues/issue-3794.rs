@@ -1,5 +1,5 @@
 // run-pass
-#![feature(box_syntax)]
+#![allow(dead_code)]
 
 trait T {
     fn print(&self);
@@ -25,7 +25,7 @@ fn print_s(s: &S) {
 }
 
 pub fn main() {
-    let s: Box<S> = box S { s: 5 };
+    let s: Box<S> = Box::new(S { s: 5 });
     print_s(&*s);
     let t: Box<dyn T> = s as Box<dyn T>;
     print_t(&*t);

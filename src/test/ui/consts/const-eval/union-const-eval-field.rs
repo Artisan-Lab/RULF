@@ -1,4 +1,4 @@
-#![feature(const_fn)]
+// only-x86_64
 
 type Field1 = i32;
 type Field2 = f32;
@@ -26,8 +26,10 @@ const fn read_field2() -> Field2 {
 
 const fn read_field3() -> Field3 {
     const FIELD3: Field3 = unsafe { UNION.field3 };
-    //~^ ERROR it is undefined behavior to use this value
+    //~^ ERROR evaluation of constant value failed
+    //~| uninitialized
     FIELD3
+    //~^ ERROR erroneous constant used [E0080]
 }
 
 fn main() {

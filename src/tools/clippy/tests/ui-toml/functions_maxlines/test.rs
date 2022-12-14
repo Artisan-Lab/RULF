@@ -1,4 +1,5 @@
 #![warn(clippy::too_many_lines)]
+#![allow(clippy::let_unit_value)]
 
 // This function should be considered one line.
 fn many_comments_but_one_line_of_code() {
@@ -18,6 +19,20 @@ fn many_comments_but_one_line_of_code() {
 fn too_many_lines() {
     println!("This is bad.");
     println!("This is bad.");
+}
+
+// This should only fail once (#7517).
+async fn async_too_many_lines() {
+    println!("This is bad.");
+    println!("This is bad.");
+}
+
+// This should fail only once, without failing on the closure.
+fn closure_too_many_lines() {
+    let _ = {
+        println!("This is bad.");
+        println!("This is bad.");
+    };
 }
 
 // This should be considered one line.

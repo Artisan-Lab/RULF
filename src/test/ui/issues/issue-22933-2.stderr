@@ -2,10 +2,13 @@ error[E0599]: no variant or associated item named `PIE` found for enum `Deliciou
   --> $DIR/issue-22933-2.rs:4:55
    |
 LL | enum Delicious {
-   | -------------- variant or associated item `PIE` not found here
+   | -------------- variant or associated item `PIE` not found for this enum
 ...
 LL |     ApplePie = Delicious::Apple as isize | Delicious::PIE as isize,
-   |                                                       ^^^ variant or associated item not found in `Delicious`
+   |                                                       ^^^
+   |                                                       |
+   |                                                       variant or associated item not found in `Delicious`
+   |                                                       help: there is a variant with a similar name: `Pie`
 
 error: aborting due to previous error
 

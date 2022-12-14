@@ -1,5 +1,7 @@
 // run-rustfix
 #![allow(unreachable_code)]
+#![allow(dead_code)]
+#![allow(clippy::unnecessary_wraps)]
 
 fn some_func(a: Option<u32>) -> Option<u32> {
     if a.is_none() {
@@ -133,23 +135,136 @@ fn func() -> Option<i32> {
     Some(0)
 }
 
-fn main() {
-    some_func(Some(42));
-    some_func(None);
-    some_other_func(Some(42));
+fn func_returning_result() -> Result<i32, i32> {
+    Ok(1)
+}
 
-    let copy_struct = CopyStruct { opt: Some(54) };
-    copy_struct.func();
+fn result_func(x: Result<i32, i32>) -> Result<i32, i32> {
+    let _ = if let Ok(x) = x { x } else { return x };
 
-    let move_struct = MoveStruct {
-        opt: Some(vec![42, 1337]),
+    if x.is_err() {
+        return x;
+    }
+
+    // No warning
+    let y = if let Ok(x) = x {
+        x
+    } else {
+        return Err(0);
     };
-    move_struct.ref_func();
-    move_struct.clone().mov_func_reuse();
-    move_struct.mov_func_no_use();
 
-    let so = SeemsOption::Some(45);
-    returns_something_similar_to_option(so);
+    // issue #7859
+    // no warning
+    let _ = if let Ok(x) = func_returning_result() {
+        x
+    } else {
+        return Err(0);
+    };
 
-    func();
+    // no warning
+    if func_returning_result().is_err() {
+        return func_returning_result();
+    }
+
+    Ok(y)
+}
+
+// see issue #8019
+pub enum NotOption {
+    None,
+    First,
+    AfterFirst,
+}
+
+fn obj(_: i32) -> Result<(), NotOption> {
+    Err(NotOption::First)
+}
+
+fn f() -> NotOption {
+    if obj(2).is_err() {
+        return NotOption::None;
+    }
+    NotOption::First
+}
+
+fn do_something() {}
+
+fn err_immediate_return() -> Result<i32, i32> {
+    if let Err(err) = func_returning_result() {
+        return Err(err);
+    }
+    Ok(1)
+}
+
+fn err_immediate_return_and_do_something() -> Result<i32, i32> {
+    if let Err(err) = func_returning_result() {
+        return Err(err);
+    }
+    do_something();
+    Ok(1)
+}
+
+// No warning
+fn no_immediate_return() -> Result<i32, i32> {
+    if let Err(err) = func_returning_result() {
+        do_something();
+        return Err(err);
+    }
+    Ok(1)
+}
+
+// No warning
+fn mixed_result_and_option() -> Option<i32> {
+    if let Err(err) = func_returning_result() {
+        return Some(err);
+    }
+    None
+}
+
+// No warning
+fn else_if_check() -> Result<i32, i32> {
+    if true {
+        Ok(1)
+    } else if let Err(e) = func_returning_result() {
+        Err(e)
+    } else {
+        Err(-1)
+    }
+}
+
+// No warning
+#[allow(clippy::manual_map)]
+#[rustfmt::skip]
+fn option_map() -> Option<bool> {
+    if let Some(a) = Some(false) {
+        Some(!a)
+    } else {
+        None
+    }
+}
+
+pub struct PatternedError {
+    flag: bool,
+}
+
+// No warning
+fn pattern() -> Result<(), PatternedError> {
+    let res = Ok(());
+
+    if let Err(err @ PatternedError { flag: true }) = res {
+        return Err(err);
+    }
+
+    res
+}
+
+fn main() {}
+
+// should not lint, `?` operator not available in const context
+const fn issue9175(option: Option<()>) -> Option<()> {
+    if option.is_none() {
+        return None;
+    }
+    //stuff
+    Some(())
 }

@@ -1,5 +1,5 @@
 // run-rustfix
-#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::assertions_on_constants, clippy::equatable_if_let)]
 
 #[rustfmt::skip]
 #[warn(clippy::collapsible_if)]
@@ -147,6 +147,23 @@ fn main() {
     if truth() {
         if let 0 = 1 {
             if truth() {}
+        }
+    }
+
+    // Fix #5962
+    if matches!(true, true) {
+        if matches!(true, true) {}
+    }
+
+    // Issue #9375
+    if matches!(true, true) && truth() {
+        if matches!(true, true) {}
+    }
+
+    if true {
+        #[cfg(not(teehee))]
+        if true {
+            println!("Hello world!");
         }
     }
 }

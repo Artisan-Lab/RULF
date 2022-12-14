@@ -1,6 +1,5 @@
 // error-pattern: reached the recursion limit while auto-dereferencing
-
-#![feature(box_syntax)]
+// compile-flags: -Zdeduplicate-diagnostics=yes
 
 use std::ops::Deref;
 
@@ -17,7 +16,7 @@ impl Deref for Foo {
 pub fn main() {
     let mut x;
     loop {
-        x = box x;
+        x = Box::new(x);
         x.foo;
         x.bar();
     }

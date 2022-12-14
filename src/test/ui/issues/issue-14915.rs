@@ -1,8 +1,6 @@
-#![feature(box_syntax)]
-
 fn main() {
-    let x: Box<isize> = box 0;
+    let x: Box<isize> = Box::new(0);
 
     println!("{}", x + 1);
-    //~^ ERROR cannot add `{integer}` to `std::boxed::Box<isize>`
+    //~^ ERROR cannot add `{integer}` to `Box<isize>`
 }

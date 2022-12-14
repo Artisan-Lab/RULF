@@ -1,14 +1,16 @@
-error[E0621]: explicit lifetime required in the type of `x`
-  --> $DIR/impl-trait-captures.rs:10:25
+error[E0700]: hidden type for `Opaque(DefId(0:13 ~ impl_trait_captures[1afc]::foo::{opaque#0}), [ReStatic, T, ReEarlyBound(0, 'a)])` captures lifetime that does not appear in bounds
+  --> $DIR/impl-trait-captures.rs:11:5
    |
 LL | fn foo<'a, T>(x: &T) -> impl Foo<'a> {
-   |                         ^^^^^^^^^^^^ lifetime `ReEarlyBound(0, 'a)` required
+   |                  -- hidden type `&ReFree(DefId(0:8 ~ impl_trait_captures[1afc]::foo), BrNamed(DefId(0:12 ~ impl_trait_captures[1afc]::foo::'_), '_)) T` captures the anonymous lifetime defined here
+LL |     x
+   |     ^
    |
-help: add explicit lifetime `ReEarlyBound(0, 'a)` to the type of `x`
+help: to declare that `Opaque(DefId(0:13 ~ impl_trait_captures[1afc]::foo::{opaque#0}), [ReEarlyBound(0, 'a), T, ReEarlyBound(2, 'a)])` captures `ReFree(DefId(0:8 ~ impl_trait_captures[1afc]::foo), BrNamed(DefId(0:12 ~ impl_trait_captures[1afc]::foo::'_), '_))`, you can add an explicit `ReFree(DefId(0:8 ~ impl_trait_captures[1afc]::foo), BrNamed(DefId(0:12 ~ impl_trait_captures[1afc]::foo::'_), '_))` lifetime bound
    |
-LL | fn foo<'a, T>(x: &ReEarlyBound(0, 'a) T) -> impl Foo<'a> {
-   |                  ^^^^^^^^^^^^^^^^^^^^^^
+LL | fn foo<'a, T>(x: &T) -> impl Foo<'a> + ReFree(DefId(0:8 ~ impl_trait_captures[1afc]::foo), BrNamed(DefId(0:12 ~ impl_trait_captures[1afc]::foo::'_), '_)) {
+   |                                      ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 error: aborting due to previous error
 
-For more information about this error, try `rustc --explain E0621`.
+For more information about this error, try `rustc --explain E0700`.

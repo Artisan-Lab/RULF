@@ -1,6 +1,4 @@
 // check-pass
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
 
 // This test confirms that the types can be inferred correctly for this example with const
 // generics. Previously this would ICE, and more recently error.

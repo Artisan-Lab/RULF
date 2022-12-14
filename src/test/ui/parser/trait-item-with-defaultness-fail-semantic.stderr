@@ -1,4 +1,4 @@
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:6:5
    |
 LL |     default const A: u8;
@@ -6,7 +6,7 @@ LL |     default const A: u8;
    |     |
    |     `default` because of this
 
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:7:5
    |
 LL |     default const B: u8 = 0;
@@ -14,7 +14,7 @@ LL |     default const B: u8 = 0;
    |     |
    |     `default` because of this
 
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:8:5
    |
 LL |     default type D;
@@ -22,7 +22,7 @@ LL |     default type D;
    |     |
    |     `default` because of this
 
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:9:5
    |
 LL |     default type C: Ord;
@@ -30,7 +30,7 @@ LL |     default type C: Ord;
    |     |
    |     `default` because of this
 
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:10:5
    |
 LL |     default fn f1();
@@ -38,7 +38,7 @@ LL |     default fn f1();
    |     |
    |     `default` because of this
 
-error: `default` is only allowed on items in `impl` definitions
+error: `default` is only allowed on items in trait impls
   --> $DIR/trait-item-with-defaultness-fail-semantic.rs:11:5
    |
 LL |     default fn f2() {}
@@ -52,8 +52,9 @@ warning: the feature `specialization` is incomplete and may not be safe to use a
 LL | #![feature(specialization)]
    |            ^^^^^^^^^^^^^^
    |
-   = note: `#[warn(incomplete_features)]` on by default
    = note: see issue #31844 <https://github.com/rust-lang/rust/issues/31844> for more information
+   = help: consider using `min_specialization` instead, which is more stable and complete
+   = note: `#[warn(incomplete_features)]` on by default
 
 error: aborting due to 6 previous errors; 1 warning emitted
 

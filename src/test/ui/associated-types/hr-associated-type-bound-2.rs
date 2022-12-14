@@ -8,7 +8,7 @@ where
     }
 }
 
-impl X<'_> for u32
+impl X<'_> for u32 //~ overflow evaluating the requirement `for<'b> u32: X<'b>`
 where
     for<'b> <Self as X<'b>>::U: Clone,
 {
@@ -17,5 +17,4 @@ where
 
 fn main() {
     1u32.f("abc");
-    //~^ ERROR no method named `f` found for type `u32` in the current scope
 }

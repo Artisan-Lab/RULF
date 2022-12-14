@@ -1,4 +1,4 @@
-error[E0367]: `Drop` impl requires `T: std::marker::Sized` but the struct it is implemented for does not
+error[E0367]: `Drop` impl requires `T: Sized` but the struct it is implemented for does not
   --> $DIR/issue-17959.rs:11:6
    |
 LL | impl<T> Drop for G<T> {
@@ -7,10 +7,8 @@ LL | impl<T> Drop for G<T> {
 note: the implementor must specify the same requirement
   --> $DIR/issue-17959.rs:7:1
    |
-LL | / struct G<T: ?Sized> {
-LL | |     _ptr: *const T
-LL | | }
-   | |_^
+LL | struct G<T: ?Sized> {
+   | ^^^^^^^^^^^^^^^^^^^
 
 error: aborting due to previous error
 

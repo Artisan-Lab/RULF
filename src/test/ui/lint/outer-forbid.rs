@@ -4,21 +4,29 @@
 // subsequent allowance of a lint group containing it (here, `nonstandard_style`). See
 // Issue #42873.
 
-#![forbid(unused, non_snake_case)]
+// If you turn off deduplicate diagnostics (which rustc turns on by default but
+// compiletest turns off when it runs ui tests), then the errors are
+// (unfortunately) repeated here because the checking is done as we read in the
+// errors, and currently that happens two or three different times, depending on
+// compiler flags.
+//
+// The test is much cleaner if we deduplicate, though.
 
-#[allow(unused_variables)] //~ ERROR overruled
-                           //~| ERROR overruled
-                           //~| ERROR overruled
+// compile-flags: -Z deduplicate-diagnostics=yes
+
+#![forbid(unused, non_snake_case)]
+#![forbid(forbidden_lint_groups)]
+
+#[allow(unused_variables)]
+//~^ ERROR incompatible with previous
+//~| WARNING this was previously accepted by the compiler
 fn foo() {}
 
-#[allow(unused)] //~ ERROR overruled
-                 //~| ERROR overruled
-                 //~| ERROR overruled
+#[allow(unused)] //~ ERROR incompatible with previous
+//~^ WARNING this was previously accepted by the compiler
 fn bar() {}
 
-#[allow(nonstandard_style)] //~ ERROR overruled
-                            //~| ERROR overruled
-                            //~| ERROR overruled
+#[allow(nonstandard_style)] //~ ERROR incompatible with previous
 fn main() {
     println!("hello forbidden world")
 }

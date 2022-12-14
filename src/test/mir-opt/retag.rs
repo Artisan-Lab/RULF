@@ -1,3 +1,4 @@
+// unit-test: AddRetag
 // ignore-wasm32-bare compiled with panic=abort by default
 // ignore-tidy-linelength
 // compile-flags: -Z mir-emit-retag -Z mir-opt-level=0 -Z span_free_formats
@@ -6,8 +7,8 @@
 
 struct Test(i32);
 
-// EMIT_MIR rustc.{{impl}}-foo.SimplifyCfg-elaborate-drops.after.mir
-// EMIT_MIR rustc.{{impl}}-foo_shr.SimplifyCfg-elaborate-drops.after.mir
+// EMIT_MIR retag.{impl#0}-foo.SimplifyCfg-elaborate-drops.after.mir
+// EMIT_MIR retag.{impl#0}-foo_shr.SimplifyCfg-elaborate-drops.after.mir
 impl Test {
     // Make sure we run the pass on a method, not just on bare functions.
     fn foo<'x>(&self, x: &'x mut i32) -> &'x mut i32 {
@@ -18,14 +19,14 @@ impl Test {
     }
 }
 
-// EMIT_MIR rustc.ptr-drop_in_place.Test.SimplifyCfg-make_shim.after.mir
+// EMIT_MIR core.ptr-drop_in_place.Test.SimplifyCfg-make_shim.after.mir
 
 impl Drop for Test {
     fn drop(&mut self) {}
 }
 
-// EMIT_MIR rustc.main.SimplifyCfg-elaborate-drops.after.mir
-// EMIT_MIR rustc.main-{{closure}}.SimplifyCfg-elaborate-drops.after.mir
+// EMIT_MIR retag.main.SimplifyCfg-elaborate-drops.after.mir
+// EMIT_MIR retag.main-{closure#0}.SimplifyCfg-elaborate-drops.after.mir
 fn main() {
     let mut x = 0;
     {
@@ -48,4 +49,18 @@ fn main() {
 
     // escape-to-raw (shr)
     let _w = _w as *const _;
+
+    array_casts();
+}
+
+/// Casting directly to an array should also go through `&raw` and thus add appropriate retags.
+// EMIT_MIR retag.array_casts.SimplifyCfg-elaborate-drops.after.mir
+fn array_casts() {
+    let mut x: [usize; 2] = [0, 0];
+    let p = &mut x as *mut usize;
+    unsafe { *p.add(1) = 1; }
+
+    let x: [usize; 2] = [0, 1];
+    let p = &x as *const usize;
+    assert_eq!(unsafe { *p.add(1) }, 1);
 }

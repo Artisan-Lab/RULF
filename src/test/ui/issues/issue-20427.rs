@@ -4,9 +4,9 @@
 #![allow(unused_imports)]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
+#![allow(deprecated, deprecated_in_future)]
 
 // aux-build:i8.rs
-// ignore-pretty issue #37201
 
 extern crate i8;
 use std::string as i16;

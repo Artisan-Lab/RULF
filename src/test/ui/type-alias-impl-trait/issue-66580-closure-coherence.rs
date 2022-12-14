@@ -10,7 +10,9 @@ fn closure() -> Closure {
     || {}
 }
 
-struct Wrap<T> { f: T }
+struct Wrap<T> {
+    f: T,
+}
 
 impl Wrap<Closure> {}
 

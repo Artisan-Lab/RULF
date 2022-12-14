@@ -1,4 +1,4 @@
-error: unreachable block in `if` expression
+error: unreachable block in `if` or `while` expression
   --> $DIR/expr_if.rs:7:17
    |
 LL |       if {return} {
@@ -7,7 +7,7 @@ LL |       if {return} {
    | |         any code following this expression is unreachable
 LL | |         println!("Hello, world!");
 LL | |     }
-   | |_____^ unreachable block in `if` expression
+   | |_____^ unreachable block in `if` or `while` expression
    |
 note: the lint level is defined here
   --> $DIR/expr_if.rs:4:9
@@ -22,9 +22,9 @@ LL |         return;
    |         ------ any code following this expression is unreachable
 ...
 LL |     println!("But I am.");
-   |     ^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |     ^^^^^^^^^^^^^^^^^^^^^ unreachable statement
    |
-   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `println` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: aborting due to 2 previous errors
 

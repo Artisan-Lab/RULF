@@ -4,10 +4,13 @@ error[E0277]: `?` couldn't convert the error to `()`
 LL | fn a() -> Result<i32, ()> {
    |           --------------- expected `()` because of this
 LL |     Err(5)?;
-   |           ^ the trait `std::convert::From<{integer}>` is not implemented for `()`
+   |           ^ the trait `From<{integer}>` is not implemented for `()`
    |
    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
-   = note: required by `std::convert::From::from`
+   = help: the following other types implement trait `FromResidual<R>`:
+             <Result<T, F> as FromResidual<Result<Infallible, E>>>
+             <Result<T, F> as FromResidual<Yeet<E>>>
+   = note: required for `Result<i32, ()>` to implement `FromResidual<Result<Infallible, {integer}>>`
 
 error: aborting due to previous error
 

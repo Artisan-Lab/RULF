@@ -1,4 +1,6 @@
-use crate::utils::{snippet_with_applicability, span_lint_and_sugg};
+use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::source::snippet_with_applicability;
+use if_chain::if_chain;
 use rustc_ast::ast::{BinOpKind, Expr, ExprKind, LitKind, UnOp};
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass};
@@ -23,7 +25,8 @@ const ALLOWED_ODD_FUNCTIONS: [&str; 14] = [
 ];
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for operations where precedence may be unclear
+    /// ### What it does
+    /// Checks for operations where precedence may be unclear
     /// and suggests to add parentheses. Currently it catches the following:
     /// * mixed usage of arithmetic and bit shifting/combining operators without
     /// parentheses
@@ -31,15 +34,15 @@ declare_clippy_lint! {
     /// numeric literal)
     ///   followed by a method call
     ///
-    /// **Why is this bad?** Not everyone knows the precedence of those operators by
+    /// ### Why is this bad?
+    /// Not everyone knows the precedence of those operators by
     /// heart, so expressions like these may trip others trying to reason about the
     /// code.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
+    /// ### Example
     /// * `1 << 2 + 3` equals 32, while `(1 << 2) + 3` equals 7
     /// * `-1i32.abs()` equals -1, while `(-1i32).abs()` equals 1
+    #[clippy::version = "pre 1.29.0"]
     pub PRECEDENCE,
     complexity,
     "operations where precedence may be unclear"
@@ -102,36 +105,36 @@ impl EarlyLintPass for Precedence {
             }
         }
 
-        if let ExprKind::Unary(UnOp::Neg, ref rhs) = expr.kind {
-            if let ExprKind::MethodCall(ref path_segment, ref args, _) = rhs.kind {
+        if let ExprKind::Unary(UnOp::Neg, operand) = &expr.kind {
+            let mut arg = operand;
+
+            let mut all_odd = true;
+            while let ExprKind::MethodCall(path_segment, receiver, _, _) = &arg.kind {
                 let path_segment_str = path_segment.ident.name.as_str();
-                if let Some(slf) = args.first() {
-                    if let ExprKind::Lit(ref lit) = slf.kind {
-                        match lit.kind {
-                            LitKind::Int(..) | LitKind::Float(..) => {
-                                if ALLOWED_ODD_FUNCTIONS
-                                    .iter()
-                                    .any(|odd_function| **odd_function == *path_segment_str)
-                                {
-                                    return;
-                                }
-                                let mut applicability = Applicability::MachineApplicable;
-                                span_lint_and_sugg(
-                                    cx,
-                                    PRECEDENCE,
-                                    expr.span,
-                                    "unary minus has lower precedence than method call",
-                                    "consider adding parentheses to clarify your intent",
-                                    format!(
-                                        "-({})",
-                                        snippet_with_applicability(cx, rhs.span, "..", &mut applicability)
-                                    ),
-                                    applicability,
-                                );
-                            },
-                            _ => (),
-                        }
-                    }
+                all_odd &= ALLOWED_ODD_FUNCTIONS
+                    .iter()
+                    .any(|odd_function| **odd_function == *path_segment_str);
+                arg = receiver;
+            }
+
+            if_chain! {
+                if !all_odd;
+                if let ExprKind::Lit(lit) = &arg.kind;
+                if let LitKind::Int(..) | LitKind::Float(..) = &lit.kind;
+                then {
+                    let mut applicability = Applicability::MachineApplicable;
+                    span_lint_and_sugg(
+                        cx,
+                        PRECEDENCE,
+                        expr.span,
+                        "unary minus has lower precedence than method call",
+                        "consider adding parentheses to clarify your intent",
+                        format!(
+                            "-({})",
+                            snippet_with_applicability(cx, operand.span, "..", &mut applicability)
+                        ),
+                        applicability,
+                    );
                 }
             }
         }
@@ -148,17 +151,11 @@ fn is_arith_expr(expr: &Expr) -> bool {
 #[must_use]
 fn is_bit_op(op: BinOpKind) -> bool {
     use rustc_ast::ast::BinOpKind::{BitAnd, BitOr, BitXor, Shl, Shr};
-    match op {
-        BitXor | BitAnd | BitOr | Shl | Shr => true,
-        _ => false,
-    }
+    matches!(op, BitXor | BitAnd | BitOr | Shl | Shr)
 }
 
 #[must_use]
 fn is_arith_op(op: BinOpKind) -> bool {
     use rustc_ast::ast::BinOpKind::{Add, Div, Mul, Rem, Sub};
-    match op {
-        Add | Sub | Mul | Div | Rem => true,
-        _ => false,
-    }
+    matches!(op, Add | Sub | Mul | Div | Rem)
 }

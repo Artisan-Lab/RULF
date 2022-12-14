@@ -1,4 +1,5 @@
 // check-pass
+// incremental
 // compile-flags: -Z query-dep-graph
 // edition:2018
 

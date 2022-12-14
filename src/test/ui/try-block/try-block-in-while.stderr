@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `bool: std::ops::Try` is not satisfied
-  --> $DIR/try-block-in-while.rs:6:15
+error[E0277]: a `try` block must return `Result` or `Option` (or another type that implements `Try`)
+  --> $DIR/try-block-in-while.rs:6:17
    |
 LL |     while try { false } {}
-   |               ^^^^^^^^^ the trait `std::ops::Try` is not implemented for `bool`
+   |                 ^^^^^ could not wrap the final value of the block as `bool` doesn't implement `Try`
    |
-   = note: required by `std::ops::Try::from_ok`
+   = help: the trait `Try` is not implemented for `bool`
 
 error: aborting due to previous error
 

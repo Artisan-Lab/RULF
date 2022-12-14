@@ -1,7 +1,8 @@
-// ignore-tidy-linelength
-// We specify -C incremental here because we want to test the partitioning for
+//
+// We specify incremental here because we want to test the partitioning for
 // incremental compilation
-// compile-flags:-Zprint-mono-items=lazy -Cincremental=tmp/partitioning-tests/local-transitive-inlining
+// incremental
+// compile-flags:-Zprint-mono-items=lazy
 // compile-flags:-Zinline-in-all-cgus
 
 #![allow(dead_code)]
@@ -9,7 +10,7 @@
 
 mod inline {
 
-    //~ MONO_ITEM fn local_transitive_inlining::inline[0]::inlined_function[0] @@ local_transitive_inlining-indirect_user[Internal]
+    //~ MONO_ITEM fn inline::inlined_function @@ local_transitive_inlining-indirect_user[Internal]
     #[inline(always)]
     pub fn inlined_function()
     {
@@ -20,7 +21,7 @@ mod inline {
 mod direct_user {
     use super::inline;
 
-    //~ MONO_ITEM fn local_transitive_inlining::direct_user[0]::foo[0] @@ local_transitive_inlining-indirect_user[Internal]
+    //~ MONO_ITEM fn direct_user::foo @@ local_transitive_inlining-indirect_user[Internal]
     #[inline(always)]
     pub fn foo() {
         inline::inlined_function();
@@ -30,7 +31,7 @@ mod direct_user {
 pub mod indirect_user {
     use super::direct_user;
 
-    //~ MONO_ITEM fn local_transitive_inlining::indirect_user[0]::bar[0] @@ local_transitive_inlining-indirect_user[External]
+    //~ MONO_ITEM fn indirect_user::bar @@ local_transitive_inlining-indirect_user[External]
     pub fn bar() {
         direct_user::foo();
     }
@@ -38,7 +39,7 @@ pub mod indirect_user {
 
 pub mod non_user {
 
-    //~ MONO_ITEM fn local_transitive_inlining::non_user[0]::baz[0] @@ local_transitive_inlining-non_user[External]
+    //~ MONO_ITEM fn non_user::baz @@ local_transitive_inlining-non_user[External]
     pub fn baz() {
 
     }

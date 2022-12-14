@@ -12,9 +12,9 @@
 // (instead of running forever), and that it does not print an error
 // message about a broken pipe.
 
-// ignore-cloudabi no subprocesses support
 // ignore-emscripten no threads support
 // ignore-vxworks no 'sh'
+// ignore-fuchsia no 'sh'
 
 use std::process;
 use std::thread;

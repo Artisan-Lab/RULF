@@ -1,13 +1,8 @@
-fn foo<#[derive(Debug)] T>() {
-//~^ ERROR `derive` may only be applied to structs, enums and unions
-//~| ERROR expected an inert attribute, found a derive macro
+fn foo<#[derive(Debug)] T>() { //~ ERROR expected non-macro attribute, found attribute macro
     match 0 {
-        #[derive(Debug)]
-        //~^ ERROR `derive` may only be applied to structs, enums and unions
-        //~| ERROR expected an inert attribute, found a derive macro
+        #[derive(Debug)] //~ ERROR expected non-macro attribute, found attribute macro
         _ => (),
     }
 }
 
-fn main() {
-}
+fn main() {}

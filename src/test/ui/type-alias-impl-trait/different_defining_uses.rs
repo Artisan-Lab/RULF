@@ -9,6 +9,7 @@ fn foo() -> Foo {
     ""
 }
 
-fn bar() -> Foo { //~ ERROR concrete type differs from previous
+fn bar() -> Foo {
     42i32
+    //~^ ERROR concrete type differs from previous
 }

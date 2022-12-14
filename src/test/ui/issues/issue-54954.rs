@@ -1,7 +1,5 @@
-#![feature(const_fn)]
-
 const ARR_LEN: usize = Tt::const_val::<[i8; 123]>();
-//~^ ERROR type annotations needed
+//~^ ERROR E0790
 
 trait Tt {
     const fn const_val<T: Sized>() -> usize {
@@ -11,6 +9,8 @@ trait Tt {
 }
 
 fn f(z: [f32; ARR_LEN]) -> [f32; ARR_LEN] {
+  //~^ ERROR evaluation of constant value failed
+  //~| ERROR evaluation of constant value failed
     z
 }
 

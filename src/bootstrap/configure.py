@@ -31,11 +31,10 @@ def v(*args):
     options.append(Option(*args, value=True))
 
 
-o("debug", "rust.debug", "enables debugging environment; does not affect optimization of bootstrapped code (use `--disable-optimize` for that)")
+o("debug", "rust.debug", "enables debugging environment; does not affect optimization of bootstrapped code")
 o("docs", "build.docs", "build standard library documentation")
 o("compiler-docs", "build.compiler-docs", "build compiler documentation")
 o("optimize-tests", "rust.optimize-tests", "build tests with optimizations")
-o("parallel-compiler", "rust.parallel-compiler", "build a multi-threaded rustc")
 o("verbose-tests", "rust.verbose-tests", "enable verbose output when running tests")
 o("ccache", "llvm.ccache", "invoke gcc/clang via ccache to reuse object files between builds")
 o("sccache", None, "invoke gcc/clang via sccache to reuse object files between builds")
@@ -51,12 +50,13 @@ o("option-checking", None, "complain about unrecognized options in this configur
 o("ninja", "llvm.ninja", "build LLVM using the Ninja generator (for MSVC, requires building in the correct environment)")
 o("locked-deps", "build.locked-deps", "force Cargo.lock to be up to date")
 o("vendor", "build.vendor", "enable usage of vendored Rust crates")
-o("sanitizers", "build.sanitizers", "build the sanitizer runtimes (asan, lsan, msan, tsan)")
+o("sanitizers", "build.sanitizers", "build the sanitizer runtimes (asan, lsan, msan, tsan, hwasan)")
 o("dist-src", "rust.dist-src", "when building tarballs enables building a source tarball")
 o("cargo-native-static", "build.cargo-native-static", "static native libraries in cargo")
 o("profiler", "build.profiler", "build the profiler runtime")
 o("full-tools", None, "enable all tools")
 o("lld", "rust.lld", "build lld")
+o("clang", "llvm.clang", "build clang")
 o("missing-tools", "dist.missing-tools", "allow failures when building tools")
 o("use-libcxx", "llvm.use-libcxx", "build LLVM with libc++")
 o("control-flow-guard", "rust.control-flow-guard", "Enable Control Flow Guard")
@@ -65,14 +65,17 @@ v("llvm-cflags", "llvm.cflags", "build LLVM with these extra compiler flags")
 v("llvm-cxxflags", "llvm.cxxflags", "build LLVM with these extra compiler flags")
 v("llvm-ldflags", "llvm.ldflags", "build LLVM with these extra linker flags")
 
-o("llvm-libunwind", "rust.llvm-libunwind", "use LLVM libunwind")
+v("llvm-libunwind", "rust.llvm-libunwind", "use LLVM libunwind")
 
 # Optimization and debugging options. These may be overridden by the release
 # channel, etc.
-o("optimize", "rust.optimize", "build optimized rust code")
 o("optimize-llvm", "llvm.optimize", "build optimized LLVM")
 o("llvm-assertions", "llvm.assertions", "build LLVM with assertions")
+o("llvm-plugins", "llvm.plugins", "build LLVM with plugin interface")
 o("debug-assertions", "rust.debug-assertions", "build with debugging assertions")
+o("debug-assertions-std", "rust.debug-assertions-std", "build the standard library with debugging assertions")
+o("overflow-checks", "rust.overflow-checks", "build with overflow checks")
+o("overflow-checks-std", "rust.overflow-checks-std", "build the standard library with overflow checks")
 o("llvm-release-debuginfo", "llvm.release-debuginfo", "build LLVM with debugger metadata")
 v("debuginfo-level", "rust.debuginfo-level", "debuginfo level for Rust code")
 v("debuginfo-level-rustc", "rust.debuginfo-level-rustc", "debuginfo level for the compiler")
@@ -146,6 +149,9 @@ v("qemu-riscv64-rootfs", "target.riscv64gc-unknown-linux-gnu.qemu-rootfs",
 v("experimental-targets", "llvm.experimental-targets",
   "experimental LLVM targets to build")
 v("release-channel", "rust.channel", "the name of the release channel to build")
+v("release-description", "rust.description", "optional descriptive string for version output")
+v("dist-compression-formats", None,
+  "comma-separated list of compression formats to use")
 
 # Used on systems where "cc" is unavailable
 v("default-linker", "rust.default-linker", "the default linker")
@@ -153,10 +159,11 @@ v("default-linker", "rust.default-linker", "the default linker")
 # Many of these are saved below during the "writing configuration" step
 # (others are conditionally saved).
 o("manage-submodules", "build.submodules", "let the build manage the git submodules")
-o("full-bootstrap", "build.full-bootstrap", "build three compilers instead of two")
+o("full-bootstrap", "build.full-bootstrap", "build three compilers instead of two (not recommended except for testing reproducible builds)")
 o("extended", "build.extended", "build an extended rust tool set")
 
 v("tools", None, "List of extended tools will be installed")
+v("codegen-backends", None, "List of codegen backends to build")
 v("build", "build.build", "GNUs ./configure syntax LLVM build triple")
 v("host", None, "GNUs ./configure syntax LLVM host triples")
 v("target", None, "GNUs ./configure syntax LLVM target triples")
@@ -266,10 +273,14 @@ config = {}
 def build():
     if 'build' in known_args:
         return known_args['build'][-1][1]
-    return bootstrap.default_build_triple()
+    return bootstrap.default_build_triple(verbose=False)
 
 
 def set(key, value):
+    if isinstance(value, list):
+        # Remove empty values, which value.split(',') tends to generate.
+        value = [v for v in value if v]
+
     s = "{:20} := {}".format(key, value)
     if len(s) < 70:
         p(s)
@@ -336,6 +347,8 @@ for key in known_args:
         set('target.{}.llvm-filecheck'.format(build()), value)
     elif option.name == 'tools':
         set('build.tools', value.split(','))
+    elif option.name == 'codegen-backends':
+        set('rust.codegen-backends', value.split(','))
     elif option.name == 'host':
         set('build.host', value.split(','))
     elif option.name == 'target':
@@ -348,6 +361,8 @@ for key in known_args:
     elif option.name == 'option-checking':
         # this was handled above
         pass
+    elif option.name == 'dist-compression-formats':
+        set('dist.compression-formats', value.split(','))
     else:
         raise RuntimeError("unhandled option {}".format(option.name))
 
@@ -390,7 +405,7 @@ if 'target' in config:
         configured_targets.append(target)
 for target in configured_targets:
     targets[target] = sections['target'][:]
-    targets[target][0] = targets[target][0].replace("x86_64-unknown-linux-gnu", target)
+    targets[target][0] = targets[target][0].replace("x86_64-unknown-linux-gnu", "'{}'".format(target))
 
 
 def is_number(value):
@@ -434,7 +449,12 @@ def configure_section(lines, config):
             lines[i] = "{} = {}".format(key, to_toml(value))
             break
         if not found:
-            raise RuntimeError("failed to find config line for {}".format(key))
+            # These are used by rpm, but aren't accepted by x.py.
+            # Give a warning that they're ignored, but not a hard error.
+            if key in ["infodir", "localstatedir"]:
+                print("warning: {} will be ignored".format(key))
+            else:
+                raise RuntimeError("failed to find config line for {}".format(key))
 
 
 for section_key in config:
@@ -471,4 +491,3 @@ with bootstrap.output('Makefile') as f:
 
 p("")
 p("run `python {}/x.py --help`".format(rust_dir))
-p("")

@@ -1,20 +1,25 @@
-use crate::utils::{
-    get_trait_def_id, if_sequence, implements_trait, parent_node_is_if_expr, paths, span_lint_and_help, SpanlessEq,
-};
+use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::ty::implements_trait;
+use clippy_utils::{if_sequence, in_constant, is_else_clause, SpanlessEq};
 use rustc_hir::{BinOpKind, Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
+use rustc_span::sym;
 
 declare_clippy_lint! {
-    /// **What it does:** Checks comparison chains written with `if` that can be
+    /// ### What it does
+    /// Checks comparison chains written with `if` that can be
     /// rewritten with `match` and `cmp`.
     ///
-    /// **Why is this bad?** `if` is not guaranteed to be exhaustive and conditionals can get
+    /// ### Why is this bad?
+    /// `if` is not guaranteed to be exhaustive and conditionals can get
     /// repetitive
     ///
-    /// **Known problems:** None.
+    /// ### Known problems
+    /// The match statement may be slower due to the compiler
+    /// not inlining the call to cmp. See issue [#5354](https://github.com/rust-lang/rust-clippy/issues/5354)
     ///
-    /// **Example:**
+    /// ### Example
     /// ```rust,ignore
     /// # fn a() {}
     /// # fn b() {}
@@ -30,8 +35,7 @@ declare_clippy_lint! {
     /// }
     /// ```
     ///
-    /// Could be written:
-    ///
+    /// Use instead:
     /// ```rust,ignore
     /// use std::cmp::Ordering;
     /// # fn a() {}
@@ -45,6 +49,7 @@ declare_clippy_lint! {
     ///      }
     /// }
     /// ```
+    #[clippy::version = "1.40.0"]
     pub COMPARISON_CHAIN,
     style,
     "`if`s that can be rewritten with `match` and `cmp`"
@@ -59,7 +64,11 @@ impl<'tcx> LateLintPass<'tcx> for ComparisonChain {
         }
 
         // We only care about the top-most `if` in the chain
-        if parent_node_is_if_expr(expr, cx) {
+        if is_else_clause(cx.tcx, expr) {
+            return;
+        }
+
+        if in_constant(cx, expr.hir_id) {
             return;
         }
 
@@ -70,10 +79,8 @@ impl<'tcx> LateLintPass<'tcx> for ComparisonChain {
         }
 
         for cond in conds.windows(2) {
-            if let (
-                &ExprKind::Binary(ref kind1, ref lhs1, ref rhs1),
-                &ExprKind::Binary(ref kind2, ref lhs2, ref rhs2),
-            ) = (&cond[0].kind, &cond[1].kind)
+            if let (&ExprKind::Binary(ref kind1, lhs1, rhs1), &ExprKind::Binary(ref kind2, lhs2, rhs2)) =
+                (&cond[0].kind, &cond[1].kind)
             {
                 if !kind_is_cmp(kind1.node) || !kind_is_cmp(kind2.node) {
                     return;
@@ -99,8 +106,11 @@ impl<'tcx> LateLintPass<'tcx> for ComparisonChain {
                 }
 
                 // Check that the type being compared implements `core::cmp::Ord`
-                let ty = cx.tables().expr_ty(lhs1);
-                let is_ord = get_trait_def_id(cx, &paths::ORD).map_or(false, |id| implements_trait(cx, ty, id, &[]));
+                let ty = cx.typeck_results().expr_ty(lhs1);
+                let is_ord = cx
+                    .tcx
+                    .get_diagnostic_item(sym::Ord)
+                    .map_or(false, |id| implements_trait(cx, ty, id, &[]));
 
                 if !is_ord {
                     return;
@@ -116,14 +126,11 @@ impl<'tcx> LateLintPass<'tcx> for ComparisonChain {
             expr.span,
             "`if` chain can be rewritten with `match`",
             None,
-            "Consider rewriting the `if` chain to use `cmp` and `match`.",
-        )
+            "consider rewriting the `if` chain to use `cmp` and `match`",
+        );
     }
 }
 
 fn kind_is_cmp(kind: BinOpKind) -> bool {
-    match kind {
-        BinOpKind::Lt | BinOpKind::Gt | BinOpKind::Eq => true,
-        _ => false,
-    }
+    matches!(kind, BinOpKind::Lt | BinOpKind::Gt | BinOpKind::Eq)
 }

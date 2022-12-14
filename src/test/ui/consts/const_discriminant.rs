@@ -3,12 +3,7 @@
 #![allow(dead_code)]
 
 use std::mem::{discriminant, Discriminant};
-
-// `discriminant(const_expr)` may get const-propagated.
-// As we want to check that const-eval is equal to ordinary exection,
-// we wrap `const_expr` with a function which is not const to prevent this.
-#[inline(never)]
-fn identity<T>(x: T) -> T { x }
+use std::hint::black_box;
 
 enum Test {
     A(u8),
@@ -29,12 +24,19 @@ enum SingleVariant {
 
 const TEST_V: Discriminant<SingleVariant> = discriminant(&SingleVariant::V);
 
+pub const TEST_VOID: () = {
+    // This is UB, but CTFE does not check validity so it does not detect this.
+    // This is a regression test for https://github.com/rust-lang/rust/issues/89765.
+    unsafe { std::mem::discriminant(&*(&() as *const () as *const Void)); };
+};
+
+
 fn main() {
     assert_eq!(TEST_A, TEST_A_OTHER);
-    assert_eq!(TEST_A, discriminant(identity(&Test::A(17))));
-    assert_eq!(TEST_B, discriminant(identity(&Test::B)));
+    assert_eq!(TEST_A, discriminant(black_box(&Test::A(17))));
+    assert_eq!(TEST_B, discriminant(black_box(&Test::B)));
     assert_ne!(TEST_A, TEST_B);
-    assert_ne!(TEST_B, discriminant(identity(&Test::C { a: 42, b: 7 })));
+    assert_ne!(TEST_B, discriminant(black_box(&Test::C { a: 42, b: 7 })));
 
-    assert_eq!(TEST_V, discriminant(identity(&SingleVariant::V)));
+    assert_eq!(TEST_V, discriminant(black_box(&SingleVariant::V)));
 }

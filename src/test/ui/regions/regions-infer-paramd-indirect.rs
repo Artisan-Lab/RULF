@@ -20,10 +20,7 @@ impl<'a> SetF<'a> for C<'a> {
 
     fn set_f_bad(&mut self, b: Box<B>) {
         self.f = b;
-        //~^ ERROR mismatched types
-        //~| expected struct `std::boxed::Box<std::boxed::Box<&'a isize>>`
-        //~| found struct `std::boxed::Box<std::boxed::Box<&isize>>`
-        //~| lifetime mismatch
+        //~^ ERROR lifetime may not live long enough
     }
 }
 

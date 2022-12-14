@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:22.04
 
 COPY scripts/android-base-apt-get.sh /scripts/
 RUN sh /scripts/android-base-apt-get.sh
@@ -9,6 +9,8 @@ RUN . /scripts/android-ndk.sh && \
     download_ndk android-ndk-r15c-linux-x86_64.zip && \
     make_standalone_toolchain arm 14 && \
     make_standalone_toolchain x86 14 && \
+    make_standalone_toolchain arm 21 && \
+    make_standalone_toolchain x86 21 && \
     make_standalone_toolchain arm64 21 && \
     make_standalone_toolchain x86_64 21 && \
     remove_ndk
@@ -32,7 +34,7 @@ ENV RUST_CONFIGURE_ARGS \
       --x86_64-linux-android-ndk=/android/ndk/x86_64-21 \
       --disable-docs
 
-ENV SCRIPT python3 ../x.py dist --target $TARGETS
+ENV SCRIPT python3 ../x.py dist --host='' --target $TARGETS
 
 COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh

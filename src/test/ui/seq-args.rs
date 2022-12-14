@@ -1,11 +1,13 @@
 fn main() {
-trait Seq { }
+    trait Seq { }
 
-impl<T> Seq<T> for Vec<T> { //~ ERROR wrong number of type arguments
-    /* ... */
-}
-impl Seq<bool> for u32 { //~ ERROR wrong number of type arguments
-   /* Treat the integer as a sequence of bits */
-}
+    impl<T> Seq<T> for Vec<T> {
+        //~^ ERROR this trait takes 0 generic arguments but 1 generic argument
+        /* ... */
+    }
 
+    impl Seq<bool> for u32 {
+        //~^ ERROR this trait takes 0 generic arguments but 1 generic argument
+        /* Treat the integer as a sequence of bits */
+    }
 }

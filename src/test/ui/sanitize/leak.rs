@@ -6,8 +6,6 @@
 // run-fail
 // error-pattern: LeakSanitizer: detected memory leaks
 
-#![feature(test)]
-
 use std::hint::black_box;
 use std::mem;
 

@@ -1,8 +1,8 @@
 error: proc macro panicked
-  --> $DIR/invalid-punct-ident-2.rs:16:1
+  --> $DIR/invalid-punct-ident-2.rs:7:1
    |
 LL | invalid_ident!();
-   | ^^^^^^^^^^^^^^^^^
+   | ^^^^^^^^^^^^^^^^
    |
    = help: message: `"*"` is not a valid identifier
 

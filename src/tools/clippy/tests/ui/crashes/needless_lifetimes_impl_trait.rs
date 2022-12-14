@@ -1,11 +1,9 @@
-// run-pass
-
 #![deny(clippy::needless_lifetimes)]
 #![allow(dead_code)]
 
 trait Foo {}
 
-struct Bar {}
+struct Bar;
 
 struct Baz<'a> {
     bar: &'a Bar,

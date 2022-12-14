@@ -1,8 +1,4 @@
 // check-pass
-
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 struct Foo<const D: usize> {
     state: Option<[u8; D]>,
 }

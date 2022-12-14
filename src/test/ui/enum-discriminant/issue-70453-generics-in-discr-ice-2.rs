@@ -1,4 +1,4 @@
-#![feature(arbitrary_enum_discriminant, core_intrinsics)]
+#![feature(core_intrinsics)]
 
 extern crate core;
 use core::intrinsics::discriminant_value;
@@ -7,7 +7,7 @@ use core::intrinsics::discriminant_value;
 enum MyWeirdOption<T> {
     None = 0,
     Some(T) = std::mem::size_of::<T>(),
-    //~^ ERROR constant expression depends on a generic parameter
+    //~^ ERROR generic parameters may not be used in const operations
 }
 
 fn main() {

@@ -42,11 +42,25 @@ mod a {
     mod b {
         #[allow(dead_code)]
         #[allow(unreachable_pub)]
-        pub struct C {}
+        pub struct C;
     }
 
     #[allow(unreachable_pub)]
     pub use self::b::C;
+}
+
+// don't lint on clippy::wildcard_imports for `use` items
+#[allow(clippy::wildcard_imports)]
+pub use std::io::prelude::*;
+
+// don't lint on clippy::enum_glob_use for `use` items
+#[allow(clippy::enum_glob_use)]
+pub use std::cmp::Ordering::*;
+
+// don't lint on clippy::redundant_pub_crate
+mod c {
+    #[allow(clippy::redundant_pub_crate)]
+    pub(crate) struct S;
 }
 
 fn test_indented_attr() {

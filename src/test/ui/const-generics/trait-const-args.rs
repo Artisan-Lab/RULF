@@ -1,6 +1,4 @@
 // check-pass
-#![allow(incomplete_features)]
-#![feature(const_generics)]
 
 struct Const<const N: usize>;
 trait Foo<const N: usize> {}

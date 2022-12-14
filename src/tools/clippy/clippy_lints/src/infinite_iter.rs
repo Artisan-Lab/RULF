@@ -1,42 +1,50 @@
-use rustc_hir::{BorrowKind, Expr, ExprKind};
+use clippy_utils::diagnostics::span_lint;
+use clippy_utils::higher;
+use clippy_utils::ty::{implements_trait, is_type_diagnostic_item};
+use rustc_hir::{BorrowKind, Closure, Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
-
-use crate::utils::{get_trait_def_id, higher, implements_trait, match_qpath, match_type, paths, span_lint};
+use rustc_span::symbol::{sym, Symbol};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for iteration that is guaranteed to be infinite.
+    /// ### What it does
+    /// Checks for iteration that is guaranteed to be infinite.
     ///
-    /// **Why is this bad?** While there may be places where this is acceptable
+    /// ### Why is this bad?
+    /// While there may be places where this is acceptable
     /// (e.g., in event streams), in most cases this is simply an error.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
+    /// ### Example
     /// ```no_run
     /// use std::iter;
     ///
     /// iter::repeat(1_u8).collect::<Vec<_>>();
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub INFINITE_ITER,
     correctness,
     "infinite iteration"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for iteration that may be infinite.
+    /// ### What it does
+    /// Checks for iteration that may be infinite.
     ///
-    /// **Why is this bad?** While there may be places where this is acceptable
+    /// ### Why is this bad?
+    /// While there may be places where this is acceptable
     /// (e.g., in event streams), in most cases this is simply an error.
     ///
-    /// **Known problems:** The code may have a condition to stop iteration, but
+    /// ### Known problems
+    /// The code may have a condition to stop iteration, but
     /// this lint is not clever enough to analyze it.
     ///
-    /// **Example:**
+    /// ### Example
     /// ```rust
     /// let infinite_iter = 0..;
+    /// # #[allow(unused)]
     /// [0..].iter().zip(infinite_iter.take_while(|x| *x > 5));
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub MAYBE_INFINITE_ITER,
     pedantic,
     "possible infinite iteration"
@@ -53,7 +61,7 @@ impl<'tcx> LateLintPass<'tcx> for InfiniteIter {
                 return;
             },
         };
-        span_lint(cx, lint, expr.span, msg)
+        span_lint(cx, lint, expr.span, msg);
     }
 }
 
@@ -89,11 +97,7 @@ impl Finiteness {
 impl From<bool> for Finiteness {
     #[must_use]
     fn from(b: bool) -> Self {
-        if b {
-            Infinite
-        } else {
-            Finite
-        }
+        if b { Infinite } else { Finite }
     }
 }
 
@@ -119,59 +123,62 @@ use self::Heuristic::{All, Always, Any, First};
 /// is an upper bound, e.g., some methods can return a possibly
 /// infinite iterator at worst, e.g., `take_while`.
 const HEURISTICS: [(&str, usize, Heuristic, Finiteness); 19] = [
-    ("zip", 2, All, Infinite),
-    ("chain", 2, Any, Infinite),
-    ("cycle", 1, Always, Infinite),
-    ("map", 2, First, Infinite),
-    ("by_ref", 1, First, Infinite),
-    ("cloned", 1, First, Infinite),
-    ("rev", 1, First, Infinite),
-    ("inspect", 1, First, Infinite),
-    ("enumerate", 1, First, Infinite),
-    ("peekable", 2, First, Infinite),
-    ("fuse", 1, First, Infinite),
-    ("skip", 2, First, Infinite),
-    ("skip_while", 1, First, Infinite),
-    ("filter", 2, First, Infinite),
-    ("filter_map", 2, First, Infinite),
-    ("flat_map", 2, First, Infinite),
-    ("unzip", 1, First, Infinite),
-    ("take_while", 2, First, MaybeInfinite),
-    ("scan", 3, First, MaybeInfinite),
+    ("zip", 1, All, Infinite),
+    ("chain", 1, Any, Infinite),
+    ("cycle", 0, Always, Infinite),
+    ("map", 1, First, Infinite),
+    ("by_ref", 0, First, Infinite),
+    ("cloned", 0, First, Infinite),
+    ("rev", 0, First, Infinite),
+    ("inspect", 0, First, Infinite),
+    ("enumerate", 0, First, Infinite),
+    ("peekable", 1, First, Infinite),
+    ("fuse", 0, First, Infinite),
+    ("skip", 1, First, Infinite),
+    ("skip_while", 0, First, Infinite),
+    ("filter", 1, First, Infinite),
+    ("filter_map", 1, First, Infinite),
+    ("flat_map", 1, First, Infinite),
+    ("unzip", 0, First, Infinite),
+    ("take_while", 1, First, MaybeInfinite),
+    ("scan", 2, First, MaybeInfinite),
 ];
 
 fn is_infinite(cx: &LateContext<'_>, expr: &Expr<'_>) -> Finiteness {
     match expr.kind {
-        ExprKind::MethodCall(ref method, _, ref args, _) => {
+        ExprKind::MethodCall(method, receiver, args, _) => {
             for &(name, len, heuristic, cap) in &HEURISTICS {
                 if method.ident.name.as_str() == name && args.len() == len {
                     return (match heuristic {
                         Always => Infinite,
-                        First => is_infinite(cx, &args[0]),
-                        Any => is_infinite(cx, &args[0]).or(is_infinite(cx, &args[1])),
-                        All => is_infinite(cx, &args[0]).and(is_infinite(cx, &args[1])),
+                        First => is_infinite(cx, receiver),
+                        Any => is_infinite(cx, receiver).or(is_infinite(cx, &args[0])),
+                        All => is_infinite(cx, receiver).and(is_infinite(cx, &args[0])),
                     })
                     .and(cap);
                 }
             }
-            if method.ident.name == sym!(flat_map) && args.len() == 2 {
-                if let ExprKind::Closure(_, _, body_id, _, _) = args[1].kind {
-                    let body = cx.tcx.hir().body(body_id);
-                    return is_infinite(cx, &body.value);
+            if method.ident.name == sym!(flat_map) && args.len() == 1 {
+                if let ExprKind::Closure(&Closure { body, .. }) = args[0].kind {
+                    let body = cx.tcx.hir().body(body);
+                    return is_infinite(cx, body.value);
                 }
             }
             Finite
         },
-        ExprKind::Block(ref block, _) => block.expr.as_ref().map_or(Finite, |e| is_infinite(cx, e)),
-        ExprKind::Box(ref e) | ExprKind::AddrOf(BorrowKind::Ref, _, ref e) => is_infinite(cx, e),
-        ExprKind::Call(ref path, _) => {
+        ExprKind::Block(block, _) => block.expr.as_ref().map_or(Finite, |e| is_infinite(cx, e)),
+        ExprKind::Box(e) | ExprKind::AddrOf(BorrowKind::Ref, _, e) => is_infinite(cx, e),
+        ExprKind::Call(path, _) => {
             if let ExprKind::Path(ref qpath) = path.kind {
-                match_qpath(qpath, &paths::REPEAT).into()
+                cx.qpath_res(qpath, path.hir_id)
+                    .opt_def_id()
+                    .map_or(false, |id| cx.tcx.is_diagnostic_item(sym::iter_repeat, id))
+                    .into()
             } else {
                 Finite
             }
         },
-        ExprKind::Struct(..) => higher::range(cx, expr).map_or(false, |r| r.end.is_none()).into(),
+        ExprKind::Struct(..) => higher::Range::hir(expr).map_or(false, |r| r.end.is_none()).into(),
         _ => Finite,
     }
 }
@@ -179,71 +186,77 @@ fn is_infinite(cx: &LateContext<'_>, expr: &Expr<'_>) -> Finiteness {
 /// the names and argument lengths of methods that *may* exhaust their
 /// iterators
 const POSSIBLY_COMPLETING_METHODS: [(&str, usize); 6] = [
-    ("find", 2),
-    ("rfind", 2),
-    ("position", 2),
-    ("rposition", 2),
-    ("any", 2),
-    ("all", 2),
+    ("find", 1),
+    ("rfind", 1),
+    ("position", 1),
+    ("rposition", 1),
+    ("any", 1),
+    ("all", 1),
 ];
 
 /// the names and argument lengths of methods that *always* exhaust
 /// their iterators
 const COMPLETING_METHODS: [(&str, usize); 12] = [
-    ("count", 1),
-    ("fold", 3),
-    ("for_each", 2),
-    ("partition", 2),
-    ("max", 1),
-    ("max_by", 2),
-    ("max_by_key", 2),
-    ("min", 1),
-    ("min_by", 2),
-    ("min_by_key", 2),
-    ("sum", 1),
-    ("product", 1),
+    ("count", 0),
+    ("fold", 2),
+    ("for_each", 1),
+    ("partition", 1),
+    ("max", 0),
+    ("max_by", 1),
+    ("max_by_key", 1),
+    ("min", 0),
+    ("min_by", 1),
+    ("min_by_key", 1),
+    ("sum", 0),
+    ("product", 0),
 ];
 
 /// the paths of types that are known to be infinitely allocating
-const INFINITE_COLLECTORS: [&[&str]; 8] = [
-    &paths::BINARY_HEAP,
-    &paths::BTREEMAP,
-    &paths::BTREESET,
-    &paths::HASHMAP,
-    &paths::HASHSET,
-    &paths::LINKED_LIST,
-    &paths::VEC,
-    &paths::VEC_DEQUE,
+const INFINITE_COLLECTORS: &[Symbol] = &[
+    sym::BinaryHeap,
+    sym::BTreeMap,
+    sym::BTreeSet,
+    sym::HashMap,
+    sym::HashSet,
+    sym::LinkedList,
+    sym::Vec,
+    sym::VecDeque,
 ];
 
 fn complete_infinite_iter(cx: &LateContext<'_>, expr: &Expr<'_>) -> Finiteness {
     match expr.kind {
-        ExprKind::MethodCall(ref method, _, ref args, _) => {
+        ExprKind::MethodCall(method, receiver, args, _) => {
             for &(name, len) in &COMPLETING_METHODS {
                 if method.ident.name.as_str() == name && args.len() == len {
-                    return is_infinite(cx, &args[0]);
+                    return is_infinite(cx, receiver);
                 }
             }
             for &(name, len) in &POSSIBLY_COMPLETING_METHODS {
                 if method.ident.name.as_str() == name && args.len() == len {
-                    return MaybeInfinite.and(is_infinite(cx, &args[0]));
+                    return MaybeInfinite.and(is_infinite(cx, receiver));
                 }
             }
-            if method.ident.name == sym!(last) && args.len() == 1 {
-                let not_double_ended = get_trait_def_id(cx, &paths::DOUBLE_ENDED_ITERATOR).map_or(false, |id| {
-                    !implements_trait(cx, cx.tables().expr_ty(&args[0]), id, &[])
-                });
+            if method.ident.name == sym!(last) && args.is_empty() {
+                let not_double_ended = cx
+                    .tcx
+                    .get_diagnostic_item(sym::DoubleEndedIterator)
+                    .map_or(false, |id| {
+                        !implements_trait(cx, cx.typeck_results().expr_ty(receiver), id, &[])
+                    });
                 if not_double_ended {
-                    return is_infinite(cx, &args[0]);
+                    return is_infinite(cx, receiver);
                 }
             } else if method.ident.name == sym!(collect) {
-                let ty = cx.tables().expr_ty(expr);
-                if INFINITE_COLLECTORS.iter().any(|path| match_type(cx, ty, path)) {
-                    return is_infinite(cx, &args[0]);
+                let ty = cx.typeck_results().expr_ty(expr);
+                if INFINITE_COLLECTORS
+                    .iter()
+                    .any(|diag_item| is_type_diagnostic_item(cx, ty, *diag_item))
+                {
+                    return is_infinite(cx, receiver);
                 }
             }
         },
-        ExprKind::Binary(op, ref l, ref r) => {
+        ExprKind::Binary(op, l, r) => {
             if op.node.is_comparison() {
                 return is_infinite(cx, l).and(is_infinite(cx, r)).and(MaybeInfinite);
             }

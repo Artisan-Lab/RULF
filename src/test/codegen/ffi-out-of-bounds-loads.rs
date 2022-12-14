@@ -11,14 +11,14 @@ struct S {
     f3: i32,
 }
 
-extern {
+extern "C" {
     fn foo(s: S);
 }
 
 fn main() {
     let s = S { f1: 1, f2: 2, f3: 3 };
     unsafe {
-        // CHECK: load { i64, i32 }, { i64, i32 }* {{.*}}, align 4
+        // CHECK: load { i64, i32 }, {{.*}}, align 4
         // CHECK: call void @foo({ i64, i32 } {{.*}})
         foo(s);
     }

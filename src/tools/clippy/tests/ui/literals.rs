@@ -2,8 +2,9 @@
 
 #![warn(clippy::mixed_case_hex_literals)]
 #![warn(clippy::zero_prefixed_literal)]
-#![allow(clippy::unseparated_literal_suffix)]
-#![allow(dead_code)]
+#![warn(clippy::unseparated_literal_suffix)]
+#![warn(clippy::separated_literal_suffix)]
+#![allow(dead_code, overflowing_literals)]
 
 fn main() {
     let ok1 = 0xABCD;
@@ -33,4 +34,16 @@ fn main() {
     let fail19 = 12_3456_21;
     let fail22 = 3__4___23;
     let fail23 = 3__16___23;
+
+    let fail24 = 0xAB_ABC_AB;
+    let fail25 = 0b01_100_101;
+    let ok26 = 0x6_A0_BF;
+    let ok27 = 0b1_0010_0101;
+}
+
+fn issue9651() {
+    // lint but octal form is not possible here
+    let _ = 08;
+    let _ = 09;
+    let _ = 089;
 }

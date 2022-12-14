@@ -1,8 +1,7 @@
 # needs-sanitizer-support
 # needs-sanitizer-address
-# only-linux
 
--include ../tools.mk
+include ../tools.mk
 
 # This test first builds a staticlib with AddressSanitizer and checks that
 # linking it to an executable fails due to the missing sanitizer runtime.

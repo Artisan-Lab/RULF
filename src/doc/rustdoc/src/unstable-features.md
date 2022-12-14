@@ -22,7 +22,7 @@ As detailed in [the chapter on documentation tests][doctest-attributes], you can
 nightly, you can optionally add an error number to state that a doctest should emit a specific error
 number:
 
-[doctest-attributes]: documentation-tests.html#attributes
+[doctest-attributes]: write-documentation/documentation-tests.html#attributes
 
 ``````markdown
 ```compile_fail,E0044
@@ -38,90 +38,23 @@ future.
 Attempting to use these error numbers on stable will result in the code sample being interpreted as
 plain text.
 
-### Linking to items by name
-
-Rustdoc is capable of directly linking to other rustdoc pages in Markdown documentation using the path of item as a link.
-
-For example, in the following code all of the links will link to the rustdoc page for `Bar`:
-
-```rust
-/// This struct is not [Bar]
-pub struct Foo1;
-
-/// This struct is also not [bar](Bar)
-pub struct Foo2;
-
-/// This struct is also not [bar][b]
-///
-/// [b]: Bar
-pub struct Foo3;
-
-/// This struct is also not [`Bar`]
-pub struct Foo4;
-
-pub struct Bar;
-```
-
-You can refer to anything in scope, and use paths, including `Self`. You may also use `foo()` and `foo!()` to refer to methods/functions and macros respectively.
-
-```rust,edition2018
-use std::sync::mpsc::Receiver;
-
-/// This is an version of [`Receiver`], with support for [`std::future`].
-///
-/// You can obtain a [`std::future::Future`] by calling [`Self::recv()`].
-pub struct AsyncReceiver<T> {
-    sender: Receiver<T>
-}
-
-impl<T> AsyncReceiver<T> {
-    pub async fn recv() -> T {
-        unimplemented!()
-    }
-}
-```
-
-Paths in Rust have three namespaces: type, value, and macro. Items from these namespaces are allowed to overlap. In case of ambiguity, rustdoc will warn about the ambiguity and ask you to disambiguate, which can be done by using a prefix like `struct@`, `enum@`, `type@`, `trait@`, `union@`, `const@`, `static@`, `value@`, `function@`, `mod@`, `fn@`, `module@`, `method@` , `macro@`, or `derive@`:
-
-```rust
-/// See also: [`Foo`](struct@Foo)
-struct Bar;
-
-/// This is different from [`Foo`](fn@Foo)
-struct Foo {}
-
-fn Foo() {}
-```
-
-Note: Because of how `macro_rules` macros are scoped in Rust, the intra-doc links of a `macro_rules` macro will be resolved relative to the crate root, as opposed to the module it is defined in.
-
 ## Extensions to the `#[doc]` attribute
 
 These features operate by extending the `#[doc]` attribute, and thus can be caught by the compiler
 and enabled with a `#![feature(...)]` attribute in your crate.
 
-### Documenting platform-/feature-specific information
+### `#[doc(cfg)]`: Recording what platforms or features are required for code to be present
 
-Because of the way Rustdoc documents a crate, the documentation it creates is specific to the target
-rustc compiles for. Anything that's specific to any other target is dropped via `#[cfg]` attribute
-processing early in the compilation process. However, Rustdoc has a trick up its sleeve to handle
-platform-specific code if it *does* receive it.
+ * Tracking issue: [#43781](https://github.com/rust-lang/rust/issues/43781)
 
-Because Rustdoc doesn't need to fully compile a crate to binary, it replaces function bodies with
-`loop {}` to prevent having to process more than necessary. This means that any code within a
-function that requires platform-specific pieces is ignored. Combined with a special attribute,
-`#[doc(cfg(...))]`, you can tell Rustdoc exactly which platform something is supposed to run on,
-ensuring that doctests are only run on the appropriate platforms.
+You can use `#[doc(cfg(...))]` to tell Rustdoc exactly which platform items appear on.
+This has two effects:
 
-The `#[doc(cfg(...))]` attribute has another effect: When Rustdoc renders documentation for that
-item, it will be accompanied by a banner explaining that the item is only available on certain
-platforms.
+1. doctests will only run on the appropriate platforms, and
+2. When Rustdoc renders documentation for that item, it will be accompanied by a banner explaining
+   that the item is only available on certain platforms.
 
-For Rustdoc to document an item, it needs to see it, regardless of what platform it's currently
-running on. To aid this, Rustdoc sets the flag `#[cfg(doc)]` when running on your crate.
-Combining this with the target platform of a given item allows it to appear when building your crate
-normally on that platform, as well as when building documentation anywhere.
-
+`#[doc(cfg)]` is intended to be used alongside [`#[cfg(doc)]`][cfg-doc].
 For example, `#[cfg(any(windows, doc))]` will preserve the item either on Windows or during the
 documentation process. Then, adding a new attribute `#[doc(cfg(windows))]` will tell Rustdoc that
 the item is supposed to be used on Windows. For example:
@@ -138,6 +71,12 @@ pub struct WindowsToken;
 #[cfg(any(unix, doc))]
 #[doc(cfg(unix))]
 pub struct UnixToken;
+
+/// Token struct that is only available with the `serde` feature
+#[cfg(feature = "serde")]
+#[doc(cfg(feature = "serde"))]
+#[derive(serde::Deserialize)]
+pub struct SerdeToken;
 ```
 
 In this sample, the tokens will only appear on their respective platforms, but they will both appear
@@ -147,10 +86,73 @@ in documentation.
 `#![feature(doc_cfg)]` feature gate. For more information, see [its chapter in the Unstable
 Book][unstable-doc-cfg] and [its tracking issue][issue-doc-cfg].
 
+### `doc_auto_cfg`: Automatically generate `#[doc(cfg)]`
+
+ * Tracking issue: [#43781](https://github.com/rust-lang/rust/issues/43781)
+
+`doc_auto_cfg` is an extension to the `#[doc(cfg)]` feature. With it, you don't need to add
+`#[doc(cfg(...)]` anymore unless you want to override the default behaviour. So if we take the
+previous source code:
+
+```rust
+#![feature(doc_auto_cfg)]
+
+/// Token struct that can only be used on Windows.
+#[cfg(any(windows, doc))]
+pub struct WindowsToken;
+
+/// Token struct that can only be used on Unix.
+#[cfg(any(unix, doc))]
+pub struct UnixToken;
+
+/// Token struct that is only available with the `serde` feature
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+pub struct SerdeToken;
+```
+
+It'll render almost the same, the difference being that `doc` will also be displayed. To fix this,
+you can use `doc_cfg_hide`:
+
+```rust
+#![feature(doc_cfg_hide)]
+#![doc(cfg_hide(doc))]
+```
+
+And `doc` won't show up anymore!
+
+[cfg-doc]: ./advanced-features.md
 [unstable-doc-cfg]: ../unstable-book/language-features/doc-cfg.html
 [issue-doc-cfg]: https://github.com/rust-lang/rust/issues/43781
 
+### Adding your trait to the "Notable traits" dialog
+
+ * Tracking issue: [#45040](https://github.com/rust-lang/rust/issues/45040)
+
+Rustdoc keeps a list of a few traits that are believed to be "fundamental" to
+types that implement them. These traits are intended to be the primary interface
+for their implementers, and are often most of the API available to be documented
+on their types. For this reason, Rustdoc will track when a given type implements
+one of these traits and call special attention to it when a function returns one
+of these types. This is the "Notable traits" dialog, accessible as a circled `i`
+button next to the function, which, when clicked, shows the dialog.
+
+In the standard library, some of the traits that are part of this list are
+`Iterator`, `Future`, `io::Read`, and `io::Write`. However, rather than being
+implemented as a hard-coded list, these traits have a special marker attribute
+on them: `#[doc(notable_trait)]`. This means that you can apply this attribute
+to your own trait to include it in the "Notable traits" dialog in documentation.
+
+The `#[doc(notable_trait)]` attribute currently requires the `#![feature(doc_notable_trait)]`
+feature gate. For more information, see [its chapter in the Unstable Book][unstable-notable_trait]
+and [its tracking issue][issue-notable_trait].
+
+[unstable-notable_trait]: ../unstable-book/language-features/doc-notable-trait.html
+[issue-notable_trait]: https://github.com/rust-lang/rust/issues/45040
+
 ### Exclude certain dependencies from documentation
+
+ * Tracking issue: [#44027](https://github.com/rust-lang/rust/issues/44027)
 
 The standard library uses several dependencies which, in turn, use several types and traits from the
 standard library. In addition, there are several compiler-internal crates that are not considered to
@@ -170,37 +172,59 @@ Book][unstable-masked] and [its tracking issue][issue-masked].
 [unstable-masked]: ../unstable-book/language-features/doc-masked.html
 [issue-masked]: https://github.com/rust-lang/rust/issues/44027
 
-### Include external files as API documentation
+### Document primitives
 
-As designed in [RFC 1990], Rustdoc can read an external file to use as a type's documentation. This
-is useful if certain documentation is so long that it would break the flow of reading the source.
-Instead of writing it all inline, writing `#[doc(include = "sometype.md")]` will ask Rustdoc to
-instead read that file and use it as if it were written inline.
+This is for Rust compiler internal use only.
 
-[RFC 1990]: https://github.com/rust-lang/rfcs/pull/1990
+Since primitive types are defined in the compiler, there's no place to attach documentation
+attributes. The `#[doc(primitive)]` attribute is used by the standard library to provide a way
+to generate documentation for primitive types, and requires `#![feature(rustdoc_internals)]` to
+enable.
 
-`#[doc(include = "...")]` currently requires the `#![feature(external_doc)]` feature gate. For more
-information, see [its chapter in the Unstable Book][unstable-include] and [its tracking
-issue][issue-include].
+### Document keywords
 
-[unstable-include]: ../unstable-book/language-features/external-doc.html
-[issue-include]: https://github.com/rust-lang/rust/issues/44732
+This is for Rust compiler internal use only.
 
-### Add aliases for an item in documentation search
+Rust keywords are documented in the standard library (look for `match` for example).
 
-This feature allows you to add alias(es) to an item when using the `rustdoc` search through the
-`doc(alias)` attribute. Example:
+To do so, the `#[doc(keyword = "...")]` attribute is used. Example:
 
-```rust,no_run
-#![feature(doc_alias)]
+```rust
+#![feature(rustdoc_internals)]
 
-#[doc(alias = "x")]
-#[doc(alias = "big")]
-pub struct BigX;
+/// Some documentation about the keyword.
+#[doc(keyword = "keyword")]
+mod empty_mod {}
 ```
 
-Then, when looking for it through the `rustdoc` search, if you enter "x" or
-"big", search will show the `BigX` struct first.
+## Effects of other nightly features
+
+These nightly-only features are not primarily related to Rustdoc,
+but have convenient effects on the documentation produced.
+
+### `fundamental` types
+
+Annotating a type with `#[fundamental]` primarily influences coherence rules about generic types,
+i.e., they alter whether other crates can provide implementations for that type.
+The unstable book [links to further information][unstable-fundamental].
+
+[unstable-fundamental]: https://doc.rust-lang.org/unstable-book/language-features/fundamental.html
+
+For documentation, this has an additional side effect:
+If a method is implemented on `F<T>` (or `F<&T>`),
+where `F` is a fundamental type,
+then the method is not only documented at the page about `F`,
+but also on the page about `T`.
+In a sense, it makes the type transparent to Rustdoc.
+This is especially convenient for types that work as annotated pointers,
+such as `Pin<&mut T>`,
+as it ensures that methods only implemented through those annotated pointers
+can still be found with the type they act on.
+
+If the `fundamental` feature's effect on coherence is not intended,
+such a type can be marked as fundamental only for purposes of documentation
+by introducing a custom feature and
+limiting the use of `fundamental` to when documentation is built.
 
 ## Unstable command-line arguments
 
@@ -210,6 +234,8 @@ the flag in question to Rustdoc on the command-line. To do this from Cargo, you 
 `RUSTDOCFLAGS` environment variable or the `cargo rustdoc` command.
 
 ### `--markdown-before-content`: include rendered Markdown before the content
+
+ * Tracking issue: [#44027](https://github.com/rust-lang/rust/issues/44027)
 
 Using this flag looks like this:
 
@@ -253,7 +279,7 @@ attribute][doc-playground]. Please be aware that the official Rust Playground at
 https://play.rust-lang.org does not have every crate available, so if your examples require your
 crate, make sure the playground you provide has your crate available.
 
-[doc-playground]: the-doc-attribute.html#html_playground_url
+[doc-playground]: write-documentation/the-doc-attribute.html#html_playground_url
 
 If both `--playground-url` and `--markdown-playground-url` are present when rendering a standalone
 Markdown file, the URL given to `--markdown-playground-url` will take precedence. If both
@@ -273,7 +299,25 @@ some consideration for their stability, and names that end in a number). Giving 
 `rustdoc` will disable this sorting and instead make it print the items in the order they appear in
 the source.
 
+### `--show-type-layout`: add a section to each type's docs describing its memory layout
+
+Using this flag looks like this:
+
+```bash
+$ rustdoc src/lib.rs -Z unstable-options --show-type-layout
+```
+
+When this flag is passed, rustdoc will add a "Layout" section at the bottom of
+each type's docs page that includes a summary of the type's memory layout as
+computed by rustc. For example, rustdoc will show the size in bytes that a value
+of that type will take in memory.
+
+Note that most layout information is **completely unstable** and may even differ
+between compilations.
+
 ### `--resource-suffix`: modifying the name of CSS/JavaScript in crate docs
+
+ * Tracking issue: [#54765](https://github.com/rust-lang/rust/issues/54765)
 
 Using this flag looks like this:
 
@@ -285,22 +329,6 @@ When rendering docs, `rustdoc` creates several CSS and JavaScript files as part 
 all these files are linked from every page, changing where they are can be cumbersome if you need to
 specially cache them. This flag will rename all these files in the output to include the suffix in
 the filename. For example, `light.css` would become `light-suf.css` with the above command.
-
-### `--display-warnings`: display warnings when documenting or running documentation tests
-
-Using this flag looks like this:
-
-```bash
-$ rustdoc src/lib.rs -Z unstable-options --display-warnings
-$ rustdoc --test src/lib.rs -Z unstable-options --display-warnings
-```
-
-The intent behind this flag is to allow the user to see warnings that occur within their library or
-their documentation tests, which are usually suppressed. However, [due to a
-bug][issue-display-warnings], this flag doesn't 100% work as intended. See the linked issue for
-details.
-
-[issue-display-warnings]: https://github.com/rust-lang/rust/issues/41574
 
 ### `--extern-html-root-url`: control how rustdoc links to non-local crates
 
@@ -343,6 +371,24 @@ Using `index-page` option enables `enable-index-page` option as well.
 
 This feature allows the generation of a default index-page which lists the generated crates.
 
+### `--nocapture`: disable output capture for test
+
+When this flag is used with `--test`, the output (stdout and stderr) of your tests won't be
+captured by rustdoc. Instead, the output will be directed to your terminal,
+as if you had run the test executable manually. This is especially useful
+for debugging your tests!
+
+### `--check`: only checks the documentation
+
+When this flag is supplied, rustdoc will type check and lint your code, but will not generate any
+documentation or run your doctests.
+
+Using this flag looks like:
+
+```bash
+rustdoc -Z unstable-options --check src/lib.rs
+```
+
 ### `--static-root-path`: control how static files are loaded in HTML output
 
 Using this flag looks like this:
@@ -360,6 +406,8 @@ renamed with `--resource-suffix` will load from the given path.
 
 ### `--persist-doctests`: persist doctest executables after running
 
+ * Tracking issue: [#56925](https://github.com/rust-lang/rust/issues/56925)
+
 Using this flag looks like this:
 
 ```bash
@@ -372,10 +420,24 @@ with this option, you can keep those binaries around for farther testing.
 
 ### `--show-coverage`: calculate the percentage of items with documentation
 
+ * Tracking issue: [#58154](https://github.com/rust-lang/rust/issues/58154)
+
 Using this flag looks like this:
 
 ```bash
 $ rustdoc src/lib.rs -Z unstable-options --show-coverage
+```
+
+It generates something like this:
+
+```bash
++-------------------------------------+------------+------------+------------+------------+
+| File                                | Documented | Percentage |   Examples | Percentage |
++-------------------------------------+------------+------------+------------+------------+
+| lib.rs                              |          4 |     100.0% |          1 |      25.0% |
++-------------------------------------+------------+------------+------------+------------+
+| Total                               |          4 |     100.0% |          1 |      25.0% |
++-------------------------------------+------------+------------+------------+------------+
 ```
 
 If you want to determine how many items in your crate are documented, pass this flag to rustdoc.
@@ -397,7 +459,58 @@ Some methodology notes about what rustdoc counts in this metric:
 Public items that are not documented can be seen with the built-in `missing_docs` lint. Private
 items that are not documented can be seen with Clippy's `missing_docs_in_private_items` lint.
 
+Calculating code examples follows these rules:
+
+1. These items aren't accounted by default:
+  * struct/union field
+  * enum variant
+  * constant
+  * static
+  * typedef
+2. If one of the previously listed items has a code example, then it'll be counted.
+
+#### JSON output
+
+When using `--output-format json` with this option, it will display the coverage information in
+JSON format. For example, here is the JSON for a file with one documented item and one
+undocumented item:
+
+```rust
+/// This item has documentation
+pub fn foo() {}
+
+pub fn no_documentation() {}
+```
+
+```json
+{"no_std.rs":{"total":3,"with_docs":1,"total_examples":3,"with_examples":0}}
+```
+
+Note that the third item is the crate root, which in this case is undocumented.
+
+### `-w`/`--output-format`: output format
+
+`--output-format json` emits documentation in the experimental
+[JSON format](https://doc.rust-lang.org/nightly/nightly-rustc/rustdoc_json_types/). `--output-format html` has no effect,
+and is also accepted on stable toolchains.
+
+JSON Output for toolchain crates (`std`, `alloc`, `core`, `test`, and `proc_macro`)
+is available via the `rust-docs-json` rustup component.
+
+```shell
+rustup component add --toolchain nightly rust-docs-json
+```
+
+Then the json files will be present in the `share/doc/rust/json/` directory
+of the rustup toolchain directory.
+
+It can also be used with `--show-coverage`. Take a look at its
+[documentation](#--show-coverage-calculate-the-percentage-of-items-with-documentation) for more
+information.
+
 ### `--enable-per-target-ignores`: allow `ignore-foo` style filters for doctests
+
+ * Tracking issue: [#64245](https://github.com/rust-lang/rust/issues/64245)
 
 Using this flag looks like this:
 
@@ -405,7 +518,7 @@ Using this flag looks like this:
 $ rustdoc src/lib.rs -Z unstable-options --enable-per-target-ignores
 ```
 
-This flag allows you to tag doctests with compiltest style `ignore-foo` filters that prevent
+This flag allows you to tag doctests with compiletest style `ignore-foo` filters that prevent
 rustdoc from running that test if the target triple string contains foo. For example:
 
 ```rust
@@ -432,6 +545,8 @@ override `ignore`.
 
 ### `--runtool`, `--runtool-arg`: program to run tests with; args to pass to it
 
+ * Tracking issue: [#64245](https://github.com/rust-lang/rust/issues/64245)
+
 Using these options looks like this:
 
 ```bash
@@ -446,3 +561,55 @@ $ rustdoc src/lib.rs -Z unstable-options --runtool valgrind
 ```
 
 Another use case would be to run a test inside an emulator, or through a Virtual Machine.
+
+### `--with-examples`: include examples of uses of items as documentation
+
+ * Tracking issue: [#88791](https://github.com/rust-lang/rust/issues/88791)
+
+This option, combined with `--scrape-examples-target-crate` and
+`--scrape-examples-output-path`, is used to implement the functionality in [RFC
+#3123](https://github.com/rust-lang/rfcs/pull/3123). Uses of an item (currently
+functions / call-sites) are found in a crate and its reverse-dependencies, and
+then the uses are included as documentation for that item. This feature is
+intended to be used via `cargo doc --scrape-examples`, but the rustdoc-only
+workflow looks like:
+
+```bash
+$ rustdoc examples/ex.rs -Z unstable-options \
+    --extern foobar=target/deps/libfoobar.rmeta \
+    --scrape-examples-target-crate foobar \
+    --scrape-examples-output-path output.calls
+$ rustdoc src/lib.rs -Z unstable-options --with-examples output.calls
+```
+
+First, the library must be checked to generate an `rmeta`. Then a
+reverse-dependency like `examples/ex.rs` is given to rustdoc with the target
+crate being documented (`foobar`) and a path to output the calls
+(`output.calls`). Then, the generated calls file can be passed via
+`--with-examples` to the subsequent documentation of `foobar`.
+
+To scrape examples from test code, e.g. functions marked `#[test]`, then
+add the `--scrape-tests` flag.
+
+### `--check-cfg`: check configuration flags
+
+ * Tracking issue: [#82450](https://github.com/rust-lang/rust/issues/82450)
+
+This flag accepts the same values as `rustc --check-cfg`, and uses it to check configuration flags.
+
+Using this flag looks like this:
+
+```bash
+$ rustdoc src/lib.rs -Z unstable-options \
+    --check-cfg='names()' --check-cfg='values(feature, "foo", "bar")'
+```
+
+The example above check every well known names (`target_os`, `doc`, `test`, ... via `names()`)
+and check the values of `feature`: `foo` and `bar`.
+
+### `--generate-link-to-definition`: Generate links on types in source code
+
+ * Tracking issue: [#89095](https://github.com/rust-lang/rust/issues/89095)
+
+This flag enables the generation of links in the source code pages which allow the reader
+to jump to a type definition.

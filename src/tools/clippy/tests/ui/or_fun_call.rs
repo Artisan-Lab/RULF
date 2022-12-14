@@ -1,7 +1,7 @@
 // run-rustfix
-
 #![warn(clippy::or_fun_call)]
 #![allow(dead_code)]
+#![allow(clippy::borrow_as_ptr, clippy::uninlined_format_args, clippy::unnecessary_wraps)]
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -14,6 +14,19 @@ fn or_fun_call() {
     impl Foo {
         fn new() -> Foo {
             Foo
+        }
+    }
+
+    struct FakeDefault;
+    impl FakeDefault {
+        fn default() -> Self {
+            FakeDefault
+        }
+    }
+
+    impl Default for FakeDefault {
+        fn default() -> Self {
+            FakeDefault
         }
     }
 
@@ -52,6 +65,12 @@ fn or_fun_call() {
     let with_default_type = Some(1);
     with_default_type.unwrap_or(u64::default());
 
+    let self_default = None::<FakeDefault>;
+    self_default.unwrap_or(<FakeDefault>::default());
+
+    let real_default = None::<FakeDefault>;
+    real_default.unwrap_or(<FakeDefault as Default>::default());
+
     let with_vec = Some(vec![1]);
     with_vec.unwrap_or(vec![]);
 
@@ -61,15 +80,30 @@ fn or_fun_call() {
     let mut map = HashMap::<u64, String>::new();
     map.entry(42).or_insert(String::new());
 
+    let mut map_vec = HashMap::<u64, Vec<i32>>::new();
+    map_vec.entry(42).or_insert(vec![]);
+
     let mut btree = BTreeMap::<u64, String>::new();
     btree.entry(42).or_insert(String::new());
 
-    let stringy = Some(String::from(""));
-    let _ = stringy.unwrap_or("".to_owned());
+    let mut btree_vec = BTreeMap::<u64, Vec<i32>>::new();
+    btree_vec.entry(42).or_insert(vec![]);
+
+    let stringy = Some(String::new());
+    let _ = stringy.unwrap_or(String::new());
 
     let opt = Some(1);
     let hello = "Hello";
     let _ = opt.ok_or(format!("{} world.", hello));
+
+    // index
+    let map = HashMap::<u64, u64>::new();
+    let _ = Some(1).unwrap_or(map[&1]);
+    let map = BTreeMap::<u64, u64>::new();
+    let _ = Some(1).unwrap_or(map[&1]);
+    // don't lint index vec
+    let vec = vec![1];
+    let _ = Some(1).unwrap_or(vec[1]);
 }
 
 struct Foo(u8);
@@ -104,6 +138,9 @@ fn test_or_with_ctors() {
 
     let slice = &["foo"][..];
     let _ = opt.ok_or(slice.len());
+
+    let string = "foo";
+    let _ = opt.ok_or(string.len());
 }
 
 // Issue 4514 - early return
@@ -114,6 +151,89 @@ fn f() -> Option<()> {
     let _ = a.unwrap_or(b.checked_mul(3)?.min(240));
 
     Some(())
+}
+
+mod issue6675 {
+    unsafe fn ptr_to_ref<'a, T>(p: *const T) -> &'a T {
+        #[allow(unused)]
+        let x = vec![0; 1000]; // future-proofing, make this function expensive.
+        &*p
+    }
+
+    unsafe fn foo() {
+        let s = "test".to_owned();
+        let s = &s as *const _;
+        None.unwrap_or(ptr_to_ref(s));
+    }
+
+    fn bar() {
+        let s = "test".to_owned();
+        let s = &s as *const _;
+        None.unwrap_or(unsafe { ptr_to_ref(s) });
+        #[rustfmt::skip]
+        None.unwrap_or( unsafe { ptr_to_ref(s) }    );
+    }
+}
+
+mod issue8239 {
+    fn more_than_max_suggestion_highest_lines_0() {
+        let frames = Vec::new();
+        frames
+            .iter()
+            .map(|f: &String| f.to_lowercase())
+            .reduce(|mut acc, f| {
+                acc.push_str(&f);
+                acc
+            })
+            .unwrap_or(String::new());
+    }
+
+    fn more_to_max_suggestion_highest_lines_1() {
+        let frames = Vec::new();
+        let iter = frames.iter();
+        iter.map(|f: &String| f.to_lowercase())
+            .reduce(|mut acc, f| {
+                let _ = "";
+                let _ = "";
+                acc.push_str(&f);
+                acc
+            })
+            .unwrap_or(String::new());
+    }
+
+    fn equal_to_max_suggestion_highest_lines() {
+        let frames = Vec::new();
+        let iter = frames.iter();
+        iter.map(|f: &String| f.to_lowercase())
+            .reduce(|mut acc, f| {
+                let _ = "";
+                acc.push_str(&f);
+                acc
+            })
+            .unwrap_or(String::new());
+    }
+
+    fn less_than_max_suggestion_highest_lines() {
+        let frames = Vec::new();
+        let iter = frames.iter();
+        let map = iter.map(|f: &String| f.to_lowercase());
+        map.reduce(|mut acc, f| {
+            acc.push_str(&f);
+            acc
+        })
+        .unwrap_or(String::new());
+    }
+}
+
+mod issue9608 {
+    fn sig_drop() {
+        enum X {
+            X(std::fs::File),
+            Y(u32),
+        }
+
+        let _ = None.unwrap_or(X::Y(0));
+    }
 }
 
 fn main() {}

@@ -166,7 +166,7 @@ pub fn test14() {
     }
 }
 
-// Issue #1991: the outter loop should not warn.
+// Issue #1991: the outer loop should not warn.
 pub fn test15() {
     'label: loop {
         while false {
@@ -184,6 +184,49 @@ pub fn test16() {
             continue;
         };
     }
+}
+
+// Issue #9001: `continue` in struct expression fields
+pub fn test17() {
+    struct Foo {
+        f: (),
+    }
+
+    let mut n = 0;
+    let _ = loop {
+        break Foo {
+            f: if n < 5 {
+                n += 1;
+                continue;
+            },
+        };
+    };
+}
+
+// Issue #9356: `continue` in else branch of let..else
+pub fn test18() {
+    let x = Some(0);
+    let y = 0;
+    // might loop
+    let _ = loop {
+        let Some(x) = x else {
+            if y > 0 {
+                continue;
+            } else {
+                return;
+            }
+        };
+
+        break x;
+    };
+    // never loops
+    let _ = loop {
+        let Some(x) = x else {
+            return;
+        };
+
+        break x;
+    };
 }
 
 fn main() {

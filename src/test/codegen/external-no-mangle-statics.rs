@@ -1,10 +1,10 @@
+// revisions: lib staticlib
 // ignore-emscripten default visibility is hidden
 // compile-flags: -O
+// [lib] compile-flags: --crate-type lib
+// [staticlib] compile-flags: --crate-type staticlib
 // `#[no_mangle]`d static variables always have external linkage, i.e., no `internal` in their
 // definitions
-
-#![crate_type = "lib"]
-#![no_std]
 
 // CHECK: @A = local_unnamed_addr constant
 #[no_mangle]
@@ -58,7 +58,6 @@ const HIDDEN: () = {
     pub static mut L: u8 = 0;
 };
 
-// The surrounding item should not accidentally become external
 fn x() {
     // CHECK: @M = local_unnamed_addr constant
     #[no_mangle]
@@ -76,6 +75,3 @@ fn x() {
     #[no_mangle]
     pub static mut P: u8 = 0;
 }
-// CHECK-LABEL: ; external_no_mangle_statics::x
-// CHECK-NEXT: ; Function Attrs:
-// CHECK-NEXT: define internal

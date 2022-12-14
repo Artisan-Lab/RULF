@@ -1,20 +1,10 @@
 # needs-profiler-support
+# ignore-windows-gnu
 
--include ../tools.mk
+# FIXME(mati865): MinGW GCC miscompiles compiler-rt profiling library but with Clang it works
+# properly. Since we only have GCC on the CI ignore the test for now.
 
-# This test makes sure that indirect call promotion is performed. The test
-# programs calls the same function a thousand times through a function pointer.
-# Only PGO data provides the information that it actually always is the same
-# function. We verify that the indirect call promotion pass inserts a check
-# whether it can make a direct call instead of the indirect call.
-
-# LLVM doesn't support instrumenting binaries that use SEH:
-# https://github.com/rust-lang/rust/issues/61002
-#
-# Things work fine with -Cpanic=abort though.
-ifdef IS_MSVC
-COMMON_FLAGS=-Cpanic=abort
-endif
+include ../tools.mk
 
 all:
 	# We don't compile `opaque` with either optimizations or instrumentation.

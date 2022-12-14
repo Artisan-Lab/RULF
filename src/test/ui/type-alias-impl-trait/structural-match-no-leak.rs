@@ -1,4 +1,4 @@
-#![feature(const_fn, type_alias_impl_trait)]
+#![feature(type_alias_impl_trait)]
 
 type Bar = impl Send;
 
@@ -10,11 +10,11 @@ const fn leak_free() -> Bar {
 const LEAK_FREE: Bar = leak_free();
 
 fn leak_free_test() {
-    match todo!() {
+    match LEAK_FREE {
         LEAK_FREE => (),
-        //~^ opaque types cannot be used in patterns
+        //~^ `Bar` cannot be used in patterns
         _ => (),
     }
 }
 
-fn main() { }
+fn main() {}

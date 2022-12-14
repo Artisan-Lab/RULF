@@ -1,9 +1,9 @@
-#![feature(optin_builtin_traits)]
+#![feature(auto_traits)]
 
 // pp-exact
 
-auto trait MyTrait { }
+auto trait MyTrait {}
 
-unsafe auto trait UnsafeMyTrait { }
+unsafe auto trait UnsafeMyTrait {}
 
-pub fn main() { }
+pub fn main() {}

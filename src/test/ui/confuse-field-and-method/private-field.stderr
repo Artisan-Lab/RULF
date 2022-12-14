@@ -1,8 +1,8 @@
-error[E0599]: no method named `dog_age` found for struct `animal::Dog` in the current scope
+error[E0599]: no method named `dog_age` found for struct `Dog` in the current scope
   --> $DIR/private-field.rs:16:23
    |
 LL |     pub struct Dog {
-   |     -------------- method `dog_age` not found for this
+   |     -------------- method `dog_age` not found for this struct
 ...
 LL |     let dog_age = dog.dog_age();
    |                       ^^^^^^^ private field, not a method

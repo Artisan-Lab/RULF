@@ -1,6 +1,6 @@
 // Various checks that stability attributes are used correctly, per RFC 507
 
-#![feature(const_fn, staged_api)]
+#![feature(staged_api)]
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -37,11 +37,11 @@ mod missing_version {
     fn f1() { }
 
     #[stable(feature = "a", since = "b")]
-    #[rustc_deprecated(reason = "a")] //~ ERROR missing 'since' [E0542]
+    #[deprecated(note = "a")] //~ ERROR missing 'since' [E0542]
     fn f2() { }
 
     #[stable(feature = "a", since = "b")]
-    #[rustc_deprecated(since = "a")] //~ ERROR missing 'reason' [E0543]
+    #[deprecated(since = "a")] //~ ERROR missing 'note' [E0543]
     fn f3() { }
 }
 
@@ -57,16 +57,20 @@ fn multiple2() { }
 #[stable(feature = "a", since = "b")] //~ ERROR multiple stability levels [E0544]
 fn multiple3() { }
 
-#[stable(feature = "a", since = "b")]
-#[rustc_deprecated(since = "b", reason = "text")]
-#[rustc_deprecated(since = "b", reason = "text")]
+#[stable(feature = "a", since = "b")] //~ ERROR invalid stability version found
+#[deprecated(since = "b", note = "text")]
+#[deprecated(since = "b", note = "text")] //~ ERROR multiple `deprecated` attributes
 #[rustc_const_unstable(feature = "c", issue = "none")]
 #[rustc_const_unstable(feature = "d", issue = "none")] //~ ERROR multiple stability levels
-pub const fn multiple4() { } //~ ERROR multiple rustc_deprecated attributes [E0540]
-//~^ ERROR Invalid stability or deprecation version found
+pub const fn multiple4() { }
 
-#[rustc_deprecated(since = "a", reason = "text")]
+#[stable(feature = "a", since = "1.0.0")] //~ ERROR invalid deprecation version found
+//~^ ERROR feature `a` is declared stable since 1.0.0
+#[deprecated(since = "invalid", note = "text")]
+fn invalid_deprecation_version() {}
+
+#[deprecated(since = "a", note = "text")]
 fn deprecated_without_unstable_or_stable() { }
-//~^ ERROR rustc_deprecated attribute must be paired with either stable or unstable attribute
+//~^^ ERROR deprecated attribute must be paired with either stable or unstable attribute
 
 fn main() { }

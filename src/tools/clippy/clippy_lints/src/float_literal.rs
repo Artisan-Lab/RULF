@@ -1,56 +1,59 @@
-use crate::utils::{numeric_literal, span_lint_and_sugg};
+use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::numeric_literal;
 use if_chain::if_chain;
-use rustc_ast::ast::{FloatTy, LitFloatType, LitKind};
+use rustc_ast::ast::{self, LitFloatType, LitKind};
 use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_middle::ty;
+use rustc_middle::ty::{self, FloatTy};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 use std::fmt;
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for float literals with a precision greater
+    /// ### What it does
+    /// Checks for float literals with a precision greater
     /// than that supported by the underlying type.
     ///
-    /// **Why is this bad?** Rust will truncate the literal silently.
+    /// ### Why is this bad?
+    /// Rust will truncate the literal silently.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
-    /// // Bad
     /// let v: f32 = 0.123_456_789_9;
     /// println!("{}", v); //  0.123_456_789
+    /// ```
     ///
-    /// // Good
+    /// Use instead:
+    /// ```rust
     /// let v: f64 = 0.123_456_789_9;
     /// println!("{}", v); //  0.123_456_789_9
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub EXCESSIVE_PRECISION,
     style,
     "excessive precision for float literal"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for whole number float literals that
+    /// ### What it does
+    /// Checks for whole number float literals that
     /// cannot be represented as the underlying type without loss.
     ///
-    /// **Why is this bad?** Rust will silently lose precision during
+    /// ### Why is this bad?
+    /// Rust will silently lose precision during
     /// conversion to a float.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
-    /// // Bad
     /// let _: f32 = 16_777_217.0; // 16_777_216.0
+    /// ```
     ///
-    /// // Good
+    /// Use instead:
+    /// ```rust
     /// let _: f32 = 16_777_216.0;
     /// let _: f64 = 16_777_217.0;
     /// ```
+    #[clippy::version = "1.43.0"]
     pub LOSSY_FLOAT_LITERAL,
     restriction,
     "lossy whole number float literals"
@@ -60,23 +63,23 @@ declare_lint_pass!(FloatLiteral => [EXCESSIVE_PRECISION, LOSSY_FLOAT_LITERAL]);
 
 impl<'tcx> LateLintPass<'tcx> for FloatLiteral {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx hir::Expr<'_>) {
+        let ty = cx.typeck_results().expr_ty(expr);
         if_chain! {
-            let ty = cx.tables().expr_ty(expr);
-            if let ty::Float(fty) = ty.kind;
+            if let ty::Float(fty) = *ty.kind();
             if let hir::ExprKind::Lit(ref lit) = expr.kind;
             if let LitKind::Float(sym, lit_float_ty) = lit.node;
             then {
                 let sym_str = sym.as_str();
-                let formatter = FloatFormat::new(&sym_str);
+                let formatter = FloatFormat::new(sym_str);
                 // Try to bail out if the float is for sure fine.
                 // If its within the 2 decimal digits of being out of precision we
                 // check if the parsed representation is the same as the string
                 // since we'll need the truncated string anyway.
-                let digits = count_digits(&sym_str);
+                let digits = count_digits(sym_str);
                 let max = max_digits(fty);
                 let type_suffix = match lit_float_ty {
-                    LitFloatType::Suffixed(FloatTy::F32) => Some("f32"),
-                    LitFloatType::Suffixed(FloatTy::F64) => Some("f64"),
+                    LitFloatType::Suffixed(ast::FloatTy::F32) => Some("f32"),
+                    LitFloatType::Suffixed(ast::FloatTy::F64) => Some("f64"),
                     LitFloatType::Unsuffixed => None
                 };
                 let (is_whole, mut float_str) = match fty {
@@ -112,7 +115,7 @@ impl<'tcx> LateLintPass<'tcx> for FloatLiteral {
                             Applicability::MachineApplicable,
                         );
                     }
-                } else if digits > max as usize && sym_str != float_str {
+                } else if digits > max as usize && float_str.len() < sym_str.len() {
                     span_lint_and_sugg(
                         cx,
                         EXCESSIVE_PRECISION,
@@ -145,11 +148,7 @@ fn count_digits(s: &str) -> usize {
         .take_while(|c| *c != 'e' && *c != 'E')
         .fold(0, |count, c| {
             // leading zeros
-            if c == '0' && count == 0 {
-                count
-            } else {
-                count + 1
-            }
+            if c == '0' && count == 0 { count } else { count + 1 }
         })
 }
 
@@ -174,9 +173,9 @@ impl FloatFormat {
         T: fmt::UpperExp + fmt::LowerExp + fmt::Display,
     {
         match self {
-            Self::LowerExp => format!("{:e}", f),
-            Self::UpperExp => format!("{:E}", f),
-            Self::Normal => format!("{}", f),
+            Self::LowerExp => format!("{f:e}"),
+            Self::UpperExp => format!("{f:E}"),
+            Self::Normal => format!("{f}"),
         }
     }
 }

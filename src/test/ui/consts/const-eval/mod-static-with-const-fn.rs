@@ -1,7 +1,7 @@
 // New test for #53818: modifying static memory at compile-time is not allowed.
 // The test should never compile successfully
 
-#![feature(const_raw_ptr_deref)]
+#![feature(const_mut_refs)]
 
 use std::cell::UnsafeCell;
 
@@ -12,14 +12,9 @@ unsafe impl Sync for Foo {}
 
 static FOO: Foo = Foo(UnsafeCell::new(42));
 
-fn foo() {}
-
 static BAR: () = unsafe {
     *FOO.0.get() = 5;
-    //~^ contains unimplemented expression
-
-    foo();
-    //~^ ERROR calls in statics are limited to constant functions, tuple structs and tuple variants
+    //~^ ERROR could not evaluate static initializer
 };
 
 fn main() {

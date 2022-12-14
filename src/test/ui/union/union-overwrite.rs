@@ -1,5 +1,6 @@
 // run-pass
-#![feature(untagged_unions)]
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
 
 #[repr(C)]
 #[derive(Copy, Clone)]

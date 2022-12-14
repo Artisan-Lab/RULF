@@ -4,8 +4,7 @@ fn main() {
     // bytes.
     let _: [u8; 0] = [4; {
         match &1 as *const i32 as usize {
-            //~^ ERROR casting pointers to integers in constants
-            //~| ERROR evaluation of constant value failed
+            //~^ ERROR pointers cannot be cast to integers during const eval
             0 => 42,
             n => n,
         }

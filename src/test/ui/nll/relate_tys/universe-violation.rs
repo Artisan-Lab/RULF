@@ -4,14 +4,12 @@
 //
 // compile-flags:-Zno-leak-check
 
-#![feature(nll)]
-
 fn make_it() -> fn(&'static u32) -> &'static u32 {
     panic!()
 }
 
 fn main() {
     let a: fn(_) -> _ = make_it();
-    let b: fn(&u32) -> &u32 = a; //~ ERROR higher-ranked subtype error
+    let b: fn(&u32) -> &u32 = a; //~ ERROR mismatched types [E0308]
     drop(a);
 }

@@ -1,5 +1,6 @@
+// stderr-per-bitwidth
 #![feature(rustc_attrs)]
-#![allow(const_err, invalid_value)] // make sure we cannot allow away the errors tested here
+#![allow(invalid_value)] // make sure we cannot allow away the errors tested here
 
 use std::mem;
 use std::ptr::NonNull;
@@ -11,11 +12,10 @@ const NON_NULL_PTR: NonNull<u8> = unsafe { mem::transmute(&1) };
 const NULL_PTR: NonNull<u8> = unsafe { mem::transmute(0usize) };
 //~^ ERROR it is undefined behavior to use this value
 
-#[deny(const_err)] // this triggers a `const_err` so validation does not even happen
 const OUT_OF_BOUNDS_PTR: NonNull<u8> = { unsafe {
     let ptr: &[u8; 256] = mem::transmute(&0u8); // &0 gets promoted so it does not dangle
-    // Use address-of-element for pointer arithmetic. This could wrap around to NULL!
-    let out_of_bounds_ptr = &ptr[255]; //~ ERROR any use of this value will cause an error
+    // Use address-of-element for pointer arithmetic. This could wrap around to null!
+    let out_of_bounds_ptr = &ptr[255]; //~ ERROR evaluation of constant value failed
     mem::transmute(out_of_bounds_ptr)
 } };
 
@@ -30,7 +30,8 @@ union MaybeUninit<T: Copy> {
     init: T,
 }
 const UNINIT: NonZeroU8 = unsafe { MaybeUninit { uninit: () }.init };
-//~^ ERROR it is undefined behavior to use this value
+//~^ ERROR evaluation of constant value failed
+//~| uninitialized
 
 // Also test other uses of rustc_layout_scalar_valid_range_start
 

@@ -4,9 +4,12 @@ error[E0277]: the size for values of type `str` cannot be known at compilation t
 LL |     foo11("bar", &"baz");
    |           ^^^^^ doesn't have a size known at compile-time
    |
-   = help: the trait `std::marker::Sized` is not implemented for `str`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
-   = note: required for the cast to the object type `dyn std::convert::AsRef<std::path::Path>`
+   = help: the trait `Sized` is not implemented for `str`
+   = note: required for the cast from `str` to the object type `dyn AsRef<Path>`
+help: consider borrowing the value, since `&str` can be coerced into `dyn AsRef<Path>`
+   |
+LL |     foo11(&"bar", &"baz");
+   |           +
 
 error[E0277]: the size for values of type `str` cannot be known at compilation time
   --> $DIR/unsized-fn-param.rs:13:19
@@ -14,9 +17,12 @@ error[E0277]: the size for values of type `str` cannot be known at compilation t
 LL |     foo12(&"bar", "baz");
    |                   ^^^^^ doesn't have a size known at compile-time
    |
-   = help: the trait `std::marker::Sized` is not implemented for `str`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
-   = note: required for the cast to the object type `dyn std::convert::AsRef<std::path::Path>`
+   = help: the trait `Sized` is not implemented for `str`
+   = note: required for the cast from `str` to the object type `dyn AsRef<Path>`
+help: consider borrowing the value, since `&str` can be coerced into `dyn AsRef<Path>`
+   |
+LL |     foo12(&"bar", &"baz");
+   |                   +
 
 error[E0277]: the size for values of type `str` cannot be known at compilation time
   --> $DIR/unsized-fn-param.rs:16:11
@@ -24,9 +30,12 @@ error[E0277]: the size for values of type `str` cannot be known at compilation t
 LL |     foo21("bar", &"baz");
    |           ^^^^^ doesn't have a size known at compile-time
    |
-   = help: the trait `std::marker::Sized` is not implemented for `str`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
-   = note: required for the cast to the object type `dyn std::convert::AsRef<str>`
+   = help: the trait `Sized` is not implemented for `str`
+   = note: required for the cast from `str` to the object type `dyn AsRef<str>`
+help: consider borrowing the value, since `&str` can be coerced into `dyn AsRef<str>`
+   |
+LL |     foo21(&"bar", &"baz");
+   |           +
 
 error[E0277]: the size for values of type `str` cannot be known at compilation time
   --> $DIR/unsized-fn-param.rs:18:19
@@ -34,9 +43,12 @@ error[E0277]: the size for values of type `str` cannot be known at compilation t
 LL |     foo22(&"bar", "baz");
    |                   ^^^^^ doesn't have a size known at compile-time
    |
-   = help: the trait `std::marker::Sized` is not implemented for `str`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
-   = note: required for the cast to the object type `dyn std::convert::AsRef<str>`
+   = help: the trait `Sized` is not implemented for `str`
+   = note: required for the cast from `str` to the object type `dyn AsRef<str>`
+help: consider borrowing the value, since `&str` can be coerced into `dyn AsRef<str>`
+   |
+LL |     foo22(&"bar", &"baz");
+   |                   +
 
 error: aborting due to 4 previous errors
 

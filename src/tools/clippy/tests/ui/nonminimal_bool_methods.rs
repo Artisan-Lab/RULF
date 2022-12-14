@@ -1,4 +1,5 @@
-#![allow(unused, clippy::many_single_char_names)]
+// run-rustfix
+#![allow(unused, clippy::diverging_sub_expression)]
 #![warn(clippy::nonminimal_bool)]
 
 fn methods_with_negation() {

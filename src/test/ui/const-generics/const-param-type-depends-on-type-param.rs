@@ -1,12 +1,15 @@
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
+// revisions: full min
 
-// Currently, const parameters cannot depend on type parameters, because there is no way to
-// enforce the structural-match property on an arbitrary type parameter. This restriction
-// may be relaxed in the future. See https://github.com/rust-lang/rfcs/pull/2000 for more
-// details.
+#![cfg_attr(full, feature(adt_const_params))]
+#![cfg_attr(full, allow(incomplete_features))]
+
+// Currently, const parameters cannot depend on other generic parameters,
+// as our current implementation can't really support this.
+//
+// We may want to lift this restriction in the future.
 
 pub struct Dependent<T, const X: T>([(); X]);
-//~^ ERROR `T` is not guaranteed to `#[derive(PartialEq, Eq)]`
+//~^ ERROR: the type of const parameters must not depend on other generic parameters
+//~| ERROR: parameter `T` is never used
 
 fn main() {}

@@ -1,4 +1,5 @@
 // run-pass
+// needs-unwind
 #![allow(unused_imports)]
 // Ideally, any macro call with a trailing comma should behave
 // identically to a call without the comma.
@@ -8,17 +9,17 @@
 // to it being e.g., a place where the addition of an argument
 // causes it to go down a code path with subtly different behavior).
 //
-// There is a companion test in compile-fail.
+// There is a companion failing test.
 
 // compile-flags: --test -C debug_assertions=yes
 // revisions: std core
 
-// ignore-wasm32-bare compiled with panic=abort by default
-
 #![cfg_attr(core, no_std)]
 
-#[cfg(std)] use std::fmt;
-#[cfg(core)] use core::fmt;
+#[cfg(core)]
+use core::fmt;
+#[cfg(std)]
+use std::fmt;
 
 // an easy mistake in the implementation of 'assert!'
 // would cause this to say "explicit panic"
@@ -57,6 +58,7 @@ fn writeln_1arg() {
 //
 // (Example: Issue #48042)
 #[test]
+#[allow(non_fmt_panics)]
 fn to_format_or_not_to_format() {
     // ("{}" is the easiest string to test because if this gets
     // sent to format_args!, it'll simply fail to compile.
@@ -67,26 +69,30 @@ fn to_format_or_not_to_format() {
 
     assert!(true, "{}",);
 
-    // assert_eq!(1, 1, "{}",); // see compile-fail
-    // assert_ne!(1, 2, "{}",); // see compile-fail
+    // assert_eq!(1, 1, "{}",); // see check-fail
+    // assert_ne!(1, 2, "{}",); // see check-fail
 
     debug_assert!(true, "{}",);
 
-    // debug_assert_eq!(1, 1, "{}",); // see compile-fail
-    // debug_assert_ne!(1, 2, "{}",); // see compile-fail
-    // eprint!("{}",); // see compile-fail
-    // eprintln!("{}",); // see compile-fail
-    // format!("{}",); // see compile-fail
-    // format_args!("{}",); // see compile-fail
+    // debug_assert_eq!(1, 1, "{}",); // see check-fail
+    // debug_assert_ne!(1, 2, "{}",); // see check-fail
+    // eprint!("{}",); // see check-fail
+    // eprintln!("{}",); // see check-fail
+    // format!("{}",); // see check-fail
+    // format_args!("{}",); // see check-fail
 
-    if falsum() { panic!("{}",); }
+    if falsum() {
+        panic!("{}",);
+    }
 
-    // print!("{}",); // see compile-fail
-    // println!("{}",); // see compile-fail
-    // unimplemented!("{}",); // see compile-fail
+    // print!("{}",); // see check-fail
+    // println!("{}",); // see check-fail
+    // unimplemented!("{}",); // see check-fail
 
-    if falsum() { unreachable!("{}",); }
+    if falsum() {
+        unreachable!("{}",);
+    }
 
-    // write!(&mut stdout, "{}",); // see compile-fail
-    // writeln!(&mut stdout, "{}",); // see compile-fail
+    // write!(&mut stdout, "{}",); // see check-fail
+    // writeln!(&mut stdout, "{}",); // see check-fail
 }

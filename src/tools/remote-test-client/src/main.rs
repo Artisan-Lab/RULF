@@ -93,7 +93,7 @@ fn start_android_emulator(server: &Path) {
 
     println!("pushing server");
     let status =
-        Command::new("adb").arg("push").arg(server).arg("/data/tmp/testd").status().unwrap();
+        Command::new("adb").arg("push").arg(server).arg("/data/local/tmp/testd").status().unwrap();
     assert!(status.success());
 
     println!("forwarding tcp");
@@ -102,7 +102,7 @@ fn start_android_emulator(server: &Path) {
     assert!(status.success());
 
     println!("executing server");
-    Command::new("adb").arg("shell").arg("/data/tmp/testd").spawn().unwrap();
+    Command::new("adb").arg("shell").arg("/data/local/tmp/testd").spawn().unwrap();
 }
 
 fn prepare_rootfs(target: &str, rootfs: &Path, server: &Path, rootfs_img: &Path) {
@@ -185,8 +185,10 @@ fn start_qemu_emulator(target: &str, rootfs: &Path, server: &Path, tmpdir: &Path
                 .arg("-append")
                 .arg("console=ttyAMA0 root=/dev/ram rdinit=/sbin/init init=/sbin/init")
                 .arg("-nographic")
-                .arg("-redir")
-                .arg("tcp:12345::12345");
+                .arg("-netdev")
+                .arg("user,id=net0,hostfwd=tcp::12345-:12345")
+                .arg("-device")
+                .arg("virtio-net-device,netdev=net0,mac=00:00:00:00:00:00");
             t!(cmd.spawn());
         }
         "aarch64-unknown-linux-gnu" => {

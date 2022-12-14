@@ -1,7 +1,7 @@
 #![feature(prelude_import)]
 #![no_std]
 #[prelude_import]
-use ::std::prelude::v1::*;
+use ::std::prelude::rust_2015::*;
 #[macro_use]
 extern crate std;
 // pretty-compare-only
@@ -13,7 +13,7 @@ extern crate std;
 #[path = "issue-12590-b.rs"]
 mod issue_12590_b {
 
-    fn b() { }
-    fn main() { }
+    fn b() {}
+    fn main() {}
 }
-fn main() { }
+fn main() {}

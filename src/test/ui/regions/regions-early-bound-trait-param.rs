@@ -2,8 +2,6 @@
 // Tests that you can use an early-bound lifetime parameter as
 // on of the generic parameters in a trait.
 
-#![feature(box_syntax)]
-
 trait Trait<'a> {
     fn long(&'a self) -> isize;
     fn short<'b>(&'b self) -> isize;
@@ -72,7 +70,7 @@ impl<'s> Trait<'s> for (isize,isize) {
 
 impl<'t> MakerTrait for Box<dyn Trait<'t>+'static> {
     fn mk() -> Box<dyn Trait<'t>+'static> {
-        let tup: Box<(isize, isize)> = box (4,5);
+        let tup: Box<(isize, isize)> = Box::new((4,5));
         tup as Box<dyn Trait>
     }
 }
@@ -117,7 +115,7 @@ pub fn main() {
     let m : Box<dyn Trait> = make_val();
     // assert_eq!(object_invoke1(&*m), (4,5));
     //            ~~~~~~~~~~~~~~~~~~~
-    // this call yields a compilation error; see compile-fail/dropck-object-cycle.rs
+    // this call yields a compilation error; see ui/span/dropck-object-cycle.rs
     // for details.
     assert_eq!(object_invoke2(&*m), 5);
 

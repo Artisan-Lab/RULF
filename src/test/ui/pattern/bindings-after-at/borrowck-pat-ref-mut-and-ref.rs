@@ -1,6 +1,3 @@
-#![feature(bindings_after_at)]
-#![feature(move_ref_pattern)]
-
 enum Option<T> {
     None,
     Some(T),
@@ -31,6 +28,7 @@ fn main() {
     fn f4_also_moved(ref a @ ref mut b @ c: U) {}
     //~^ ERROR cannot borrow value as mutable because it is also borrowed as immutable
     //~| ERROR cannot move out of value because it is borrowed
+    //~| ERROR borrow of moved value
 
     let ref mut a @ (ref b @ ref mut c) = u(); // sub-in-sub
     //~^ ERROR cannot borrow value as mutable more than once at a time
@@ -47,12 +45,12 @@ fn main() {
 
     let ref mut a @ ref b = u();
     //~^ ERROR cannot borrow value as immutable because it is also borrowed as mutable
-    //~| ERROR cannot borrow value as immutable because it is also borrowed as mutable
+    //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
     *a = u();
     drop(b);
     let ref a @ ref mut b = u();
     //~^ ERROR cannot borrow value as mutable because it is also borrowed as immutable
-    //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
+    //~| ERROR cannot borrow value as immutable because it is also borrowed as mutable
     *b = u();
     drop(a);
 
@@ -118,20 +116,20 @@ fn main() {
 
     let ref a @ (ref mut b, ref mut c) = (U, U);
     //~^ ERROR cannot borrow value as mutable because it is also borrowed as immutable
+    //~| ERROR cannot borrow value as immutable because it is also borrowed as mutable
     *b = U;
     *c = U;
 
     let ref a @ (ref mut b, ref mut c) = (U, U);
     //~^ ERROR cannot borrow value as mutable because it is also borrowed as immutable
-    //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
-    //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
+    //~| ERROR cannot borrow value as immutable because it is also borrowed as mutable
     *b = U;
     drop(a);
 
     let ref a @ (ref mut b, ref mut c) = (U, U);
-    //~^ ERROR cannot borrow value as mutable because it is also borrowed as immutable
+    //~^ ERROR cannot borrow value as immutable because it is also borrowed as mutable
     *b = U; //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
-    *c = U; //~| ERROR cannot borrow value as mutable because it is also borrowed as immutable
+    *c = U;
     drop(a);
     let ref mut a @ (ref b, ref c) = (U, U);
     //~^ ERROR cannot borrow value as immutable because it is also borrowed as mutable

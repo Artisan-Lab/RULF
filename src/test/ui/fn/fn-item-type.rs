@@ -28,9 +28,8 @@ fn main() {
 
     eq(bar::<String>, bar::<Vec<u8>>);
     //~^ ERROR mismatched types
-    //~| expected fn item `fn(_) -> _ {bar::<std::string::String>}`
-    //~| found fn item `fn(_) -> _ {bar::<std::vec::Vec<u8>>}`
-    //~| expected struct `std::string::String`, found struct `std::vec::Vec`
+    //~| found fn item `fn(_) -> _ {bar::<Vec<u8>>}`
+    //~| expected struct `String`, found struct `Vec`
     //~| different `fn` items always have unique types, even if their signatures are the same
     //~| change the expected type to be function pointer
     //~| if the expected type is due to type inference, cast the expected `fn` to a function pointer
@@ -45,7 +44,6 @@ fn main() {
 
     eq(foo::<u8>, bar::<u8> as fn(isize) -> isize);
     //~^ ERROR mismatched types
-    //~| expected fn item `fn(_) -> _ {foo::<u8>}`
     //~| found fn pointer `fn(_) -> _`
     //~| expected fn item, found fn pointer
     //~| change the expected type to be function pointer

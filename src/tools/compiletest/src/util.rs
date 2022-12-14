@@ -3,141 +3,70 @@ use std::env;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use log::*;
+use tracing::*;
 
 #[cfg(test)]
 mod tests;
 
-/// Conversion table from triple OS name to Rust SYSNAME
-const OS_TABLE: &'static [(&'static str, &'static str)] = &[
-    ("android", "android"),
-    ("androideabi", "android"),
-    ("cloudabi", "cloudabi"),
-    ("cuda", "cuda"),
-    ("darwin", "macos"),
-    ("dragonfly", "dragonfly"),
-    ("emscripten", "emscripten"),
-    ("freebsd", "freebsd"),
-    ("fuchsia", "fuchsia"),
-    ("haiku", "haiku"),
-    ("hermit", "hermit"),
-    ("illumos", "illumos"),
-    ("ios", "ios"),
-    ("l4re", "l4re"),
-    ("linux", "linux"),
-    ("mingw32", "windows"),
-    ("none", "none"),
-    ("netbsd", "netbsd"),
-    ("openbsd", "openbsd"),
-    ("redox", "redox"),
-    ("sgx", "sgx"),
-    ("solaris", "solaris"),
-    ("win32", "windows"),
-    ("windows", "windows"),
-    ("vxworks", "vxworks"),
-];
-
-const ARCH_TABLE: &'static [(&'static str, &'static str)] = &[
-    ("aarch64", "aarch64"),
-    ("amd64", "x86_64"),
-    ("arm", "arm"),
-    ("arm64", "aarch64"),
-    ("armv4t", "arm"),
-    ("armv5te", "arm"),
-    ("armv7", "arm"),
-    ("armv7s", "arm"),
-    ("asmjs", "asmjs"),
-    ("avr", "avr"),
-    ("hexagon", "hexagon"),
-    ("i386", "x86"),
-    ("i586", "x86"),
-    ("i686", "x86"),
-    ("mips", "mips"),
-    ("mips64", "mips64"),
-    ("mips64el", "mips64"),
-    ("mipsisa32r6", "mips"),
-    ("mipsisa32r6el", "mips"),
-    ("mipsisa64r6", "mips64"),
-    ("mipsisa64r6el", "mips64"),
-    ("mipsel", "mips"),
-    ("mipsisa32r6", "mips"),
-    ("mipsisa32r6el", "mips"),
-    ("mipsisa64r6", "mips64"),
-    ("mipsisa64r6el", "mips64"),
-    ("msp430", "msp430"),
-    ("nvptx64", "nvptx64"),
-    ("powerpc", "powerpc"),
-    ("powerpc64", "powerpc64"),
-    ("powerpc64le", "powerpc64"),
-    ("riscv64gc", "riscv64"),
-    ("s390x", "s390x"),
-    ("sparc", "sparc"),
-    ("sparc64", "sparc64"),
-    ("sparcv9", "sparc64"),
-    ("thumbv6m", "thumb"),
-    ("thumbv7em", "thumb"),
-    ("thumbv7m", "thumb"),
-    ("wasm32", "wasm32"),
-    ("x86_64", "x86_64"),
-    ("xcore", "xcore"),
-];
-
-pub const ASAN_SUPPORTED_TARGETS: &'static [&'static str] = &[
+pub const ASAN_SUPPORTED_TARGETS: &[&str] = &[
+    "aarch64-apple-darwin",
     "aarch64-fuchsia",
+    "aarch64-linux-android",
     "aarch64-unknown-linux-gnu",
+    "arm-linux-androideabi",
+    "armv7-linux-androideabi",
+    "i686-linux-android",
+    "i686-unknown-linux-gnu",
     "x86_64-apple-darwin",
     "x86_64-fuchsia",
+    "x86_64-linux-android",
+    "x86_64-unknown-freebsd",
     "x86_64-unknown-linux-gnu",
 ];
 
-pub const LSAN_SUPPORTED_TARGETS: &'static [&'static str] =
-    &["aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"];
+// FIXME(rcvalle): More targets are likely supported.
+pub const CFI_SUPPORTED_TARGETS: &[&str] = &[
+    "aarch64-apple-darwin",
+    "aarch64-fuchsia",
+    "aarch64-linux-android",
+    "aarch64-unknown-freebsd",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-fuchsia",
+    "x86_64-pc-solaris",
+    "x86_64-unknown-freebsd",
+    "x86_64-unknown-illumos",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-unknown-netbsd",
+];
 
-pub const MSAN_SUPPORTED_TARGETS: &'static [&'static str] =
-    &["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"];
+pub const LSAN_SUPPORTED_TARGETS: &[&str] = &[
+    // FIXME: currently broken, see #88132
+    // "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+];
 
-pub const TSAN_SUPPORTED_TARGETS: &'static [&'static str] =
-    &["aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"];
+pub const MSAN_SUPPORTED_TARGETS: &[&str] =
+    &["aarch64-unknown-linux-gnu", "x86_64-unknown-freebsd", "x86_64-unknown-linux-gnu"];
 
-pub fn matches_os(triple: &str, name: &str) -> bool {
-    // For the wasm32 bare target we ignore anything also ignored on emscripten
-    // and then we also recognize `wasm32-bare` as the os for the target
-    if triple == "wasm32-unknown-unknown" {
-        return name == "emscripten" || name == "wasm32-bare";
-    }
-    let triple: Vec<_> = triple.split('-').collect();
-    for &(triple_os, os) in OS_TABLE {
-        if triple.contains(&triple_os) {
-            return os == name;
-        }
-    }
-    panic!("Cannot determine OS from triple");
-}
+pub const TSAN_SUPPORTED_TARGETS: &[&str] = &[
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-freebsd",
+    "x86_64-unknown-linux-gnu",
+];
 
-/// Determine the architecture from `triple`
-pub fn get_arch(triple: &str) -> &'static str {
-    let triple: Vec<_> = triple.split('-').collect();
-    for &(triple_arch, arch) in ARCH_TABLE {
-        if triple.contains(&triple_arch) {
-            return arch;
-        }
-    }
-    panic!("Cannot determine Architecture from triple");
-}
+pub const HWASAN_SUPPORTED_TARGETS: &[&str] =
+    &["aarch64-linux-android", "aarch64-unknown-linux-gnu"];
 
-pub fn matches_env(triple: &str, name: &str) -> bool {
-    if let Some(env) = triple.split('-').nth(3) { env.starts_with(name) } else { false }
-}
+pub const MEMTAG_SUPPORTED_TARGETS: &[&str] =
+    &["aarch64-linux-android", "aarch64-unknown-linux-gnu"];
 
-pub fn get_pointer_width(triple: &str) -> &'static str {
-    if (triple.contains("64") && !triple.ends_with("gnux32")) || triple.starts_with("s390x") {
-        "64bit"
-    } else if triple.starts_with("avr") {
-        "16bit"
-    } else {
-        "32bit"
-    }
-}
+pub const SHADOWCALLSTACK_SUPPORTED_TARGETS: &[&str] = &["aarch64-linux-android"];
 
 pub fn make_new_path(path: &str) -> String {
     assert!(cfg!(windows));
@@ -170,11 +99,11 @@ pub trait PathBufExt {
 
 impl PathBufExt for PathBuf {
     fn with_extra_extension<S: AsRef<OsStr>>(&self, extension: S) -> PathBuf {
-        if extension.as_ref().len() == 0 {
+        if extension.as_ref().is_empty() {
             self.clone()
         } else {
             let mut fname = self.file_name().unwrap().to_os_string();
-            if !extension.as_ref().to_str().unwrap().starts_with(".") {
+            if !extension.as_ref().to_str().unwrap().starts_with('.') {
                 fname.push(".");
             }
             fname.push(extension);

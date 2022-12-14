@@ -82,4 +82,28 @@ fn main() {
     for i in 1..3 {
         println!("{}", arr[i]);
     }
+
+    // Fix #5945
+    let mut vec = vec![1, 2, 3, 4];
+    for i in 0..vec.len() - 1 {
+        vec[i] += 1;
+    }
+    let mut vec = vec![1, 2, 3, 4];
+    for i in vec.len() - 3..vec.len() {
+        vec[i] += 1;
+    }
+    let mut vec = vec![1, 2, 3, 4];
+    for i in vec.len() - 3..vec.len() - 1 {
+        vec[i] += 1;
+    }
+}
+
+mod issue2277 {
+    pub fn example(list: &[[f64; 3]]) {
+        let mut x: [f64; 3] = [10.; 3];
+
+        for i in 0..3 {
+            x[i] = list.iter().map(|item| item[i]).sum::<f64>();
+        }
+    }
 }

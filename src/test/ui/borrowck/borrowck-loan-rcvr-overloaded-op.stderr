@@ -3,7 +3,7 @@ error[E0503]: cannot use `p` because it was mutably borrowed
    |
 LL |     let q = &mut p;
    |             ------ borrow of `p` occurs here
-LL | 
+LL |
 LL |     p + 3;
    |     ^ use of borrowed `p`
 ...
@@ -17,8 +17,8 @@ LL |     let q = &mut p;
    |             ------ mutable borrow occurs here
 ...
 LL |     p.times(3);
-   |     ^ immutable borrow occurs here
-LL | 
+   |     ^^^^^^^^^^ immutable borrow occurs here
+LL |
 LL |     *q + 3; // OK to use the new alias `q`
    |     -- mutable borrow later used here
 

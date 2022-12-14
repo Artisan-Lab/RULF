@@ -1,9 +1,9 @@
 #![feature(type_alias_impl_trait)]
 #![deny(improper_ctypes)]
 
-pub trait Baz { }
+pub trait Baz {}
 
-impl Baz for () { }
+impl Baz for () {}
 
 type Qux = impl Baz;
 
@@ -23,7 +23,7 @@ pub struct A<T: Foo> {
 }
 
 extern "C" {
-    pub fn lint_me() -> A<()>; //~ ERROR: uses type `impl Baz`
+    pub fn lint_me() -> A<()>; //~ ERROR: uses type `Qux`
 }
 
 fn main() {}

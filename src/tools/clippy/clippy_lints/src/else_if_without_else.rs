@@ -1,21 +1,20 @@
 //! Lint on if expressions with an else if, but without a final else branch.
 
+use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::ast::{Expr, ExprKind};
 use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
 use rustc_middle::lint::in_external_macro;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 
-use crate::utils::span_lint_and_help;
-
 declare_clippy_lint! {
-    /// **What it does:** Checks for usage of if expressions with an `else if` branch,
+    /// ### What it does
+    /// Checks for usage of if expressions with an `else if` branch,
     /// but without a final `else` branch.
     ///
-    /// **Why is this bad?** Some coding guidelines require this (e.g., MISRA-C:2004 Rule 14.10).
+    /// ### Why is this bad?
+    /// Some coding guidelines require this (e.g., MISRA-C:2004 Rule 14.10).
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
+    /// ### Example
     /// ```rust
     /// # fn a() {}
     /// # fn b() {}
@@ -27,7 +26,7 @@ declare_clippy_lint! {
     /// }
     /// ```
     ///
-    /// Could be written:
+    /// Use instead:
     ///
     /// ```rust
     /// # fn a() {}
@@ -41,6 +40,7 @@ declare_clippy_lint! {
     ///     // We don't care about zero.
     /// }
     /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub ELSE_IF_WITHOUT_ELSE,
     restriction,
     "`if` expression with an `else if`, but without a final `else` branch"

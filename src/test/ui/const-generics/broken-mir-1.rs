@@ -1,8 +1,4 @@
 // run-pass
-
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 pub trait Foo {
     fn foo(&self);
 }

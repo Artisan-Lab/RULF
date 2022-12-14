@@ -1,7 +1,7 @@
 // run-pass
 // compile-flags:--test -O
 
-// ignore-wasm32-bare compiled with panic=abort by default
+// needs-unwind
 
 #[test]
 #[should_panic(expected = "creating inhabited type")]

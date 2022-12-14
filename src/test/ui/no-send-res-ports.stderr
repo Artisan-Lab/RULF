@@ -1,25 +1,39 @@
-error[E0277]: `std::rc::Rc<()>` cannot be sent between threads safely
-  --> $DIR/no-send-res-ports.rs:25:5
+error[E0277]: `Rc<()>` cannot be sent between threads safely
+  --> $DIR/no-send-res-ports.rs:25:19
    |
 LL |       thread::spawn(move|| {
-   |  _____^^^^^^^^^^^^^_-
+   |       ------------- ^-----
+   |       |             |
+   |  _____|_____________within this `[closure@$DIR/no-send-res-ports.rs:25:19: 25:25]`
    | |     |
-   | |     `std::rc::Rc<()>` cannot be sent between threads safely
+   | |     required by a bound introduced by this call
 LL | |
 LL | |         let y = x;
 LL | |         println!("{:?}", y);
 LL | |     });
-   | |_____- within this `[closure@$DIR/no-send-res-ports.rs:25:19: 29:6 x:main::Foo]`
-   | 
-  ::: $SRC_DIR/libstd/thread/mod.rs:LL:COL
+   | |_____^ `Rc<()>` cannot be sent between threads safely
    |
-LL |       F: Send + 'static,
-   |          ---- required by this bound in `std::thread::spawn`
+   = help: within `[closure@$DIR/no-send-res-ports.rs:25:19: 25:25]`, the trait `Send` is not implemented for `Rc<()>`
+note: required because it appears within the type `Port<()>`
+  --> $DIR/no-send-res-ports.rs:5:8
    |
-   = help: within `[closure@$DIR/no-send-res-ports.rs:25:19: 29:6 x:main::Foo]`, the trait `std::marker::Send` is not implemented for `std::rc::Rc<()>`
-   = note: required because it appears within the type `Port<()>`
-   = note: required because it appears within the type `main::Foo`
-   = note: required because it appears within the type `[closure@$DIR/no-send-res-ports.rs:25:19: 29:6 x:main::Foo]`
+LL | struct Port<T>(Rc<T>);
+   |        ^^^^
+note: required because it appears within the type `Foo`
+  --> $DIR/no-send-res-ports.rs:9:12
+   |
+LL |     struct Foo {
+   |            ^^^
+note: required because it's used within this closure
+  --> $DIR/no-send-res-ports.rs:25:19
+   |
+LL |     thread::spawn(move|| {
+   |                   ^^^^^^
+note: required by a bound in `spawn`
+  --> $SRC_DIR/std/src/thread/mod.rs:LL:COL
+   |
+LL |     F: Send + 'static,
+   |        ^^^^ required by this bound in `spawn`
 
 error: aborting due to previous error
 

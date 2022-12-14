@@ -1,29 +1,10 @@
-error[E0495]: cannot infer an appropriate lifetime for borrow expression due to conflicting requirements
-  --> $DIR/regions-addr-of-self.rs:7:37
+error: lifetime may not live long enough
+  --> $DIR/regions-addr-of-self.rs:7:16
    |
+LL |     pub fn chase_cat(&mut self) {
+   |                      - let's call the lifetime of this reference `'1`
 LL |         let p: &'static mut usize = &mut self.cats_chased;
-   |                                     ^^^^^^^^^^^^^^^^^^^^^
-   |
-note: first, the lifetime cannot outlive the anonymous lifetime #1 defined on the method body at 6:5...
-  --> $DIR/regions-addr-of-self.rs:6:5
-   |
-LL | /     pub fn chase_cat(&mut self) {
-LL | |         let p: &'static mut usize = &mut self.cats_chased;
-LL | |         *p += 1;
-LL | |     }
-   | |_____^
-note: ...so that reference does not outlive borrowed content
-  --> $DIR/regions-addr-of-self.rs:7:37
-   |
-LL |         let p: &'static mut usize = &mut self.cats_chased;
-   |                                     ^^^^^^^^^^^^^^^^^^^^^
-   = note: but, the lifetime must be valid for the static lifetime...
-note: ...so that reference does not outlive borrowed content
-  --> $DIR/regions-addr-of-self.rs:7:37
-   |
-LL |         let p: &'static mut usize = &mut self.cats_chased;
-   |                                     ^^^^^^^^^^^^^^^^^^^^^
+   |                ^^^^^^^^^^^^^^^^^^ type annotation requires that `'1` must outlive `'static`
 
 error: aborting due to previous error
 
-For more information about this error, try `rustc --explain E0495`.

@@ -11,101 +11,68 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::string::ToString;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::mpsc::Sender;
 
-macro_rules! try_err {
-    ($e:expr, $file:expr) => {
-        match $e {
-            Ok(e) => e,
-            Err(e) => return Err(E::new(e, $file)),
-        }
-    };
-}
-
-pub trait PathError {
+pub(crate) trait PathError {
     fn new<S, P: AsRef<Path>>(e: S, path: P) -> Self
     where
         S: ToString + Sized;
 }
 
-pub struct ErrorStorage {
-    sender: Option<Sender<Option<String>>>,
-    receiver: Receiver<Option<String>>,
-}
-
-impl ErrorStorage {
-    pub fn new() -> ErrorStorage {
-        let (sender, receiver) = channel();
-        ErrorStorage { sender: Some(sender), receiver }
-    }
-
-    /// Prints all stored errors. Returns the number of printed errors.
-    pub fn write_errors(&mut self, diag: &rustc_errors::Handler) -> usize {
-        let mut printed = 0;
-        // In order to drop the sender part of the channel.
-        self.sender = None;
-
-        for msg in self.receiver.iter() {
-            if let Some(ref error) = msg {
-                diag.struct_err(&error).emit();
-                printed += 1;
-            }
-        }
-        printed
-    }
-}
-
-pub struct DocFS {
+pub(crate) struct DocFS {
     sync_only: bool,
-    errors: Arc<ErrorStorage>,
+    errors: Option<Sender<String>>,
 }
 
 impl DocFS {
-    pub fn new(errors: &Arc<ErrorStorage>) -> DocFS {
-        DocFS { sync_only: false, errors: Arc::clone(errors) }
+    pub(crate) fn new(errors: Sender<String>) -> DocFS {
+        DocFS { sync_only: false, errors: Some(errors) }
     }
 
-    pub fn set_sync_only(&mut self, sync_only: bool) {
+    pub(crate) fn set_sync_only(&mut self, sync_only: bool) {
         self.sync_only = sync_only;
     }
 
-    pub fn create_dir_all<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+    pub(crate) fn close(&mut self) {
+        self.errors = None;
+    }
+
+    pub(crate) fn create_dir_all<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         // For now, dir creation isn't a huge time consideration, do it
         // synchronously, which avoids needing ordering between write() actions
         // and directory creation.
         fs::create_dir_all(path)
     }
 
-    pub fn write<P, C, E>(&self, path: P, contents: C) -> Result<(), E>
+    pub(crate) fn write<E>(
+        &self,
+        path: PathBuf,
+        contents: impl 'static + Send + AsRef<[u8]>,
+    ) -> Result<(), E>
     where
-        P: AsRef<Path>,
-        C: AsRef<[u8]>,
         E: PathError,
     {
-        if !self.sync_only && cfg!(windows) {
+        #[cfg(windows)]
+        if !self.sync_only {
             // A possible future enhancement after more detailed profiling would
             // be to create the file sync so errors are reported eagerly.
-            let contents = contents.as_ref().to_vec();
-            let path = path.as_ref().to_path_buf();
-            let sender = self.errors.sender.clone().unwrap();
-            rayon::spawn(move || match fs::write(&path, &contents) {
-                Ok(_) => {
-                    sender.send(None).unwrap_or_else(|_| {
+            let sender = self.errors.clone().expect("can't write after closing");
+            rayon::spawn(move || {
+                fs::write(&path, contents).unwrap_or_else(|e| {
+                    sender.send(format!("\"{}\": {}", path.display(), e)).unwrap_or_else(|_| {
                         panic!("failed to send error on \"{}\"", path.display())
-                    });
-                }
-                Err(e) => {
-                    sender.send(Some(format!("\"{}\": {}", path.display(), e))).unwrap_or_else(
-                        |_| panic!("failed to send non-error on \"{}\"", path.display()),
-                    );
-                }
+                    })
+                });
             });
-            Ok(())
         } else {
-            Ok(try_err!(fs::write(&path, contents), path))
+            fs::write(&path, contents).map_err(|e| E::new(e, path))?;
         }
+
+        #[cfg(not(windows))]
+        fs::write(&path, contents).map_err(|e| E::new(e, path))?;
+
+        Ok(())
     }
 }

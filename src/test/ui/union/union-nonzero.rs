@@ -1,4 +1,7 @@
 // run-pass
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
+
 #![allow(dead_code)]
 
 // Tests that unions aren't subject to unsafe non-zero/niche-filling optimizations.
@@ -10,7 +13,7 @@
 // optimizations to types containing unions even if they're theoretically possible. (discussion:
 // https://github.com/rust-lang/rust/issues/36394)
 //
-// Notably this nails down part of the behavior that `MaybeUninit` assumes: that a
+// Notably this nails down part of the behavior that `MaybeUninit` assumes: that an
 // `Option<MaybeUninit<&u8>>` does not take advantage of non-zero optimization, and thus is a safe
 // construct.
 

@@ -5,13 +5,11 @@
 
 #![feature(type_alias_impl_trait)]
 
-trait Future {
-}
+trait Future {}
 
 struct AndThen<F>(F);
 
-impl<F> Future for AndThen<F> {
-}
+impl<F> Future for AndThen<F> {}
 
 struct Foo<'a> {
     x: &'a mut (),

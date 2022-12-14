@@ -2,8 +2,8 @@
 #![allow(unused_variables)]
 
 // compile-flags:-C lto -C panic=unwind
+// needs-unwind
 // no-prefer-dynamic
-// ignore-cloudabi no processes
 // ignore-emscripten no processes
 // ignore-sgx no processes
 

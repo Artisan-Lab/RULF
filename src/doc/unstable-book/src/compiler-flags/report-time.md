@@ -21,11 +21,8 @@ Sample usage command:
 Available options:
 
 ```sh
---report-time [plain|colored]
-                Show execution time of each test. Available values:
-                plain = do not colorize the execution time (default);
-                colored = colorize output according to the `color`
-                parameter value;
+--report-time
+                Show execution time of each test.
                 Threshold values for colorized output can be
                 configured via
                 `RUST_TEST_TIME_UNIT`, `RUST_TEST_TIME_INTEGRATION`
@@ -34,7 +31,7 @@ Available options:
                 Expected format of environment variable is
                 `VARIABLE=WARN_TIME,CRITICAL_TIME`.
                 Not available for --format=terse
---ensure-time 
+--ensure-time
                 Treat excess of the test execution time limit as
                 error.
                 Threshold values for this option can be configured via

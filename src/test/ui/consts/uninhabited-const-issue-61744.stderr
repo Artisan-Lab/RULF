@@ -1,11 +1,10 @@
-error[E0080]: evaluation of constant value failed
+error[E0080]: evaluation of `<i32 as Const>::CONSTANT` failed
   --> $DIR/uninhabited-const-issue-61744.rs:4:5
    |
 LL |     hint_unreachable()
    |     ^^^^^^^^^^^^^^^^^^
    |     |
    |     reached the configured maximum number of stack frames
-   |     inside `fake_type::<!>` at $DIR/uninhabited-const-issue-61744.rs:4:5
    |     inside `fake_type::<!>` at $DIR/uninhabited-const-issue-61744.rs:4:5
    |     inside `fake_type::<!>` at $DIR/uninhabited-const-issue-61744.rs:4:5
    |     inside `fake_type::<!>` at $DIR/uninhabited-const-issue-61744.rs:4:5
@@ -137,17 +136,9 @@ LL |     fake_type()
    |     inside `hint_unreachable` at $DIR/uninhabited-const-issue-61744.rs:8:5
    |     inside `hint_unreachable` at $DIR/uninhabited-const-issue-61744.rs:8:5
    |     inside `hint_unreachable` at $DIR/uninhabited-const-issue-61744.rs:8:5
-   |     inside `hint_unreachable` at $DIR/uninhabited-const-issue-61744.rs:8:5
-
-error: any use of this value will cause an error
-  --> $DIR/uninhabited-const-issue-61744.rs:12:36
-   |
+...
 LL |     const CONSTANT: i32 = unsafe { fake_type() };
-   |     -------------------------------^^^^^^^^^^^---
-   |                                    |
-   |                                    referenced constant has errors
-   |
-   = note: `#[deny(const_err)]` on by default
+   |                                    ----------- inside `<i32 as Const>::CONSTANT` at $DIR/uninhabited-const-issue-61744.rs:12:36
 
 error[E0080]: erroneous constant used
   --> $DIR/uninhabited-const-issue-61744.rs:18:10
@@ -155,6 +146,6 @@ error[E0080]: erroneous constant used
 LL |     dbg!(i32::CONSTANT);
    |          ^^^^^^^^^^^^^ referenced constant has errors
 
-error: aborting due to 3 previous errors
+error: aborting due to 2 previous errors
 
 For more information about this error, try `rustc --explain E0080`.

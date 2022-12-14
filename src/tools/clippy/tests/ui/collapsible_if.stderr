@@ -9,11 +9,11 @@ LL | |     }
    | |_____^
    |
    = note: `-D clippy::collapsible-if` implied by `-D warnings`
-help: try
+help: collapse nested if block
    |
-LL |     if x == "hello" && y == "world" {
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if x == "hello" && y == "world" {
+LL +         println!("Hello world!");
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -26,11 +26,11 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if (x == "hello" || x == "world") && (y == "world" || y == "hello") {
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if (x == "hello" || x == "world") && (y == "world" || y == "hello") {
+LL +         println!("Hello world!");
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -43,11 +43,11 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if x == "hello" && x == "world" && (y == "world" || y == "hello") {
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if x == "hello" && x == "world" && (y == "world" || y == "hello") {
+LL +         println!("Hello world!");
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -60,11 +60,11 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if (x == "hello" || x == "world") && y == "world" && y == "hello" {
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if (x == "hello" || x == "world") && y == "world" && y == "hello" {
+LL +         println!("Hello world!");
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -77,11 +77,11 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if x == "hello" && x == "world" && y == "world" && y == "hello" {
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if x == "hello" && x == "world" && y == "world" && y == "hello" {
+LL +         println!("Hello world!");
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -94,11 +94,11 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if 42 == 1337 && 'a' != 'A' {
-LL |         println!("world!")
-LL |     }
+LL ~     if 42 == 1337 && 'a' != 'A' {
+LL +         println!("world!")
+LL +     }
    |
 
 error: this `if` statement can be collapsed
@@ -111,12 +111,28 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     if x == "hello" && y == "world" { // Collapsible
-LL |         println!("Hello world!");
-LL |     }
+LL ~     if x == "hello" && y == "world" { // Collapsible
+LL +         println!("Hello world!");
+LL +     }
    |
 
-error: aborting due to 7 previous errors
+error: this `if` statement can be collapsed
+  --> $DIR/collapsible_if.rs:154:5
+   |
+LL | /     if matches!(true, true) {
+LL | |         if matches!(true, true) {}
+LL | |     }
+   | |_____^ help: collapse nested if block: `if matches!(true, true) && matches!(true, true) {}`
+
+error: this `if` statement can be collapsed
+  --> $DIR/collapsible_if.rs:159:5
+   |
+LL | /     if matches!(true, true) && truth() {
+LL | |         if matches!(true, true) {}
+LL | |     }
+   | |_____^ help: collapse nested if block: `if matches!(true, true) && truth() && matches!(true, true) {}`
+
+error: aborting due to 9 previous errors
 

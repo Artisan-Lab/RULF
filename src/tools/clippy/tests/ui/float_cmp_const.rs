@@ -8,11 +8,7 @@ const ONE: f32 = 1.0;
 const TWO: f32 = 2.0;
 
 fn eq_one(x: f32) -> bool {
-    if x.is_nan() {
-        false
-    } else {
-        x == ONE
-    } // no error, inside "eq" fn
+    if x.is_nan() { false } else { x == ONE } // no error, inside "eq" fn
 }
 
 fn main() {
@@ -48,7 +44,7 @@ fn main() {
     v != 1.0;
 
     const ZERO_ARRAY: [f32; 3] = [0.0, 0.0, 0.0];
-    const ZERO_INF_ARRAY: [f32; 3] = [0.0, ::std::f32::INFINITY, ::std::f32::NEG_INFINITY];
+    const ZERO_INF_ARRAY: [f32; 3] = [0.0, f32::INFINITY, f32::NEG_INFINITY];
     const NON_ZERO_ARRAY: [f32; 3] = [0.0, 0.1, 0.2];
     const NON_ZERO_ARRAY2: [f32; 3] = [0.2, 0.1, 0.0];
 

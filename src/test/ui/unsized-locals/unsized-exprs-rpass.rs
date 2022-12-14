@@ -1,8 +1,8 @@
 // run-pass
-#![allow(unused_braces, unused_parens)]
-#![feature(unsized_tuple_coercion, unsized_locals)]
+#![allow(incomplete_features, unused_braces, unused_parens)]
+#![feature(unsized_tuple_coercion, unsized_locals, unsized_fn_params)]
 
-struct A<X: ?Sized>(X);
+struct A<X: ?Sized>(#[allow(unused_tuple_struct_fields)] X);
 
 fn udrop<T: ?Sized>(_x: T) {}
 fn foo() -> Box<[u8]> {
@@ -24,12 +24,8 @@ fn main() {
     udrop::<[u8]>(loop {
         break *foo();
     });
-    udrop::<[u8]>(if true {
-        *foo()
-    } else {
-        *foo()
-    });
-    udrop::<[u8]>({*foo()});
+    udrop::<[u8]>(if true { *foo() } else { *foo() });
+    udrop::<[u8]>({ *foo() });
     udrop::<[u8]>((*foo()));
     udrop::<[u8]>((*tfoo()).1);
     *afoo() + 42;

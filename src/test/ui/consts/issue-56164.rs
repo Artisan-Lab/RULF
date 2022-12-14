@@ -1,12 +1,10 @@
-#![feature(const_fn)]
-
 const fn foo() { (||{})() }
-//~^ ERROR calls in constant functions are limited to constant functions, tuple structs and tuple
-// variants
+//~^ ERROR cannot call non-const closure
+//~| ERROR erroneous constant used
 
 const fn bad(input: fn()) {
     input()
-    //~^ ERROR function pointers are not allowed in const fn
+    //~^ ERROR function pointer calls are not allowed
 }
 
 fn main() {

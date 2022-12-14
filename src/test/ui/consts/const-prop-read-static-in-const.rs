@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-const TEST: u8 = MY_STATIC; //~ ERROR any use of this value will cause an error
+const TEST: u8 = MY_STATIC; //~ ERROR constant
 
 static MY_STATIC: u8 = 4;
 

@@ -13,7 +13,10 @@ use core::ops::RangeBounds;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "emscripten"))]
 #[lang = "eh_personality"]
-extern fn eh_personality() {}
+extern "C" fn eh_personality() {}
+#[cfg(target_os = "emscripten")]
+#[lang = "eh_catch_typeinfo"]
+static EH_CATCH_TYPEINFO: u8 = 0;
 
 
 // take a reference to any built-in range

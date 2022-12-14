@@ -1,8 +1,6 @@
-// run-pass
-
 #![allow(
     unused_variables,
-    clippy::blacklisted_name,
+    clippy::disallowed_names,
     clippy::needless_pass_by_value,
     dead_code
 )]

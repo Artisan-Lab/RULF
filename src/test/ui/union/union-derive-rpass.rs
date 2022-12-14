@@ -1,10 +1,11 @@
 // run-pass
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
+
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
 // Some traits can be derived for unions.
-
-#![feature(untagged_unions)]
 
 #[derive(
     Copy,

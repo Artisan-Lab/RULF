@@ -1,7 +1,8 @@
 // run-pass
-#![allow(dead_code)]
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
 
-#![feature(untagged_unions)]
+#![allow(dead_code)]
 
 use std::mem::ManuallyDrop;
 
@@ -16,7 +17,7 @@ union U<A, B> where A: Copy, B: Copy {
 }
 
 unsafe fn union_transmute<A, B>(a: A) -> B where A: Copy, B: Copy {
-    U { a: a }.b
+    U { a }.b
 }
 
 fn main() {

@@ -1,5 +1,3 @@
-#![feature(const_generics)]
-
 pub struct Struct<const N: usize>(pub [u8; N]);
 
 pub type Alias = Struct<2>;

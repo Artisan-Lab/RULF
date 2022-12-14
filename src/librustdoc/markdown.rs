@@ -1,16 +1,18 @@
+use std::fmt::Write as _;
 use std::fs::{create_dir_all, read_to_string, File};
 use std::io::prelude::*;
 use std::path::Path;
 
-use rustc_feature::UnstableFeatures;
 use rustc_span::edition::Edition;
 use rustc_span::source_map::DUMMY_SP;
 
 use crate::config::{Options, RenderOptions};
+use crate::doctest::{Collector, GlobalTestOptions};
 use crate::html::escape::Escape;
 use crate::html::markdown;
-use crate::html::markdown::{find_testable_code, ErrorCodes, IdMap, Markdown, MarkdownWithToc};
-use crate::test::{Collector, TestOptions};
+use crate::html::markdown::{
+    find_testable_code, ErrorCodes, HeadingOffset, IdMap, Markdown, MarkdownWithToc,
+};
 
 /// Separate any lines at the start of the file that begin with `# ` or `%`.
 fn extract_leading_metadata(s: &str) -> (Vec<&str>, &str) {
@@ -33,7 +35,9 @@ fn extract_leading_metadata(s: &str) -> (Vec<&str>, &str) {
 
 /// Render `input` (e.g., "foo.md") into an HTML file in `output`
 /// (e.g., output = "bar" => "bar/foo.html").
-pub fn render<P: AsRef<Path>>(
+///
+/// Requires session globals to be available, for symbol interning.
+pub(crate) fn render<P: AsRef<Path>>(
     input: P,
     options: RenderOptions,
     edition: Edition,
@@ -49,8 +53,8 @@ pub fn render<P: AsRef<Path>>(
 
     let mut css = String::new();
     for name in &options.markdown_css {
-        let s = format!("<link rel=\"stylesheet\" type=\"text/css\" href=\"{}\">\n", name);
-        css.push_str(&s)
+        write!(css, r#"<link rel="stylesheet" type="text/css" href="{name}">"#)
+            .expect("Writing to a String can't fail");
     }
 
     let input_str = read_to_string(input).map_err(|err| format!("{}: {}", input.display(), err))?;
@@ -66,11 +70,20 @@ pub fn render<P: AsRef<Path>>(
     let title = metadata[0];
 
     let mut ids = IdMap::new();
-    let error_codes = ErrorCodes::from(UnstableFeatures::from_environment().is_nightly_build());
+    let error_codes = ErrorCodes::from(options.unstable_features.is_nightly_build());
     let text = if !options.markdown_no_toc {
-        MarkdownWithToc(text, &mut ids, error_codes, edition, &playground).to_string()
+        MarkdownWithToc(text, &mut ids, error_codes, edition, &playground).into_string()
     } else {
-        Markdown(text, &[], &mut ids, error_codes, edition, &playground).to_string()
+        Markdown {
+            content: text,
+            links: &[],
+            ids: &mut ids,
+            error_codes,
+            edition,
+            playground: &playground,
+            heading_offset: HeadingOffset::H1,
+        }
+        .into_string()
     };
 
     let err = write!(
@@ -115,12 +128,11 @@ pub fn render<P: AsRef<Path>>(
 }
 
 /// Runs any tests/code examples in the markdown file `input`.
-pub fn test(mut options: Options) -> Result<(), String> {
+pub(crate) fn test(options: Options) -> Result<(), String> {
     let input_str = read_to_string(&options.input)
         .map_err(|err| format!("{}: {}", options.input.display(), err))?;
-    let mut opts = TestOptions::default();
+    let mut opts = GlobalTestOptions::default();
     opts.no_crate_inject = true;
-    opts.display_warnings = options.display_warnings;
     let mut collector = Collector::new(
         options.input.display().to_string(),
         options.clone(),
@@ -131,15 +143,10 @@ pub fn test(mut options: Options) -> Result<(), String> {
         options.enable_per_target_ignores,
     );
     collector.set_position(DUMMY_SP);
-    let codes = ErrorCodes::from(UnstableFeatures::from_environment().is_nightly_build());
+    let codes = ErrorCodes::from(options.unstable_features.is_nightly_build());
 
     find_testable_code(&input_str, &mut collector, codes, options.enable_per_target_ignores, None);
 
-    options.test_args.insert(0, "rustdoctest".to_string());
-    testing::test_main(
-        &options.test_args,
-        collector.tests,
-        Some(testing::Options::new().display_output(options.display_warnings)),
-    );
+    crate::doctest::run_tests(options.test_args, options.nocapture, collector.tests);
     Ok(())
 }

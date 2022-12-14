@@ -1,7 +1,7 @@
 #![feature(prelude_import)]
 #![no_std]
 #[prelude_import]
-use ::std::prelude::v1::*;
+use ::std::prelude::rust_2015::*;
 #[macro_use]
 extern crate std;
 // pretty-compare-only
@@ -9,10 +9,5 @@ extern crate std;
 // pp-exact:dollar-crate.pp
 
 fn main() {
-    {
-        ::std::io::_print(::core::fmt::Arguments::new_v1(&["rust\n"],
-                                                         &match () {
-                                                              () => [],
-                                                          }));
-    };
+    { ::std::io::_print(::core::fmt::Arguments::new_v1(&["rust\n"], &[])); };
 }

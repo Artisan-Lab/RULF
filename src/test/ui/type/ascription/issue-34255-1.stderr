@@ -3,6 +3,15 @@ error[E0425]: cannot find value `input_cells` in this scope
    |
 LL |         input_cells: Vec::new()
    |         ^^^^^^^^^^^ a field by this name exists in `Self`
+   |
+help: you might have meant to write a `struct` literal
+   |
+LL ~     pub fn new() -> Self { SomeStruct {
+LL |         input_cells: Vec::new()
+ ...
+LL |
+LL ~     }}
+   |
 
 error[E0214]: parenthesized type parameters may only be used with a `Fn` trait
   --> $DIR/issue-34255-1.rs:7:27
@@ -10,11 +19,21 @@ error[E0214]: parenthesized type parameters may only be used with a `Fn` trait
 LL |         input_cells: Vec::new()
    |                           ^^^^^ only `Fn` traits may use parentheses
 
-error[E0107]: wrong number of type arguments: expected 1, found 0
+error[E0107]: missing generics for struct `Vec`
   --> $DIR/issue-34255-1.rs:7:22
    |
 LL |         input_cells: Vec::new()
-   |                      ^^^^^^^^^^ expected 1 type argument
+   |                      ^^^ expected at least 1 generic argument
+   |
+note: struct defined here, with at least 1 generic parameter: `T`
+  --> $SRC_DIR/alloc/src/vec/mod.rs:LL:COL
+   |
+LL | pub struct Vec<T, #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator = Global> {
+   |            ^^^ -
+help: add missing generic argument
+   |
+LL |         input_cells: Vec<T>::new()
+   |                      ~~~~~~
 
 error: aborting due to 3 previous errors
 

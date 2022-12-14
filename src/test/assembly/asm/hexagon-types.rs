@@ -1,14 +1,18 @@
-// no-system-llvm
 // assembly-output: emit-asm
 // compile-flags: --target hexagon-unknown-linux-musl
+// needs-llvm-components: hexagon
 
-#![feature(no_core, lang_items, rustc_attrs, repr_simd)]
+#![feature(no_core, lang_items, rustc_attrs, repr_simd, asm_experimental_arch)]
 #![crate_type = "rlib"]
 #![no_core]
 #![allow(asm_sub_register, non_camel_case_types)]
 
 #[rustc_builtin_macro]
 macro_rules! asm {
+    () => {};
+}
+#[rustc_builtin_macro]
+macro_rules! concat {
     () => {};
 }
 #[rustc_builtin_macro]
@@ -50,9 +54,26 @@ macro_rules! check {
     };
 }
 
+macro_rules! check_reg {
+    ($func:ident $ty:ident $reg:tt) => {
+        #[no_mangle]
+        pub unsafe fn $func(x: $ty) -> $ty {
+            // Hack to avoid function merging
+            extern "Rust" {
+                fn dont_merge(s: &str);
+            }
+            dont_merge(stringify!($func));
+
+            let y;
+            asm!(concat!($reg, " = ", $reg), lateout($reg) y, in($reg) x);
+            y
+        }
+    };
+}
+
 // CHECK-LABEL: sym_static:
 // CHECK: InlineAsm Start
-// CHECK: r0 = #extern_static
+// CHECK: r0 = {{#+}}extern_static
 // CHECK: InlineAsm End
 #[no_mangle]
 pub unsafe fn sym_static() {
@@ -67,7 +88,7 @@ pub unsafe fn sym_static() {
 
 // CHECK-LABEL: sym_fn:
 // CHECK: InlineAsm Start
-// CHECK: r0 = #extern_func
+// CHECK: r0 = {{#+}}extern_func
 // CHECK: InlineAsm End
 #[no_mangle]
 pub unsafe fn sym_fn() {
@@ -87,7 +108,7 @@ pub unsafe fn sym_fn() {
 // CHECK: InlineAsm Start
 // CHECK: {
 // CHECK:   r{{[0-9]+}} = r0
-// CHECK:   memw(r1) = r{{[0-9]+}}
+// CHECK:   memw(r1{{(\+#0)?}}) = r{{[0-9]+}}
 // CHECK: }
 // CHECK: InlineAsm End
 #[no_mangle]
@@ -99,7 +120,7 @@ pub unsafe fn packet() {
     }}", out(reg) _, in(reg) &val);
 }
 
-// CHECK-LABEL: ptr:
+// CHECK-LABEL: reg_ptr:
 // CHECK: InlineAsm Start
 // CHECK: r{{[0-9]+}} = r{{[0-9]+}}
 // CHECK: InlineAsm End
@@ -128,3 +149,33 @@ check!(reg_i8 i8 reg);
 // CHECK: r{{[0-9]+}} = r{{[0-9]+}}
 // CHECK: InlineAsm End
 check!(reg_i16 i16 reg);
+
+// CHECK-LABEL: r0_ptr:
+// CHECK: InlineAsm Start
+// CHECK: r0 = r0
+// CHECK: InlineAsm End
+check_reg!(r0_ptr ptr "r0");
+
+// CHECK-LABEL: r0_f32:
+// CHECK: InlineAsm Start
+// CHECK: r0 = r0
+// CHECK: InlineAsm End
+check_reg!(r0_f32 f32 "r0");
+
+// CHECK-LABEL: r0_i32:
+// CHECK: InlineAsm Start
+// CHECK: r0 = r0
+// CHECK: InlineAsm End
+check_reg!(r0_i32 i32 "r0");
+
+// CHECK-LABEL: r0_i8:
+// CHECK: InlineAsm Start
+// CHECK: r0 = r0
+// CHECK: InlineAsm End
+check_reg!(r0_i8 i8 "r0");
+
+// CHECK-LABEL: r0_i16:
+// CHECK: InlineAsm Start
+// CHECK: r0 = r0
+// CHECK: InlineAsm End
+check_reg!(r0_i16 i16 "r0");

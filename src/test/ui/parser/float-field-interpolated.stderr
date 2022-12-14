@@ -5,9 +5,9 @@ LL |         { s.$b; }
    |             ^^
 ...
 LL |     generate_field_accesses!(1.1, 1.1, 1.1);
-   |     ---------------------------------------- in this macro invocation
+   |     --------------------------------------- in this macro invocation
    |
-   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `generate_field_accesses` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: expected one of `.`, `;`, `?`, `}`, or an operator, found `1.1`
   --> $DIR/float-field-interpolated.rs:8:13
@@ -16,9 +16,9 @@ LL |         { s.$b; }
    |             ^^ expected one of `.`, `;`, `?`, `}`, or an operator
 ...
 LL |     generate_field_accesses!(1.1, 1.1, 1.1);
-   |     ---------------------------------------- in this macro invocation
+   |     --------------------------------------- in this macro invocation
    |
-   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `generate_field_accesses` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: unexpected token: `1.1`
   --> $DIR/float-field-interpolated.rs:10:13
@@ -27,9 +27,9 @@ LL |         { s.$c; }
    |             ^^
 ...
 LL |     generate_field_accesses!(1.1, 1.1, 1.1);
-   |     ---------------------------------------- in this macro invocation
+   |     --------------------------------------- in this macro invocation
    |
-   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `generate_field_accesses` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: expected one of `.`, `;`, `?`, `}`, or an operator, found `1.1`
   --> $DIR/float-field-interpolated.rs:10:13
@@ -38,9 +38,9 @@ LL |         { s.$c; }
    |             ^^ expected one of `.`, `;`, `?`, `}`, or an operator
 ...
 LL |     generate_field_accesses!(1.1, 1.1, 1.1);
-   |     ---------------------------------------- in this macro invocation
+   |     --------------------------------------- in this macro invocation
    |
-   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `generate_field_accesses` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: aborting due to 4 previous errors
 

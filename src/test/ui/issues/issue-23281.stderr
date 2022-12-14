@@ -1,21 +1,22 @@
-error[E0277]: the size for values of type `(dyn std::ops::Fn() + 'static)` cannot be known at compilation time
+error[E0277]: the size for values of type `(dyn Fn() + 'static)` cannot be known at compilation time
   --> $DIR/issue-23281.rs:4:27
    |
 LL |     pub fn function(funs: Vec<dyn Fn() -> ()>) {}
    |                           ^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
-...
-LL | struct Vec<T> {
-   |            - required by this bound in `Vec`
    |
-   = help: the trait `std::marker::Sized` is not implemented for `(dyn std::ops::Fn() + 'static)`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
+   = help: the trait `Sized` is not implemented for `(dyn Fn() + 'static)`
+note: required by a bound in `Vec`
+  --> $DIR/issue-23281.rs:8:12
+   |
+LL | struct Vec<T> {
+   |            ^ required by this bound in `Vec`
 help: you could relax the implicit `Sized` bound on `T` if it were used through indirection like `&T` or `Box<T>`
   --> $DIR/issue-23281.rs:8:12
    |
 LL | struct Vec<T> {
    |            ^ this could be changed to `T: ?Sized`...
 LL |     t: T,
-   |        - ...if indirection was used here: `Box<T>`
+   |        - ...if indirection were used here: `Box<T>`
 
 error: aborting due to previous error
 

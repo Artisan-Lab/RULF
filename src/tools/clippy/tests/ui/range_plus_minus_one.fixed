@@ -1,12 +1,29 @@
 // run-rustfix
 
 #![allow(unused_parens)]
-
+#![allow(clippy::iter_with_drain)]
 fn f() -> usize {
     42
 }
 
+macro_rules! macro_plus_one {
+    ($m: literal) => {
+        for i in 0..$m + 1 {
+            println!("{}", i);
+        }
+    };
+}
+
+macro_rules! macro_minus_one {
+    ($m: literal) => {
+        for i in 0..=$m - 1 {
+            println!("{}", i);
+        }
+    };
+}
+
 #[warn(clippy::range_plus_one)]
+#[warn(clippy::range_minus_one)]
 fn main() {
     for _ in 0..2 {}
     for _ in 0..=2 {}
@@ -38,4 +55,7 @@ fn main() {
 
     let mut vec: Vec<()> = std::vec::Vec::new();
     vec.drain(..);
+
+    macro_plus_one!(5);
+    macro_minus_one!(5);
 }

@@ -1,5 +1,4 @@
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
+// Checks that a const param cannot be stored in a struct.
 
 struct S<const C: u8>(C); //~ ERROR expected type, found const parameter
 

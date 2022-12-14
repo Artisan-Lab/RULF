@@ -5,12 +5,19 @@
 // (Normally, using `'static` would be preferred, but there are
 // times when that is not what you want.)
 
-// build-pass (FIXME(62277): could be check-pass?)
+// check-pass
 
 #![deny(single_use_lifetimes)]
 
-fn b<'a>() -> &'a u32 { // OK: used only in return type
+// OK: used only in return type
+fn b<'a>() -> &'a u32 {
     &22
 }
+
+pub trait Tfv<'a> {}
+impl Tfv<'_> for () {}
+
+// Do NOT lint if used in return type.
+pub fn i<'a>() -> impl Tfv<'a> {}
 
 fn main() {}

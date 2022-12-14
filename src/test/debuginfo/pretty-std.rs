@@ -2,8 +2,9 @@
 // only-cdb // "Temporarily" ignored on GDB/LLDB due to debuginfo tests being disabled, see PR 47155
 // ignore-android: FIXME(#10381)
 // compile-flags:-g
-// min-gdb-version 7.7
+// min-gdb-version: 7.7
 // min-lldb-version: 310
+// min-cdb-version: 10.0.18317.1001
 
 // === GDB TESTS ===================================================================================
 
@@ -13,7 +14,7 @@
 // gdb-check:$1 = &[i32](len: 4) = {0, 1, 2, 3}
 
 // gdb-command: print vec
-// gdb-check:$2 = Vec<u64>(len: 4, cap: [...]) = {4, 5, 6, 7}
+// gdb-check:$2 = Vec<u64, alloc::alloc::Global>(len: 4, cap: [...]) = {4, 5, 6, 7}
 
 // gdb-command: print str_slice
 // gdb-check:$3 = "IAMA string slice!"
@@ -37,7 +38,6 @@
 // gdb-command: set print length 5
 // gdb-command: print some_string
 // gdb-check:$8 = Some = {"IAMA "...}
-
 
 // === LLDB TESTS ==================================================================================
 
@@ -64,18 +64,21 @@
 // lldb-command: print os_string
 // lldb-check:[...]$6 = "IAMA OS string 😃"[...]
 
-
 // === CDB TESTS ==================================================================================
 
 // cdb-command: g
 
 // cdb-command: dx slice,d
-// cdb-check:slice,d [...]
-// NOTE: While slices have a .natvis entry that works in VS & VS Code, it fails in CDB 10.0.18362.1
+// cdb-check:slice,d          : { len=4 } [Type: slice$<i32>]
+// cdb-check:    [len]            : 4 [Type: [...]]
+// cdb-check:    [0]              : 0 [Type: int]
+// cdb-check:    [1]              : 1 [Type: int]
+// cdb-check:    [2]              : 2 [Type: int]
+// cdb-check:    [3]              : 3 [Type: int]
 
 // cdb-command: dx vec,d
-// cdb-check:vec,d [...] : { size=4 } [Type: [...]::Vec<u64>]
-// cdb-check:    [size]           : 4 [Type: [...]]
+// cdb-check:vec,d [...] : { len=4 } [Type: [...]::Vec<u64,alloc::alloc::Global>]
+// cdb-check:    [len]            : 4 [Type: [...]]
 // cdb-check:    [capacity]       : [...] [Type: [...]]
 // cdb-check:    [0]              : 4 [Type: unsigned __int64]
 // cdb-check:    [1]              : 5 [Type: unsigned __int64]
@@ -83,14 +86,15 @@
 // cdb-check:    [3]              : 7 [Type: unsigned __int64]
 
 // cdb-command: dx str_slice
-// cdb-check:str_slice [...]
-// NOTE: While string slices have a .natvis entry that works in VS & VS Code, it fails in CDB
+// cdb-check:str_slice        : "IAMA string slice!" [Type: str]
 
 // cdb-command: dx string
 // cdb-check:string           : "IAMA string!" [Type: [...]::String]
 // cdb-check:    [<Raw View>]     [Type: [...]::String]
-// cdb-check:    [size]           : 0xc [Type: [...]]
+// cdb-check:    [len]            : 0xc [Type: [...]]
 // cdb-check:    [capacity]       : 0xc [Type: [...]]
+
+// cdb-command: dx -r2 string
 // cdb-check:    [0]              : 73 'I' [Type: char]
 // cdb-check:    [1]              : 65 'A' [Type: char]
 // cdb-check:    [2]              : 77 'M' [Type: char]
@@ -105,22 +109,45 @@
 // cdb-check:    [11]             : 33 '!' [Type: char]
 
 // cdb-command: dx os_string
-// cdb-check:os_string        [Type: [...]::OsString]
-// NOTE: OsString doesn't have a .natvis entry yet.
+// NOTE: OSString is WTF-8 encoded which Windows debuggers don't understand. Verify the UTF-8
+//       portion displays correctly.
+// cdb-check:os_string        : "IAMA OS string [...]" [Type: std::ffi::os_str::OsString]
+// cdb-check:    [<Raw View>]     [Type: std::ffi::os_str::OsString]
+// cdb-check:    [chars]          : "IAMA OS string [...]"
 
 // cdb-command: dx some
-// cdb-check:some             : { Some 8 } [Type: [...]::Option<i16>]
+// cdb-check:some             : Some [Type: enum2$<core::option::Option<i16> >]
+// cdb-check:    [<Raw View>]     [Type: enum2$<core::option::Option<i16> >]
+// cdb-check:    [+0x002] __0              : 8 [Type: short]
+
 // cdb-command: dx none
-// cdb-check:none             : { None } [Type: [...]::Option<i64>]
+// cdb-check:none             : None [Type: enum2$<core::option::Option<i64> >]
+// cdb-check:    [<Raw View>]     [Type: enum2$<core::option::Option<i64> >]
+
 // cdb-command: dx some_string
-// cdb-check:some_string      : { Some "IAMA optional string!" } [[...]::Option<[...]::String>]
+// cdb-check:some_string      : Some [Type: enum2$<core::option::Option<alloc::string::String> >]
+// cdb-check:    [<Raw View>]     [Type: enum2$<core::option::Option<alloc::string::String> >]
+// cdb-check:    [+0x000] __0              : "IAMA optional string!" [Type: alloc::string::String]
+
+// cdb-command: dx linkedlist
+// cdb-check:linkedlist       : { len=0x2 } [Type: alloc::collections::linked_list::LinkedList<i32>]
+// cdb-check:    [<Raw View>]     [Type: alloc::collections::linked_list::LinkedList<i32>]
+// cdb-check:    [0x0]            : 128 [Type: int]
+// cdb-check:    [0x1]            : 42 [Type: int]
+
+// cdb-command: dx vecdeque
+// cdb-check:vecdeque         : { len=0x2 } [Type: alloc::collections::vec_deque::VecDeque<i32,alloc::alloc::Global>]
+// cdb-check:    [<Raw View>]     [Type: alloc::collections::vec_deque::VecDeque<i32,alloc::alloc::Global>]
+// cdb-check:    [len]            : 0x2
+// cdb-check:    [capacity]       : 0x8 [Type: unsigned [...]]
+// cdb-check:    [0x0]            : 90 [Type: int]
+// cdb-check:    [0x1]            : 20 [Type: int]
 
 #![allow(unused_variables)]
+use std::collections::{LinkedList, VecDeque};
 use std::ffi::OsString;
 
-
 fn main() {
-
     // &[]
     let slice: &[i32] = &[0, 1, 2, 3];
 
@@ -142,7 +169,19 @@ fn main() {
 
     let some_string = Some("IAMA optional string!".to_owned());
 
+    // LinkedList
+    let mut linkedlist = LinkedList::new();
+    linkedlist.push_back(42);
+    linkedlist.push_front(128);
+
+    // VecDeque
+    let mut vecdeque = VecDeque::new();
+    vecdeque.push_back(20);
+    vecdeque.push_front(90);
+
     zzz(); // #break
 }
 
-fn zzz() { () }
+fn zzz() {
+    ()
+}
