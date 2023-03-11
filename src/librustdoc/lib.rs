@@ -72,7 +72,7 @@ use std::default::Default;
 use std::env::{self, VarError};
 use std::io;
 use std::process;
-use std::time::Instant;
+//use std::time::Instant;
 
 use rustc_driver::abort_on_err;
 use rustc_errors::ErrorGuaranteed;
@@ -124,22 +124,23 @@ mod visit;
 mod visit_ast;
 mod visit_lib;
 
-pub mod fuzz_target {
-    crate mod afl_util;
-    crate mod api_function;
-    crate mod api_graph;
-    crate mod api_sequence;
-    crate mod api_util;
-    crate mod call_type;
-    crate mod file_util;
-    crate mod fuzzable_type;
-    crate mod generic_function;
-    crate mod impl_util;
-    crate mod mod_visibility;
-    crate mod prelude_type;
-    crate mod print_message;
-    crate mod replay_util;
-}
+//use crate::process::Output;
+/*pub mod fuzz_target {
+     mod afl_util;
+     mod api_function;
+     mod api_graph;
+     mod api_sequence;
+     mod api_util;
+     mod call_type;
+     mod file_util;
+     mod fuzzable_type;
+     mod generic_function;
+     mod impl_util;
+     mod mod_visibility;
+     mod prelude_type;
+     mod print_message;
+     mod replay_util;
+}*/
 
 pub fn main() {
     // See docs in https://github.com/rust-lang/rust/blob/master/compiler/rustc/src/main.rs
@@ -230,7 +231,7 @@ fn init_logging() {
 }
 
 pub fn fuzz_target_generator_main() {
-    let start = Instant::now();
+    /*let start = Instant::now();
 
     let thread_stack_size: usize = if cfg!(target_os = "haiku") {
         16_000_000 // 16MB on Haiku
@@ -251,7 +252,8 @@ pub fn fuzz_target_generator_main() {
         start.elapsed().as_millis()
     );
 
-    process::exit(res);
+    process::exit(res);*/
+    todo!()
 }
 
 fn get_args() -> Option<Vec<String>> {
@@ -747,7 +749,7 @@ fn run_renderer<'tcx, T: formats::FormatRenderer<'tcx>>(
     }
 }
 
-fn fuzz_target_generator_main_args(args: &[String]) -> i32 {
+/* fn fuzz_target_generator_main_args(args: &[String]) -> i32 {
     let mut options = getopts::Options::new();
     for option in opts() {
         (option.apply)(&mut options);
@@ -762,11 +764,12 @@ fn fuzz_target_generator_main_args(args: &[String]) -> i32 {
         Ok(opts) => opts,
         Err(code) => return code,
     };
-    rustc_interface::interface::setup_callbacks_and_run_in_default_thread_pool_with_globals(
+    /*rustc_interface::interface::setup_callbacks_and_run_in_default_thread_pool_with_globals(
         options.edition,
         move || fuzz_target_generator_main_options(options),
-    )
-}
+    )*/
+    todo!("fix it");
+} */
 
 fn main_args(at_args: &[String]) -> MainResult {
     let args = rustc_driver::args::arg_expand_all(at_args);
@@ -929,7 +932,7 @@ fn main_args(at_args: &[String]) -> MainResult {
     })
 }
 
-fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
+/* fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
     let diag = core::new_handler(options.error_format, None, &options.debugging_options);
 
     match (options.should_test, options.markdown_input()) {
@@ -1011,3 +1014,4 @@ fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
         Err(_) => panic::resume_unwind(Box::new(rustc_errors::FatalErrorMarker)),
     }
 }
+ */

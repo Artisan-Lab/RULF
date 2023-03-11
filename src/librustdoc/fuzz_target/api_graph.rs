@@ -1,3 +1,4 @@
+use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
@@ -7,7 +8,7 @@ use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
-
+use rustc_middle::ty::TyCtxt;
 //use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
 
@@ -37,22 +38,24 @@ lazy_static! {
     };
 }
 
-#[derive(Clone, Debug)]
-pub struct ApiGraph {
-    pub _crate_name: String,
-    pub api_functions: Vec<ApiFunction>,
-    pub api_functions_visited: Vec<bool>,
-    pub api_dependencies: Vec<ApiDependency>,
-    pub api_sequences: Vec<ApiSequence>,
-    pub full_name_map: FullNameMap,  //did to full_name
-    pub mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub use`
-    pub generic_functions: Vec<GenericFunction>,
-    pub functions_with_unsupported_fuzzable_types: HashSet<String>,
-    //pub _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
+#[derive(Clone)]
+pub(crate) struct ApiGraph<'a> {
+    pub(crate) _crate_name: String,
+    pub(crate) api_functions: Vec<ApiFunction<'a>>,
+    pub(crate) api_functions_visited: Vec<bool>,
+    pub(crate) api_dependencies: Vec<ApiDependency>,
+    pub(crate) api_sequences: Vec<ApiSequence>,
+    pub(crate) full_name_map: FullNameMap,  //did to full_name
+    pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
+    pub(crate) generic_functions: Vec<GenericFunction<'a>>,
+    pub(crate) functions_with_unsupported_fuzzable_types: HashSet<String>,
+    pub(crate) cache: &'a Cache,
+    pub(crate) tcx: TyCtxt<'a>
+    //pub(crate) _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
 }
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum GraphTraverseAlgorithm {
+pub(crate) enum GraphTraverseAlgorithm {
     _Bfs,
     _FastBfs,
     _BfsEndPoint,
@@ -64,22 +67,22 @@ pub enum GraphTraverseAlgorithm {
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
-pub enum ApiType {
+pub(crate) enum ApiType {
     BareFunction,
     //GenericFunction, currently not support now
 }
 
 //函数的依赖关系
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub struct ApiDependency {
-    pub output_fun: (ApiType, usize), //the index of first func
-    pub input_fun: (ApiType, usize),  //the index of second func
-    pub input_param_index: usize,
-    pub call_type: CallType,
+pub(crate) struct ApiDependency {
+    pub(crate) output_fun: (ApiType, usize), //the index of first func
+    pub(crate) input_fun: (ApiType, usize),  //the index of second func
+    pub(crate) input_param_index: usize,
+    pub(crate) call_type: CallType,
 }
 
-impl ApiGraph {
-    pub fn new(_crate_name: &String) -> Self {
+impl<'a> ApiGraph<'a> {
+    pub(crate) fn new(_crate_name: &String, cache:&'a Cache, tcx: TyCtxt<'a>) -> Self {
         //let _sequences_of_all_algorithm = FxHashMap::default();
         ApiGraph {
             _crate_name: _crate_name.to_owned(),
@@ -91,11 +94,13 @@ impl ApiGraph {
             mod_visibility: ModVisibity::new(_crate_name),
             generic_functions: Vec::new(),
             functions_with_unsupported_fuzzable_types: HashSet::new(),
+            cache:cache,
+            tcx:tcx
             //_sequences_of_all_algorithm,
         }
     }
 
-    pub fn add_api_function(&mut self, api_fun: ApiFunction) {
+    pub(crate) fn add_api_function(&mut self, api_fun: ApiFunction<'a>) {
         if api_fun._is_generic_function() {
             let generic_function = GenericFunction::from(api_fun);
             self.generic_functions.push(generic_function);
@@ -106,18 +111,18 @@ impl ApiGraph {
         }
     }
 
-    pub fn add_mod_visibility(&mut self, mod_name: &String, visibility: &Visibility) {
+    pub(crate) fn add_mod_visibility(&mut self, mod_name: &String, visibility: &Visibility) {
         self.mod_visibility.add_one_mod(mod_name, visibility);
     }
 
-    pub fn filter_functions(&mut self) {
+    pub(crate) fn filter_functions(&mut self) {
         self.filter_functions_defined_on_prelude_type();
         self.filter_api_functions_by_mod_visibility();
     }
 
     /// functions of prelude type. These functions are not in current crate
     /// I
-    pub fn filter_functions_defined_on_prelude_type(&mut self) {
+    pub(crate) fn filter_functions_defined_on_prelude_type(&mut self) {
         let prelude_types = prelude_type::get_all_preluded_type();
         if prelude_types.len() <= 0 {
             return;
@@ -129,7 +134,7 @@ impl ApiGraph {
             .collect();
     }
 
-    pub fn filter_api_functions_by_mod_visibility(&mut self) {
+    pub(crate) fn filter_api_functions_by_mod_visibility(&mut self) {
         let invisible_mods = self.mod_visibility.get_invisible_mods();
 
         if invisible_mods.len() <= 0 {
@@ -160,11 +165,11 @@ impl ApiGraph {
         self.api_functions = new_api_functions;
     }
 
-    pub fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {
+    pub(crate) fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {
         self.full_name_map = full_name_map.clone();
     }
 
-    pub fn find_all_dependencies(&mut self) {
+    pub(crate) fn find_all_dependencies(&mut self) {
         //println!("find_dependencies");
         self.api_dependencies.clear();
         //两个api_function之间的dependency
@@ -180,7 +185,7 @@ impl ApiGraph {
                 for j in 0..api_num {
                     //TODO:是否要把i=j的情况去掉？
                     let second_fun = &self.api_functions[j];
-                    if second_fun._is_start_function(&self.full_name_map) {
+                    if second_fun._is_start_function(&self.full_name_map, self.cache) {
                         //如果第二个节点是开始节点，那么直接跳过
                         continue;
                     }
@@ -193,6 +198,7 @@ impl ApiGraph {
                             input_param,
                             true,
                             &self.full_name_map,
+                            self.cache
                         );
                         match &call_type {
                             CallType::_NotCompatible => {
@@ -214,7 +220,7 @@ impl ApiGraph {
         }
     }
 
-    pub fn default_generate_sequences(&mut self) {
+    pub(crate) fn default_generate_sequences(&mut self) {
         //BFS + backward search
         self.generate_all_possoble_sequences(GraphTraverseAlgorithm::_BfsEndPoint);
         self._try_to_cover_unvisited_nodes();
@@ -223,7 +229,7 @@ impl ApiGraph {
         //self.generate_all_possoble_sequences(GraphTraverseAlgorithm::_DirectBackwardSearch);
     }
 
-    pub fn generate_all_possoble_sequences(&mut self, algorithm: GraphTraverseAlgorithm) {
+    pub(crate) fn generate_all_possoble_sequences(&mut self, algorithm: GraphTraverseAlgorithm) {
         //BFS序列的最大长度：即为函数的数量,或者自定义
         //let bfs_max_len = self.api_functions.len();
         let bfs_max_len = 3;
@@ -278,7 +284,7 @@ impl ApiGraph {
         }
     }
 
-    pub fn reset_visited(&mut self) {
+    pub(crate) fn reset_visited(&mut self) {
         self.api_functions_visited.clear();
         let api_function_num = self.api_functions.len();
         for _ in 0..api_function_num {
@@ -288,7 +294,7 @@ impl ApiGraph {
     }
 
     //检查是否所有函数都访问过了
-    pub fn check_all_visited(&self) -> bool {
+    pub(crate) fn check_all_visited(&self) -> bool {
         let mut visited_nodes = 0;
         for visited in &self.api_functions_visited {
             if *visited {
@@ -313,7 +319,7 @@ impl ApiGraph {
     }
 
     //已经访问过的节点数量,用来快速判断bfs是否还需要run下去：如果一轮下来，bfs的长度没有发生变化，那么也可直接quit了
-    pub fn _visited_nodes_num(&self) -> usize {
+    pub(crate) fn _visited_nodes_num(&self) -> usize {
         let visited: Vec<&bool> =
             (&self.api_functions_visited).into_iter().filter(|x| **x == true).collect();
         visited.len()
@@ -321,7 +327,7 @@ impl ApiGraph {
 
     //生成函数序列，且指定调用的参数
     //加入对fast mode的支持
-    pub fn bfs(&mut self, max_len: usize, stop_at_end_function: bool, fast_mode: bool) {
+    pub(crate) fn bfs(&mut self, max_len: usize, stop_at_end_function: bool, fast_mode: bool) {
         //清空所有的序列
         self.api_sequences.clear();
         self.reset_visited();
@@ -379,7 +385,7 @@ impl ApiGraph {
 
     //为探索比较深的路径专门进行优化
     //主要还是针对比较大的库,函数比较多的
-    pub fn _try_deep_bfs(&mut self, max_sequence_number: usize) {
+    pub(crate) fn _try_deep_bfs(&mut self, max_sequence_number: usize) {
         //清空所有的序列
         self.api_sequences.clear();
         self.reset_visited();
@@ -450,7 +456,7 @@ impl ApiGraph {
         }
     }
 
-    pub fn random_walk(&mut self, max_size: usize, stop_at_end_function: bool, max_depth: usize) {
+    pub(crate) fn random_walk(&mut self, max_size: usize, stop_at_end_function: bool, max_depth: usize) {
         self.api_sequences.clear();
         self.reset_visited();
 
@@ -495,7 +501,7 @@ impl ApiGraph {
         }
     }
 
-    pub fn _choose_candidate_sequence_for_merge(&self) -> Vec<usize> {
+    pub(crate) fn _choose_candidate_sequence_for_merge(&self) -> Vec<usize> {
         let mut res = Vec::new();
         let all_sequence_number = self.api_sequences.len();
         for i in 0..all_sequence_number {
@@ -526,7 +532,7 @@ impl ApiGraph {
         res
     }
 
-    pub fn _try_to_cover_unvisited_nodes(&mut self) {
+    pub(crate) fn _try_to_cover_unvisited_nodes(&mut self) {
         //println!("try to cover more nodes");
         let mut apis_covered_by_reverse_search = 0;
         let mut unvisited_nodes = HashSet::new();
@@ -551,7 +557,7 @@ impl ApiGraph {
                 let input_param_num = inputs.len();
                 for i in 0..input_param_num {
                     let input_type = &inputs[i];
-                    if api_util::is_fuzzable_type(input_type, &self.full_name_map) {
+                    if api_util::is_fuzzable_type(input_type, &self.full_name_map, self.cache) {
                         continue;
                     }
                     let mut can_find_dependency_flag = false;
@@ -650,7 +656,7 @@ impl ApiGraph {
         //println!("There are total {} APIs covered by reverse search", apis_covered_by_reverse_search);
     }
 
-    pub fn _naive_choose_sequence(&self, max_sequence_size: usize) -> Vec<ApiSequence> {
+    pub(crate) fn _naive_choose_sequence(&self, max_sequence_size: usize) -> Vec<ApiSequence> {
         let mut to_cover_nodes = Vec::new();
         let function_len = self.api_functions.len();
         for i in 0..function_len {
@@ -716,7 +722,7 @@ impl ApiGraph {
         res
     }
 
-    pub fn _random_choose(&self, max_size: usize) -> Vec<ApiSequence> {
+    pub(crate) fn _random_choose(&self, max_size: usize) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut covered_nodes = HashSet::new();
         let mut covered_edges = HashSet::new();
@@ -760,7 +766,7 @@ impl ApiGraph {
         res
     }
 
-    pub fn _first_choose(&self, max_size: usize) -> Vec<ApiSequence> {
+    pub(crate) fn _first_choose(&self, max_size: usize) -> Vec<ApiSequence> {
         let mut res = Vec::new();
         let mut covered_nodes = HashSet::new();
         let mut covered_edges = HashSet::new();
@@ -796,7 +802,7 @@ impl ApiGraph {
         res
     }
 
-    pub fn _heuristic_choose(
+    pub(crate) fn _heuristic_choose(
         &self,
         max_size: usize,
         stop_at_visit_all_nodes: bool,
@@ -1038,7 +1044,7 @@ impl ApiGraph {
     }
 
     //判断一个函数能否加入给定的序列中,如果可以加入，返回Some(new_sequence),new_sequence是将新的调用加进去之后的情况，否则返回None
-    pub fn is_fun_satisfied(
+    pub(crate) fn is_fun_satisfied(
         &self,
         input_type: &ApiType,
         input_fun_index: usize,
@@ -1073,11 +1079,11 @@ impl ApiGraph {
 
                 for i in 0..input_params_num {
                     let current_ty = &input_params[i];
-                    if api_util::is_fuzzable_type(current_ty, &self.full_name_map) {
+                    if api_util::is_fuzzable_type(current_ty, &self.full_name_map, self.cache) {
                         //如果当前参数是fuzzable的
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
                         let fuzzable_call_type =
-                            fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map);
+                            fuzzable_type::fuzzable_call_type(current_ty, &self.full_name_map, self.cache);
                         let (fuzzable_type, call_type) =
                             fuzzable_call_type.generate_fuzzable_type_and_call_type();
 
@@ -1204,7 +1210,7 @@ impl ApiGraph {
     }
 
     //判断一个依赖是否存在,存在的话返回Some(ApiDependency),否则返回None
-    pub fn check_dependency(
+    pub(crate) fn check_dependency(
         &self,
         output_type: &ApiType,
         output_index: usize,

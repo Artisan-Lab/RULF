@@ -20,7 +20,7 @@ use rustc_span::symbol::sym;
 use rustc_span::{source_map, Span, Symbol};
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 use std::sync::LazyLock;

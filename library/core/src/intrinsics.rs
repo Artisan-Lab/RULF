@@ -2520,7 +2520,3 @@ pub const unsafe fn write_bytes<T>(dst: *mut T, val: u8, count: usize) {
         write_bytes(dst, val, count)
     }
 }
-
-// dummy function to unbreak beta builds
-#[rustc_const_unstable(feature = "const_transmute", issue = "53605")]
-const fn _bar() {}

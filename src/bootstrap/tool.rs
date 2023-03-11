@@ -595,7 +595,7 @@ impl Step for FuzzTargetGenerator {
 
     fn make_run(run: RunConfig<'_>) {
         run.builder.ensure(FuzzTargetGenerator {
-            compiler: run.builder.compiler(run.builder.top_stage, run.host),
+            compiler: run.builder.compiler(run.builder.top_stage, run.builder.config.build),
         });
     }
 
@@ -605,7 +605,7 @@ impl Step for FuzzTargetGenerator {
             if !target_compiler.is_snapshot(builder) {
                 panic!("rustdoc in stage 0 must be snapshot rustdoc");
             }
-            return builder.initial_rustc.with_file_name(exe("rustdoc", &target_compiler.host));
+            return builder.initial_rustc.with_file_name(exe("rustdoc", target_compiler.host));
         }
         let target = target_compiler.host;
         // Similar to `compile::Assemble`, build with the previous stage's compiler. Otherwise
@@ -643,14 +643,14 @@ impl Step for FuzzTargetGenerator {
         // rustdoc a different name.
         let tool_rustdoc = builder
             .cargo_out(build_compiler, Mode::ToolRustc, target)
-            .join(exe("fuzz-target-generator", &target_compiler.host));
+            .join(exe("fuzz-target-generator", target_compiler.host));
 
         // don't create a stage0-sysroot/bin directory.
         if target_compiler.stage > 0 {
             let sysroot = builder.sysroot(target_compiler);
             let bindir = sysroot.join("bin");
             t!(fs::create_dir_all(&bindir));
-            let bin_rustdoc = bindir.join(exe("fuzz-target-generator", &*target_compiler.host));
+            let bin_rustdoc = bindir.join(exe("fuzz-target-generator", target_compiler.host));
             let _ = fs::remove_file(&bin_rustdoc);
             builder.copy(&tool_rustdoc, &bin_rustdoc);
             bin_rustdoc
