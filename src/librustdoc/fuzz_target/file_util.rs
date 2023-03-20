@@ -22,6 +22,7 @@ lazy_static! {
         m.insert("http", "/home/jjf/afl_fast_work/http-afl-work");
         m.insert("flate2", "/home/jjf/afl_fast_work/flate2-afl-work");
         m.insert("time", "/home/jjf/afl_fast_work/time-afl-work");
+        m.insert("base64", "/home/jjf/afl_fast_work/base64-afl-work");
 
         //fudge-like-directories
         m.insert("fudge_like_url", "/home/jjf/fudge_like_work/url-work");
@@ -32,6 +33,10 @@ lazy_static! {
         m.insert("fudge_regex", "/home/jjf/fudge_work/regex-work");
         m.insert("fudge_url", "/home/jjf/fudge_work/url-work");
         m.insert("fudge_time", "/home/jjf/fudge_work/time-work");
+
+        // generic test
+        m.insert("yaml_rust", "/home/jjf/afl_fast_work/yaml-rust-afl-work");
+        //regex-syntax
         m
     };
 }
@@ -47,12 +52,12 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref LIBFUZZER_FUZZ_TARGET_DIR: FxHashMap<&'static str, &'static str> = {
-        let mut m = FxHashMap::default();
-        m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
-        m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
-        m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
-        m.insert("semver_parser", "/home/jjf/libfuzzer_work/sem-libfuzzer-targets");
+    static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
+        let m = HashMap::new();
+        // m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
+        // m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
+        // m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
+        // m.insert("semver_parser", "/home/jjf/libfuzzer_work/sem-libfuzzer-targets");
         m
     };
 }
@@ -114,7 +119,6 @@ impl FileHelper {
         let mut test_files = Vec::new();
         let mut reproduce_files = Vec::new();
         let mut libfuzzer_files = Vec::new();
-        //let chosen_sequences = api_graph._naive_choose_sequence(MAX_TEST_FILE_NUMBER);
         let chosen_sequences = if !random_strategy {
             api_graph._heuristic_choose(MAX_TEST_FILE_NUMBER, true)
         } else {
@@ -125,7 +129,6 @@ impl FileHelper {
             };
             api_graph._first_choose(random_size)
         };
-        //println!("chosen sequences number: {}", chosen_sequences.len());
 
         for sequence in &chosen_sequences {
             if sequence_count >= MAX_TEST_FILE_NUMBER {

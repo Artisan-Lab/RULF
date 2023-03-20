@@ -46,7 +46,6 @@ impl ModVisibity {
             }
 
             if new_mod_visibility.len() == mod_number {
-                //println!("all mod visited");
                 break;
             }
         }

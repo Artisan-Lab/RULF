@@ -6,12 +6,12 @@ This prototype tool is aimed at generating fuzz targets for Rust libraries autom
 
 The recommended workflow to use this tool to fuzz a library is as follows: 
 1. clone the source and build this tool
-2. select a library for fuzzing, the use this tool to generate targets for the selected library.
+2. select a library for fuzzing, then use this tool to generate targets for the selected library.
 3. fuzz the library with [afl.rs](https://github.com/rust-fuzz/afl.rs). We provide a command line script to partly automate the process. 
 
 ### Cite Our work
 
-If you want to cite our work, you can cite our ASE'21 paper. The bibtex is as follows:
+If you want to cite our work, you can cite our ASE'21 paper. Our paper can be accessed on both [Arxiv](https://arxiv.org/pdf/2104.12064.pdf) and [IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/9678813). The bibtex is as follows:
 
 ```
 @article{jiang2021rulf,
@@ -33,7 +33,8 @@ The first three scripts are executed on host machine.
 The following scripts are executed in the container.
 4. Run `scripts/build-in-docker`. This script will compile current project and set it as default toolchain with rustup. This scripts may fail several times due to network problem. Just retry it.
 5. Run `scripts/install-and-test-afl`. This script will download afl.rs and test whether afl can run on your machine. You should see the output window of afl to continue. Just type Ctrl+C to exit afl.
-6. Run `scripts/install-fuzzing-scripts`. This script will download our fuzzing scripts from github. It will also download source files of several test crates we use in our paper. **Note**: Sometimes downloading files from github may fail. You can download this project on host and copy it into the container(One example is `docker/docker-cp`). Then run this script again.
+6. Run `scripts/install-fuzzing-scripts`. This script will download our fuzzing scripts from github. It will also download source files of several test crates we use in our paper. **Note**: Sometimes downloading files from github may fail. You can download this project on host and copy it into the container(One example is `private_scriptes/docker-cp`). Then run this script again.
+7. Run `scripts/clone-testing-library`. This script will download several libraries and switch to specific commit for testing.
 
 Then you can generate targets and fuzz them.
 For example, we want to fuzz url. You can run following commands.

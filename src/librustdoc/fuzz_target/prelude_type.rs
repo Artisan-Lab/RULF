@@ -7,22 +7,24 @@ use crate::fuzz_target::impl_util::FullNameMap;
 use lazy_static::lazy_static;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
+use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
+
 lazy_static! {
     static ref PRELUDED_TYPE: FxHashMap<&'static str, &'static str> = {
         let mut m = FxHashMap::default();
         m.insert("core::option::Option", "Option");
         m.insert("core::result::Result", "Result");
-        m.insert("alloc::string::String", "String");
-        //m.insert("alloc::boxed::Box", "Box");
+        // m.insert("alloc::string::String", "String");
+        // m.insert("alloc::boxed::Box", "Box");
         m
     };
 }
 
 static _OPTION: &'static str = "Option";
 static _RESULT: &'static str = "Result";
-static _STRING: &'static str = "String";
+// static _STRING: &'static str = "String";
 
-pub(crate) fn is_preluded_type(type_name: &String) -> bool {
+pub fn is_preluded_type_name(type_name: &String) -> bool {
     if PRELUDED_TYPE.contains_key(type_name.as_str()) {
         return true;
     } else {
@@ -30,26 +32,18 @@ pub(crate) fn is_preluded_type(type_name: &String) -> bool {
     }
 }
 
-pub(crate) fn get_all_preluded_type() -> FxHashSet<String> {
-    let mut res = FxHashSet::default();
-    for (prelude_type_, _) in PRELUDED_TYPE.iter() {
-        res.insert(prelude_type_.to_string());
-    }
-    res
+pub fn get_all_preluded_type() -> HashSet<String> {
+    PRELUDED_TYPE.iter().map(|(prelude_type, _)| prelude_type.to_string()).collect()
+    // let mut res = HashSet::new();
+    // for (prelude_type_, _) in PRELUDED_TYPE.iter() {
+    //     res.insert(prelude_type_.to_string());
+    // }
+    // res
 }
 
-pub(crate) fn preluded_type(
-    type_: &clean::Type,
-    full_name_map: &FullNameMap,
-    cache: &Cache,
-) -> bool {
-    let def_id = type_.def_id(cache).unwrap();
-    if let Some(type_name) = full_name_map._get_full_name(def_id) {
-        if is_preluded_type(type_name) {
-            return true;
-        }
-    }
-    return false;
+pub fn is_preluded_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let type_name = type_name(type_, type_name_map, TypeNameLevel::All);
+    is_preluded_type_name(&type_name)
 }
 
 pub(crate) fn to_strip_type_name(type_name: &String) -> String {
@@ -61,8 +55,8 @@ pub(crate) fn to_strip_type_name(type_name: &String) -> String {
 }
 
 //TODO:目前只考虑引用、裸指针的情况，元组，切片，数组都暂时不考虑
-//暂时只考虑Result和Option
-//TODO:Box,...
+// 暂时只考虑Result和Option
+// TODO:Box,...
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) enum PreludeType {
     NotPrelude(clean::Type),
@@ -71,24 +65,18 @@ pub(crate) enum PreludeType {
 }
 
 impl PreludeType {
-    pub(crate) fn from_type(
-        type_: &clean::Type,
-        full_name_map: &FullNameMap,
-        cache: &Cache,
-    ) -> Self {
+    pub fn from_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> Self {
         match type_ {
-            clean::Type::Path { path, .. } => {
-                if preluded_type(type_, full_name_map, cache) {
-                    let def_id = type_.def_id(cache).unwrap();
-                    let type_full_name = full_name_map._get_full_name(def_id).unwrap();
-                    let strip_type_name_string = to_strip_type_name(type_full_name);
+            clean::Type::ResolvedPath { path, .. } => {
+                if is_preluded_type(type_, type_name_map) {
+                    let type_name = type_name(type_, type_name_map, TypeNameLevel::All);
+                    let strip_type_name_string = to_strip_type_name(&type_name);
                     let strip_type_name = strip_type_name_string.as_str();
                     if _OPTION == strip_type_name {
                         extract_option(path, type_)
                     } else if _RESULT == strip_type_name {
                         extract_result(path, type_)
                     } else {
-                        //println!("other prelude type");
                         PreludeType::NotPrelude(type_.clone())
                     }
                 } else {
@@ -99,16 +87,18 @@ impl PreludeType {
         }
     }
 
-    pub(crate) fn _to_type_name(&self, full_name_map: &FullNameMap, cache: &Cache) -> String {
+    pub fn _to_type_name(&self, type_name_map: &TypeNameMap) -> String {
         match self {
-            PreludeType::NotPrelude(type_) => api_util::_type_name(type_, full_name_map, cache),
+            PreludeType::NotPrelude(type_) => {
+                type_full_name(type_, type_name_map, TypeNameLevel::All)
+            }
             PreludeType::PreludeOption(type_) => {
-                let inner_type_name = api_util::_type_name(type_, full_name_map, cache);
+                let inner_type_name = type_full_name(type_, type_name_map, TypeNameLevel::All);
                 format!("Option<{}>", inner_type_name)
             }
             PreludeType::PreludeResult { ok_type, err_type } => {
-                let ok_type_name = api_util::_type_name(ok_type, full_name_map, cache);
-                let err_type_name = api_util::_type_name(err_type, full_name_map, cache);
+                let ok_type_name = type_full_name(ok_type, type_name_map, TypeNameLevel::All);
+                let err_type_name = type_full_name(err_type, type_name_map, TypeNameLevel::All);
                 format!("Result<{}, {}>", ok_type_name, err_type_name)
             }
         }
@@ -205,12 +195,8 @@ fn extract_result(path: &clean::Path, type_: &clean::Type) -> PreludeType {
     return PreludeType::NotPrelude(type_.clone());
 }
 
-pub(crate) fn _prelude_type_need_special_dealing(
-    type_: &clean::Type,
-    full_name_map: &FullNameMap,
-    cache: &Cache,
-) -> bool {
-    let prelude_type = PreludeType::from_type(type_, full_name_map, cache);
+pub fn is_prelude_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> bool {
+    let prelude_type = PreludeType::from_type(type_, type_name_map);
     let final_type = prelude_type._get_final_type();
     if final_type == *type_ {
         false
@@ -238,7 +224,8 @@ impl _PreludeHelper {
             | CallType::_Deref(inner_call_type)
             | CallType::_ToOption(inner_call_type)
             | CallType::_ToResult(inner_call_type)
-            | CallType::_UnsafeDeref(inner_call_type) => {
+            | CallType::_UnsafeDeref(inner_call_type)
+            | CallType::_ToArray(inner_call_type, _) => {
                 _PreludeHelper::_from_call_type(&**inner_call_type)
             }
             CallType::_UnwrapOption(inner_call_type) => {

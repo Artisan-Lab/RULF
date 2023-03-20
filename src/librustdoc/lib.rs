@@ -987,6 +987,7 @@ fn main_args(at_args: &[String]) -> MainResult {
 
     // First, parse the crate and extract all relevant information.
     info!("starting to run rustc");
+    trace!("fuzz");
 
     // Interpret the input file as a rust source file, passing it through the
     // compiler all the way through the analysis passes. The rustdoc output is

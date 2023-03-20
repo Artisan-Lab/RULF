@@ -6,6 +6,7 @@ set -e
 # This is also run when we modify the source codes and recompile
 USER_NAME="${USER:-root}"
 FUZZ_TARGET_GENERATOR_DIR=/home/${USER_NAME}/Fuzzing-Target-Generator
-cd ${FUZZ_TARGET_GENERATOR_DIR} && python ./x.py build --stage 2 src/tools/cargo src/tools/rustfmt src/tools/clippy && python3 ./x.py build --stage 2 
+# cd ${FUZZ_TARGET_GENERATOR_DIR} && python ./x.py build --stage 2 src/tools/cargo src/tools/rustfmt src/tools/clippy && python3 ./x.py build --stage 2 
+cd ${FUZZ_TARGET_GENERATOR_DIR} && python3 ./x.py build --stage 2 
 rustup toolchain link stage2 ${FUZZ_TARGET_GENERATOR_DIR}/build/x86*/stage2 && rustup default stage2 
 

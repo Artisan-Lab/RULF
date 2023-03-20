@@ -1,16 +1,20 @@
-use crate::clean::{self, ItemKind};
-use crate::formats::item_type::ItemType;
-use crate::fuzz_target::api_function::ApiFunction;
-use crate::fuzz_target::api_function::ApiUnsafety;
-use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::api_util;
-use crate::fuzz_target::prelude_type;
-use crate::html::format::join_with_double_colon;
+use super::api_function::{ApiFunction, ApiUnsafety};
+use super::api_util;
+use crate::clean::{self, types::GetDefId};
+use crate::clean::{Generics, WherePredicate};
+use crate::html::item_type::ItemType;
+use crate::html::render::cache::Cache;
+use itertools::Itertools;
 use rustc_hir::def_id::DefId;
-use rustc_data_structures::fx::{FxHashMap};
-//use rustdoc_json_types::Type::Path;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 //TODO:是否需要为impl里面的method重新设计数据结构？目前沿用了ApiFunction,或者直接对ApiFunction进行扩展
 //两种函数目前相差一个defaultness
+use crate::fuzz_target::api_graph::ApiGraph;
+use crate::fuzz_target::prelude_type;
+
+use super::type_util::{get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types};
+
 #[derive(Debug, Clone)]
 pub(crate) struct CrateImplCollection {
     //impl type类型的impl块
@@ -39,14 +43,11 @@ impl CrateImplCollection {
     pub(crate) fn add_impl(&mut self, impl_: &clean::Impl) {
         //println!("impl type = {:?}", impl_.for_);
         let _impl_type = &impl_.for_;
-        //println!("impl type = {:?}", _impl_type);
         match impl_.trait_ {
             None => {
-                //println!("No trait!");
                 self.impl_types.push(impl_.clone());
             }
             Some(ref _ty_) => {
-                //println!("trait={:?}", _ty_);
                 self.impl_trait_for_types.push(impl_.clone());
             }
         }
@@ -76,65 +77,79 @@ impl FullNameMap {
     }
 }
 
-pub(crate) fn extract_impls_from_cache(
+#[derive(Debug, Clone)]
+pub struct TraitsOfType {
+    pub map: HashMap<DefId, HashSet<clean::Type>>,
+}
+
+impl TraitsOfType {
+    pub fn new() -> Self {
+        TraitsOfType { map: HashMap::new() }
+    }
+
+    pub fn add_trait_of_type(&mut self, did: DefId, trait_: &clean::Type) {
+        if self.map.contains_key(&did) {
+            let old_traits = self.map.get_mut(&did).unwrap();
+            old_traits.insert(trait_.to_owned());
+        } else {
+            let mut traits = HashSet::new();
+            traits.insert(trait_.to_owned());
+            self.map.insert(did, traits);
+        }
+    }
+}
+
+pub fn extract_impls_from_cache(
+    cache: &Cache,
     full_name_map: &mut FullNameMap,
-    mut api_graph: &mut ApiGraph<'_>,
+    traits_of_type: &mut TraitsOfType,
+    mut api_graph: &mut ApiGraph,
 ) {
-    let _trait_impl_maps = &api_graph.cache().implementors;
-    let paths = &api_graph.cache().paths;
-
     let mut crate_impl_collection = CrateImplCollection::new();
-
+    let paths = &cache.paths;
     //construct the map of `did to type`
     for (did, (syms, item_type)) in paths {
         let full_name = join_with_double_colon(syms);
         full_name_map.push_mapping(*did, &full_name, *item_type);
     }
 
-    let extertal_paths = &api_graph.cache().external_paths;
-    for (did, (syms, item_type)) in extertal_paths {
-        let full_name = join_with_double_colon(syms);
-        if prelude_type::is_preluded_type(&full_name) {
-            full_name_map.push_mapping(*did, &full_name, *item_type);
+    let extertal_paths = &cache.external_paths;
+    for (did, (strings, item_type)) in extertal_paths {
+        let full_name = full_path(&strings);
+
+        if prelude_type::is_preluded_type_name(&full_name) {
+            full_name_map.push_mapping(&did, &full_name, *item_type);
         }
     }
 
     api_graph.set_full_name_map(&full_name_map);
 
-    //首先提取所有type的impl
-    for (did, impls) in &api_graph.cache().impls {
-        //只添加可以在full_name_map中找到对应的did的type
-        if full_name_map._get_full_name(*did) != None {
+    // 首先提取所有type的impl
+    for (did, impls) in &cache.impls {
+        impls.iter().for_each(|impl_| {
+            if let Some(ref trait_) = impl_.inner_impl().trait_ {
+                traits_of_type.add_trait_of_type(*did, trait_);
+            }
+        });
+
+        // 只添加可以在full_name_map中找到对应的did的type
+        if full_name_map._get_full_name(did) != None {
             for impl_ in impls {
-                //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
                 crate_impl_collection.add_impl(impl_.inner_impl());
             }
         }
     }
-    //println!("analyse impl Type");
+
+    api_graph.set_traits_of_type(traits_of_type);
     //分析impl type类型
     for impl_ in &crate_impl_collection.impl_types {
-        //println!("analyse_impl_");
         _analyse_impl(impl_, &full_name_map, &mut api_graph);
     }
 
-    //println!("analyse impl Trait for Type");
     for impl_ in &crate_impl_collection.impl_trait_for_types {
         _analyse_impl(impl_, &full_name_map, &mut api_graph);
     }
-    //TODO：如何提取trait对应的impl，impl traitA for traitB? impl dyn traitA?下面的逻辑有误
-    //for (did, impls) in trait_impl_maps {
-    //   println!("trait:{:?}",did);
-    //    //还是只看当前crate中的trait
-    //    if full_name_map._get_full_name(did) != None {
-    //        let full_name = full_name_map._get_full_name(did).unwrap();
-    //        println!("full_name : {:?}", full_name);
-    //        println!("{}", impls.len());
-    //    }
-
-    //}
-
-    //println!("{:?}", crate_impl_collection);
+    //TODO：如何提取trait对应的impl，impl traitA for traitB? impl dyn traitA?
 }
 
 fn full_path(paths: &Vec<String>) -> String {
@@ -147,107 +162,142 @@ pub(crate) fn _analyse_impl(
     api_graph: &mut ApiGraph<'_>,
 ) {
     let inner_items = &impl_.items;
+    let impl_generics = &impl_.generics;
 
-    //BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
+    // check where predicate
+    if where_preidicates_bounds_restrict_generic(impl_generics) {
+        return;
+    }
 
-    let trait_full_name = match &impl_.trait_ {
-        None => None,
-        Some(trait_) => {
-            //println!("{:?}", trait_);
-            let trait_ty_def_id = trait_.def_id();
+    // BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
+    let trait_full_name = impl_
+        .trait_
+        .as_ref()
+        .map(|trait_| {
+            let trait_ty_def_id = &trait_.def_id().unwrap();
             let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
-            if let Some(trait_name) = trait_full_name {
-                Some(trait_name.clone())
-            } else {
-                None
+            trait_full_name.map(|trait_full_name| trait_full_name.to_owned())
+        })
+        .flatten();
+
+    let impl_ty_def_id = &impl_.for_.def_id();
+
+    let type_full_name = impl_ty_def_id
+        .map(|ref def_id| {
+            let type_name = full_name_map._get_full_name(def_id);
+            type_name.map(|real_type_name| real_type_name.to_owned())
+        })
+        .flatten();
+
+    // collect associate typedefs
+    let mut associate_typedefs = HashMap::new();
+    inner_items.iter().for_each(|item| {
+        if let clean::TypedefItem(typedef, ..) = &item.inner {
+            if let Some(ref item_name) = item.name {
+                if let Some(ref item_type) = typedef.item_type {
+                    associate_typedefs.insert(item_name.to_owned(), item_type.to_owned());
+                }
             }
         }
-    };
-
-    let impl_ty_def_id = impl_.for_.def_id(api_graph.cache());
-    let type_full_name = if let Some(def_id) = impl_ty_def_id {
-        let type_name = full_name_map._get_full_name(def_id);
-        if let Some(real_type_name) = type_name {
-            Some(real_type_name.clone())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    });
 
     for item in inner_items {
-        //println!("item_name, {:?}", item.name.as_ref().unwrap());
-        match &*item.kind {
-            //TODO:这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
-            ItemKind::FunctionItem(_function) => {
-                unimplemented!("function name in impl");
-                //let function_name = String::new();
-                //使用全限定名称：type::f
-                //function_name.push_str(type_full_name.as_str());
-                //function_name.push_str("::");
-                //function_name.push_str(item.name.as_ref().unwrap().as_str());
-                //println!("function name in impl:{:?}", function_name);
+        match &item.inner {
+            //这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
+            clean::FunctionItem(_function) => {
+                let function_name =
+                    format!("{:?}::{:?}", type_full_name, item.name.as_ref().unwrap());
+                error!("function name in impl:{:?}", function_name);
             }
-            ItemKind::MethodItem(_method, _) => {
-                let decl = _method.decl.clone();
-                let clean::FnDecl { inputs, output, .. } = decl;
-                let generics = _method.generics.clone();
+            clean::MethodItem(method) => {
+                let clean::FnDecl { inputs, output, .. } = method.decl.clone();
+                let mut method_generics = method.generics.clone();
                 let mut inputs = api_util::_extract_input_types(&inputs);
-                let output = api_util::_extract_output_type(&output);
-                //println!("input types = {:?}", inputs);
+                let mut output = api_util::_extract_output_type(&output);
 
-                let mut contains_self_type = false;
+                // replace associate types. Replace associate type should be prior to replace self type
+                // Since associate type can be `Self` type itself.
+                inputs = inputs
+                    .into_iter()
+                    .map(|input_type| {
+                        replace_self_associate_types(
+                            &input_type,
+                            &impl_.trait_,
+                            &associate_typedefs,
+                        )
+                    })
+                    .collect_vec();
+                output = output.map(|output_type| {
+                    replace_self_associate_types(&output_type, &impl_.trait_, &associate_typedefs)
+                });
 
-                let input_len = inputs.len();
-                for index in 0..input_len {
-                    let ty_ = &inputs[index];
-                    if is_param_self_type(ty_) {
-                        contains_self_type = true;
-                        let raplaced_ty = replace_self_type(ty_, &impl_.for_);
-                        inputs[index] = raplaced_ty;
-                    }
-                }
-                //println!("after replace, input = {:?}", inputs);
+                // replace self type
+                let input_contains_self_type =
+                    inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
+                let output_contains_self_type =
+                    inputs.iter().any(|ty_| clean_type_contains_self_type(ty_));
+                let contains_self_type = input_contains_self_type | output_contains_self_type;
 
-                let output = match output {
-                    None => None,
-                    Some(ty_) => {
-                        if is_param_self_type(&ty_) {
-                            let replaced_type = replace_self_type(&ty_, &impl_.for_);
-                            Some(replaced_type)
+                inputs = inputs
+                    .into_iter()
+                    .map(|ty_| {
+                        if clean_type_contains_self_type(&ty_) {
+                            replace_self_type(&ty_, &impl_.for_)
                         } else {
-                            Some(ty_)
+                            ty_
                         }
-                    }
-                };
+                    })
+                    .collect();
 
-                let mut method_name = String::new();
-                //使用全限定名称：type::f
-                //如果函数输入参数中含有self type，则使用trait name（也可以使用type name）
-                //如果函数输入参数中不含有self type，则使用type name
+                output = output.map(|ty_| {
+                    if clean_type_contains_self_type(&ty_) {
+                        replace_self_type(&ty_, &impl_.for_)
+                    } else {
+                        ty_
+                    }
+                });
+
+                // extend method generics
+                let mut generics_in_method = HashSet::new();
+                let mut free_qpaths_in_method = HashSet::new();
+                inputs.iter().for_each(|input_type| {
+                    generics_in_method.extend(get_generics_of_clean_type(input_type));
+                    free_qpaths_in_method.extend(get_qpaths_in_clean_type(input_type));
+                });
+                output.iter().for_each(|output_type| {
+                    generics_in_method.extend(get_generics_of_clean_type(output_type));
+                    free_qpaths_in_method.extend(get_qpaths_in_clean_type(output_type));
+                });
+
+                method_generics = extend_generics(
+                    &method_generics,
+                    &impl_generics,
+                    generics_in_method,
+                    free_qpaths_in_method,
+                );
+
+                // 使用全限定名称：type::f
+                // 如果函数输入参数中含有self type，则优先使用trait name，如果没有的话，使用type name
+                // 如果函数输入参数中不含有self type，则使用type name
                 let method_type_name = if contains_self_type {
                     if let Some(ref trait_name) = trait_full_name {
-                        trait_name.clone()
+                        trait_name.to_owned()
                     } else if let Some(ref type_name) = type_full_name {
-                        type_name.clone()
+                        type_name.to_owned()
                     } else {
-                        //println!("trait not in current crate.");
-                        //println!("type not in current crate.");
+                        // Both trait and type are not in current crate
+                        // We will skip such functions
                         return;
                     }
                 } else {
                     if let Some(ref type_name) = type_full_name {
-                        type_name.clone()
+                        type_name.to_owned()
                     } else {
-                        //println!("type not in current crate.");
+                        // Type is not defined in current crate
                         return;
                     }
                 };
-                method_name.push_str(method_type_name.as_str());
-                method_name.push_str("::");
-                method_name.push_str(item.name.as_ref().unwrap().as_str());
-                //println!("method name in impl:{:?}", method_name);
+                let method_name = format!("{}::{}", method_type_name, item.name.as_ref().unwrap());
 
                 let api_unsafety = ApiUnsafety::_get_unsafety_from_fnheader(
                     &item.fn_header(api_graph.tcx().clone()).unwrap(),
@@ -257,51 +307,48 @@ pub(crate) fn _analyse_impl(
                 let api_function = match &impl_.trait_ {
                     None => ApiFunction {
                         full_name: method_name,
-                        generics,
+                        generics: method_generics,
                         inputs,
                         output,
                         _trait_full_path: None,
                         _unsafe_tag: api_unsafety,
+                        return_type_notation: false,
+                        is_helper: false,
                     },
                     Some(_) => {
                         if let Some(ref real_trait_name) = trait_full_name {
                             ApiFunction {
                                 full_name: method_name,
-                                generics,
+                                generics: method_generics,
                                 inputs,
                                 output,
                                 _trait_full_path: Some(real_trait_name.clone()),
                                 _unsafe_tag: api_unsafety,
+                                return_type_notation: false,
+                                is_helper: false,
                             }
                         } else {
-                            //println!("Trait not found in current crate.");
+                            trace!("Trait not found in current crate.");
                             return;
                         }
                     }
                 };
                 api_graph.add_api_function(api_function);
             }
-            _ => {
-                //println!("no covered item {:?}", &item.inner);
-            }
+            _ => {}
         }
     }
 }
 
-//递归判断一个参数是否是self类型的
-//TODO：考虑在resolved path里面的括号里面可能存在self type
-fn is_param_self_type(ty_: &clean::Type) -> bool {
+/// 递归判断一个类型里面是否含有self类型，目前只考虑引用和复合类型
+fn clean_type_contains_self_type(ty_: &clean::Type) -> bool {
     if ty_.is_self_type() {
         return true;
     }
     match ty_ {
         clean::Type::BorrowedRef { type_, .. } => {
             let inner_ty = &**type_;
-            if is_param_self_type(inner_ty) {
-                return true;
-            } else {
-                return false;
-            }
+            return clean_type_contains_self_type(inner_ty);
         }
         clean::Type::Path { path, .. } => {
             let segments = &path.segments;
@@ -311,20 +358,20 @@ fn is_param_self_type(ty_: &clean::Type) -> bool {
                     clean::GenericArgs::AngleBracketed { args, .. } => {
                         for generic_arg in args.iter() {
                             if let clean::GenericArg::Type(generic_ty) = generic_arg {
-                                if is_param_self_type(&generic_ty) {
+                                if clean_type_contains_self_type(generic_ty) {
                                     return true;
                                 }
                             }
                         }
                     }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
-                        for input_type in inputs.iter() {
-                            if is_param_self_type(input_type) {
+                        for input_type in inputs {
+                            if clean_type_contains_self_type(input_type) {
                                 return true;
                             }
                         }
                         if let Some(output_type) = output {
-                            if is_param_self_type(output_type) {
+                            if clean_type_contains_self_type(output_type) {
                                 return true;
                             }
                         }
@@ -339,92 +386,205 @@ fn is_param_self_type(ty_: &clean::Type) -> bool {
     }
 }
 
-//将self类型替换为相应的结构体类型
+/// 将self类型替换为相应的结构体类型
 fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean::Type {
-    if self_type.is_self_type() {
-        return impl_type.clone();
-    }
-    match self_type {
-        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
-            let inner_type = &**type_;
-            if is_param_self_type(inner_type) {
-                let replaced_type = replace_self_type(inner_type, impl_type);
-                return clean::Type::BorrowedRef {
-                    lifetime: lifetime.clone(),
-                    mutability: *mutability,
-                    type_: Box::new(replaced_type),
-                };
-            } else {
-                return self_type.clone();
-            }
-        }
-        clean::Type::Path { path /*  param_names, did, is_generic  */ } => {
-            if !is_param_self_type(self_type) {
-                return self_type.clone();
-            }
-            let clean::Path { res, segments } = path;
-            let mut new_segments = Vec::new();
-            for path_segment in segments {
-                let clean::PathSegment { name, args: generic_args } = path_segment;
-                match generic_args {
-                    clean::GenericArgs::AngleBracketed { args, bindings } => {
-                        let mut new_args = Vec::new();
-                        for generic_arg in args.iter() {
-                            if let clean::GenericArg::Type(generic_type) = generic_arg {
-                                if is_param_self_type(&generic_type) {
-                                    let replaced_type = replace_self_type(&generic_type, impl_type);
-                                    let new_generic_arg = clean::GenericArg::Type(replaced_type);
-                                    new_args.push(new_generic_arg);
-                                } else {
-                                    new_args.push(generic_arg.clone());
-                                }
-                            } else {
-                                new_args.push(generic_arg.clone());
-                            }
-                        }
-                        let new_generic_args = clean::GenericArgs::AngleBracketed {
-                            args: new_args.into(),
-                            bindings: bindings.clone(),
-                        };
-                        let new_path_segment =
-                            clean::PathSegment { name: name.clone(), args: new_generic_args };
-                        new_segments.push(new_path_segment);
-                    }
-                    clean::GenericArgs::Parenthesized { inputs, output } => {
-                        let mut new_inputs = Vec::new();
-                        for input_type in inputs.iter() {
-                            if is_param_self_type(input_type) {
-                                let replaced_type = replace_self_type(input_type, impl_type);
-                                new_inputs.push(replaced_type);
-                            } else {
-                                new_inputs.push(input_type.clone());
-                            }
-                        }
-                        let new_output = output.clone().map(|output_type| {
-                            if is_param_self_type(&output_type) {
-                                Box::new(replace_self_type(&output_type, impl_type))
-                            //replace type
-                            } else {
-                                output_type
-                            }
-                        });
+    let self_generic = clean::Type::Generic("Self".to_string());
+    let mut replace_type_map = HashMap::new();
+    replace_type_map.insert(self_generic, impl_type.to_owned());
+    replace_types(self_type, &replace_type_map)
+}
 
-                        let new_generic_args = clean::GenericArgs::Parenthesized {
-                            inputs: new_inputs.into(),
-                            output: new_output,
-                        };
-                        let new_path_segment =
-                            clean::PathSegment { name: name.clone(), args: new_generic_args };
-                        new_segments.push(new_path_segment);
+// Add generic param appears in `ty_` to generics. These generic should also appears in `other_generics`
+fn extend_generics(
+    generics: &Generics,
+    other_generics: &Generics,
+    generics_in_method: HashSet<String>,
+    free_qpaths_in_method: HashSet<clean::Type>,
+) -> Generics {
+    let mut generics = generics.to_owned();
+    let Generics { params: other_params, where_predicates: other_where_predicates } =
+        other_generics;
+    // generics can appear both in params and where_predicates
+    generics_in_method.into_iter().for_each(|generic_in_type| {
+        let param_def = other_params
+            .iter()
+            .filter(|generic_param_def| generic_param_def.name == generic_in_type)
+            .map(|generic_param_def| generic_param_def.to_owned())
+            .collect_vec();
+        // generic_param_defs_in_type.extend(param_def);
+        generics.params.extend(param_def);
+        let predicate = other_where_predicates
+            .iter()
+            .filter(|where_predicate| {
+                match where_predicate {
+                    WherePredicate::BoundPredicate { ty: where_ty, .. }
+                    | WherePredicate::EqPredicate { lhs: where_ty, .. } => {
+                        type_is_given_generic(where_ty, &generic_in_type)
+                    }
+                    WherePredicate::RegionPredicate { .. } => {
+                        // We current ignore lifetime bound
+                        false
                     }
                 }
-            }
-            let new_path = clean::Path { res: res.clone(), segments: new_segments };
-            let new_type = clean::Type::Path { path: new_path };
-            return new_type;
-        }
-        _ => {
-            return self_type.clone();
-        }
+            })
+            .map(|where_predicate| where_predicate.to_owned())
+            .collect_vec();
+        generics.where_predicates.extend(predicate);
+    });
+
+    // free qpath can only exist in where predicate
+    free_qpaths_in_method.into_iter().for_each(|free_qpath_in_method| {
+        let predicate = other_where_predicates
+            .iter()
+            .filter(|where_predicate| {
+                match where_predicate {
+                    WherePredicate::BoundPredicate { ty: where_ty, .. } => {
+                        *where_ty == free_qpath_in_method
+                    }
+                    WherePredicate::RegionPredicate { .. } | WherePredicate::EqPredicate { .. } => {
+                        // We current ignore lifetime bound
+                        false
+                    }
+                }
+            })
+            .map(|where_predicate| where_predicate.to_owned())
+            .collect_vec();
+        generics.where_predicates.extend(predicate);
+    });
+
+    // remove duplicate. Not sure whether these is essential
+    remove_duplicate_in_vec(&mut generics.params);
+    // remove_duplicate_in_vec(&mut generics.where_predicates);
+
+    generics
+}
+
+/// determine clean type equals to given generic
+fn type_is_given_generic(ty_: &clean::Type, given_generic: &str) -> bool {
+    if let clean::Type::Generic(generic) = ty_ { generic == given_generic } else { false }
+}
+
+fn remove_duplicate_in_vec<T>(input: &mut Vec<T>)
+where
+    T: Hash + Eq,
+{
+    let hashset: HashSet<_> = input.drain(..).into_iter().collect();
+    input.extend(hashset);
+}
+
+/// Assocaite type is defined with trait. So we should use self_trait as a parameter
+fn replace_self_associate_types(
+    raw_type: &clean::Type,
+    self_trait: &Option<clean::Type>,
+    associate_type_map: &HashMap<String, clean::Type>,
+) -> clean::Type {
+    if *self_trait == None {
+        return raw_type.to_owned();
     }
+    match raw_type.to_owned() {
+        clean::Type::QPath { name, trait_: raw_self_trait, .. } => {
+            let self_trait = self_trait.as_ref().unwrap().to_owned();
+            if *raw_self_trait == self_trait && associate_type_map.contains_key(&name) {
+                associate_type_map.get(&name).unwrap().to_owned()
+            } else {
+                raw_type.to_owned()
+            }
+        }
+        clean::Type::RawPointer(mutability, inner_type) => {
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            clean::Type::RawPointer(mutability, Box::new(new_type))
+        }
+        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
+            let new_type = replace_self_associate_types(&*type_, self_trait, associate_type_map);
+            clean::Type::BorrowedRef { lifetime, mutability, type_: Box::new(new_type) }
+        }
+        clean::Type::Slice(inner_type) => {
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            clean::Type::Slice(Box::new(new_type))
+        }
+        clean::Type::Array(inner_type, length) => {
+            let new_type =
+                replace_self_associate_types(&*inner_type, self_trait, associate_type_map);
+            clean::Type::Array(Box::new(new_type), length)
+        }
+        clean::Type::Tuple(types) => {
+            let new_types = types
+                .into_iter()
+                .map(|type_| replace_self_associate_types(&type_, self_trait, associate_type_map))
+                .collect_vec();
+            clean::Type::Tuple(new_types)
+        }
+        clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
+            let clean::Path { global, res, segments } = path;
+            let new_segments = segments
+                .into_iter()
+                .map(|path_segment| {
+                    let clean::PathSegment { name, args } = path_segment;
+                    let new_args = match args {
+                        clean::GenericArgs::AngleBracketed { args, bindings } => {
+                            let new_args = args
+                                .into_iter()
+                                .map(|generic_arg| {
+                                    if let clean::GenericArg::Type(type_) = generic_arg {
+                                        let new_type = replace_self_associate_types(
+                                            &type_,
+                                            self_trait,
+                                            associate_type_map,
+                                        );
+                                        clean::GenericArg::Type(new_type)
+                                    } else {
+                                        generic_arg
+                                    }
+                                })
+                                .collect_vec();
+                            clean::GenericArgs::AngleBracketed { args: new_args, bindings }
+                        }
+                        clean::GenericArgs::Parenthesized { inputs, output } => {
+                            let new_inputs = inputs
+                                .into_iter()
+                                .map(|type_| {
+                                    replace_self_associate_types(
+                                        &type_,
+                                        self_trait,
+                                        associate_type_map,
+                                    )
+                                })
+                                .collect_vec();
+                            let new_output = output.map(|type_| {
+                                replace_self_associate_types(&type_, self_trait, associate_type_map)
+                            });
+                            clean::GenericArgs::Parenthesized {
+                                inputs: new_inputs,
+                                output: new_output,
+                            }
+                        }
+                    };
+                    clean::PathSegment { name, args: new_args }
+                })
+                .collect_vec();
+            let new_path = clean::Path { global, res, segments: new_segments };
+            clean::Type::ResolvedPath { path: new_path, param_names, did, is_generic }
+        }
+        _ => raw_type.to_owned(),
+    }
+}
+
+/// where predicate contains restrict_generic
+pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
+    generics.where_predicates.iter().any(|where_predicate| {
+        if let clean::WherePredicate::BoundPredicate { ty, .. } = where_predicate {
+            match ty {
+                // Generic and QPath are free generic
+                clean::Type::Generic(..) | clean::Type::QPath { .. } => false,
+                // restrict generic
+                _ => {
+                    true
+                }
+            }
+        } else {
+            false
+        }
+    })
 }

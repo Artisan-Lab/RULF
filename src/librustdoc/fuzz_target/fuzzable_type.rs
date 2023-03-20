@@ -3,8 +3,9 @@ use crate::formats::cache::Cache;
 use rustc_hir::Mutability;
 
 use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::PreludeType;
+
+use super::type_name::TypeNameMap;
 
 //如果构造一个fuzzable的变量
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -13,7 +14,7 @@ pub(crate) enum FuzzableCallType {
     Primitive(PrimitiveType),
     Tuple(Vec<Box<FuzzableCallType>>),
     Slice(Box<FuzzableCallType>),
-    Array(Box<FuzzableCallType>),
+    Array(Box<FuzzableCallType>, String),
     ConstRawPoiner(Box<FuzzableCallType>, clean::Type),
     MutRawPoiner(Box<FuzzableCallType>, clean::Type),
     STR,
@@ -132,7 +133,20 @@ impl FuzzableCallType {
                 }
                 return (fuzzable_type, CallType::_ToOption(Box::new(inner_call_type)));
             }
-            FuzzableCallType::Array(_) | FuzzableCallType::Slice(_) => {
+            FuzzableCallType::Array(inner_fuzzable_call_type, len) => {
+                let (fuzzable_type, inner_call_type) =
+                    inner_fuzzable_call_type.generate_fuzzable_type_and_call_type();
+                if let FuzzableType::NoFuzzable = fuzzable_type {
+                    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
+                } else if let CallType::_NotCompatible = inner_call_type {
+                    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
+                }
+                return (
+                    fuzzable_type,
+                    CallType::_ToArray(Box::new(inner_call_type), len.to_owned()),
+                );
+            }
+            FuzzableCallType::Slice(_) => {
                 return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
             } //_ => {
               //    return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
@@ -296,17 +310,17 @@ impl FuzzableType {
 }
 
 //判断一个类型是不是fuzzable的，以及如何调用相应的fuzzable变量
-pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> FuzzableCallType {
+pub fn fuzzable_call_type(ty_: &clean::Type, type_name_map: &TypeNameMap) -> FuzzableCallType {
     match ty_ {
-        clean::Type::Path { .. } => {
-            let prelude_type = PreludeType::from_type(ty_, full_name_map, cache);
+        clean::Type::ResolvedPath { .. } => {
+            let prelude_type = PreludeType::from_type(ty_, type_name_map);
             //result类型的变量不应该作为fuzzable的变量。只考虑作为别的函数的返回值
             match &prelude_type {
                 PreludeType::NotPrelude(..) | PreludeType::PreludeResult { .. } => {
                     FuzzableCallType::NoFuzzable
                 }
                 PreludeType::PreludeOption(inner_type_) => {
-                    let inner_fuzzable_call_type = fuzzable_call_type(inner_type_, full_name_map, cache);
+                    let inner_fuzzable_call_type = fuzzable_call_type(inner_type_, type_name_map);
                     match inner_fuzzable_call_type {
                         FuzzableCallType::NoFuzzable => {
                             return FuzzableCallType::NoFuzzable;
@@ -318,8 +332,7 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
                 }
             }
         }
-        clean::Type::Generic(s) => {
-            println!("generic type = {:?}", s);
+        clean::Type::Generic(..) => {
             FuzzableCallType::NoFuzzable
         }
         clean::Type::Primitive(primitive_type) => {
@@ -329,7 +342,7 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
         clean::Type::Tuple(types) => {
             let mut vec = Vec::new();
             for inner_type in types {
-                let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
+                let inner_fuzzable = fuzzable_call_type(inner_type, type_name_map);
                 match inner_fuzzable {
                     FuzzableCallType::NoFuzzable => {
                         return FuzzableCallType::NoFuzzable;
@@ -343,7 +356,7 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
         }
         clean::Type::Slice(inner_type) => {
             let inner_ty_ = &**inner_type;
-            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map, cache);
+            let inner_fuzzable = fuzzable_call_type(inner_ty_, type_name_map);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -353,21 +366,21 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
                 }
             }
         }
-        clean::Type::Array(inner_type, ..) => {
+        clean::Type::Array(inner_type, len) => {
             let inner_ty_ = &**inner_type;
-            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map, cache);
+            let inner_fuzzable = fuzzable_call_type(inner_ty_, type_name_map);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
                 }
                 _ => {
-                    return FuzzableCallType::Array(Box::new(inner_fuzzable));
+                    return FuzzableCallType::Array(Box::new(inner_fuzzable), len.to_owned());
                 }
             }
         }
         clean::Type::RawPointer(mutability, type_) => {
             let inner_type = &**type_;
-            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
+            let inner_fuzzable = fuzzable_call_type(inner_type, type_name_map);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -397,13 +410,13 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
                 if let Some(lifetime_) = lifetime {
                     let lifetime_string = lifetime_.0.as_str();
                     if lifetime_string == "'static" {
-                        //如果是static的话，由于无法构造出来，所以只能认为是不可fuzzable的
+                        //如果是static的话，将会进行特殊的处理
                         return FuzzableCallType::NoFuzzable;
                     }
                 }
                 return FuzzableCallType::STR;
             }
-            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
+            let inner_fuzzable = fuzzable_call_type(inner_type, type_name_map);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;

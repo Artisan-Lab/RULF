@@ -1,12 +1,15 @@
 //This file cratecontains functions to print intermediate info
 
-use crate::formats::cache::Cache;
-use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::api_graph::ApiType;
+use super::api_graph::ApiGraph;
+use super::api_graph::ApiType;
+use super::type_name::type_full_name;
+use super::type_name::TypeNameLevel;
+
+/// traits of primitive types
 
 //print generated sequences
-pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
-    println!("sequences:");
+pub fn _print_pretty_sequences(graph: &ApiGraph) {
+    debug!("sequences:");
     for api_sequence in &graph.api_sequences {
         let mut one_sequence = String::new();
         for api_call in &api_sequence.functions {
@@ -20,7 +23,7 @@ pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
                 }
             }
         }
-        println!("{:?}", one_sequence);
+        debug!("{:?}", one_sequence);
     }
 }
 
@@ -35,9 +38,9 @@ pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache:&Cache, check_
             }
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print(&graph.full_name_map, cache);
+        let fn_line = api_function._pretty_print(&graph.type_name_map);
 
-        println!("{}:{}", i, fn_line);
+        debug!("{}:{}", i, fn_line);
     }
 }
 
@@ -65,7 +68,7 @@ pub(crate) fn _print_pretty_dependencies(graph: &ApiGraph<'_>) {
         res.push_str(dependency.input_param_index.to_string().as_str());
         res.push_str(" ");
         print!("{:?}", res);
-        println!("{:?}", dependency.call_type);
+        debug!("{:?}", dependency.call_type);
         //res.push_str("\r\n");
     }
 }
@@ -84,7 +87,7 @@ pub(crate) fn _print_generated_afl_file(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_afl_test_file(graph, i));
+        debug!("{}", api_sequence._to_afl_test_file(graph, i));
         //break;
     }
 }
@@ -95,13 +98,50 @@ pub(crate) fn _print_generated_libfuzzer_file(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_libfuzzer_test_file(graph, i));
+        debug!("{}", api_sequence._to_libfuzzer_test_file(graph, i));
     }
 }
 
 pub(crate) fn _print_generic_functions(graph: &ApiGraph<'_>) {
     println!("generic functions");
     graph.generic_functions.iter().for_each(|generic_function| {
-        println!("{}", generic_function.api_function.full_name);
+        debug!("{}", generic_function.api_function.full_name);
+        debug!("{:?}", generic_function.type_bounds);
+        generic_function.api_function.inputs.iter().for_each(|input| {
+            debug!("{:?}", input);
+        });
+    });
+}
+
+pub fn _print_type_in_current_crate(graph: &ApiGraph) {
+    debug!("Type in current crate:");
+    graph.defined_types.type_full_names.iter().for_each(|(did, full_name)| {
+        debug!("full name: {}", full_name);
+        if let Some(bounds) = graph.defined_types.traits_of_type.get(did) {
+            debug!("bounds of type: {}", full_name);
+            bounds.iter().for_each(|type_| {
+                debug!("{:?}", type_);
+            });
+        }
+    });
+}
+
+pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
+    debug!("traits_in_current_crate:");
+    graph.defined_types.traits.iter().for_each(|(_, trait_name)| {
+        debug!("{}", trait_name);
+    });
+}
+
+pub fn _print_type_full_names(graph: &ApiGraph) {
+    debug!("type_full_names");
+    graph.api_functions.iter().for_each(|api_func| {
+        debug!("Function name: {}", api_func.full_name);
+        api_func.inputs.iter().for_each(|input| {
+            debug!("{}", type_full_name(input, &graph.type_name_map, TypeNameLevel::All))
+        });
+        api_func.output.iter().for_each(|output| {
+            debug!("{}", type_full_name(output, &graph.type_name_map, TypeNameLevel::All))
+        });
     });
 }

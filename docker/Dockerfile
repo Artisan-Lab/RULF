@@ -78,8 +78,6 @@ RUN curl --location https://sh.rustup.rs > /tmp/rustup \
   && rustup --version \
   && rm /tmp/rustup
 
-
-
 #create a .bashrc
 RUN echo "export PATH=\"${PATH}\"" >> ${USER_HOME}/.bashrc \
   && echo "ulimit -c0" >> ${USER_HOME}/.bashrc
@@ -96,3 +94,5 @@ ENV USER="${USERNAME}"
 
 RUN mkdir ${FUZZ_TARGET_GENERATOR_DIR}
 WORKDIR ${FUZZ_TARGET_GENERATOR_DIR}
+
+# TODO: copy rulf args
