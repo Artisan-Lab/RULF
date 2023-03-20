@@ -1,26 +1,28 @@
 use crate::clean::Visibility;
-use std::collections::HashMap;
+use rustc_data_structures::fx::{FxHashMap};
+
 #[derive(Debug, Clone)]
 pub(crate) struct ModVisibity {
     pub(crate) crate_name: String,
-    pub(crate) inner: HashMap<String, Visibility>,
+    pub(crate) inner: FxHashMap<String, Visibility>,
 }
 
 impl ModVisibity {
     pub(crate) fn new(crate_name_: &String) -> Self {
         let crate_name = crate_name_.clone();
-        let inner = HashMap::new();
+        let inner = FxHashMap::default();
         ModVisibity { crate_name, inner }
     }
 
     pub(crate) fn add_one_mod(&mut self, mod_name: &String, visibility: &Visibility) {
+        println!("add_one_mod: {} {:?}",mod_name, visibility);
         self.inner.insert(mod_name.clone(), visibility.clone());
     }
 
     pub(crate) fn get_invisible_mods(&self) -> Vec<String> {
         let mod_number = self.inner.len();
 
-        let mut new_mod_visibility = HashMap::new();
+        let mut new_mod_visibility = FxHashMap::default();
         if !self.inner.contains_key(&self.crate_name) {
             panic!("No crate mod");
         }

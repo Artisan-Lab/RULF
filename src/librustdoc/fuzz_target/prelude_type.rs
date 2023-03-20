@@ -4,11 +4,12 @@ use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::impl_util::FullNameMap;
-use std::collections::{HashMap, HashSet};
+use lazy_static::lazy_static;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
 lazy_static! {
-    static ref PRELUDED_TYPE: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref PRELUDED_TYPE: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("core::option::Option", "Option");
         m.insert("core::result::Result", "Result");
         m.insert("alloc::string::String", "String");
@@ -29,17 +30,21 @@ pub(crate) fn is_preluded_type(type_name: &String) -> bool {
     }
 }
 
-pub(crate) fn get_all_preluded_type() -> HashSet<String> {
-    let mut res = HashSet::new();
+pub(crate) fn get_all_preluded_type() -> FxHashSet<String> {
+    let mut res = FxHashSet::default();
     for (prelude_type_, _) in PRELUDED_TYPE.iter() {
         res.insert(prelude_type_.to_string());
     }
     res
 }
 
-pub(crate) fn preluded_type(type_: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> bool {
+pub(crate) fn preluded_type(
+    type_: &clean::Type,
+    full_name_map: &FullNameMap,
+    cache: &Cache,
+) -> bool {
     let def_id = type_.def_id(cache).unwrap();
-    if let Some(type_name) = full_name_map._get_full_name(&def_id) {
+    if let Some(type_name) = full_name_map._get_full_name(def_id) {
         if is_preluded_type(type_name) {
             return true;
         }
@@ -66,12 +71,16 @@ pub(crate) enum PreludeType {
 }
 
 impl PreludeType {
-    pub(crate) fn from_type(type_: &clean::Type, full_name_map: &FullNameMap, cache:&Cache) -> Self {
+    pub(crate) fn from_type(
+        type_: &clean::Type,
+        full_name_map: &FullNameMap,
+        cache: &Cache,
+    ) -> Self {
         match type_ {
             clean::Type::Path { path, .. } => {
                 if preluded_type(type_, full_name_map, cache) {
                     let def_id = type_.def_id(cache).unwrap();
-                    let type_full_name = full_name_map._get_full_name(&def_id).unwrap();
+                    let type_full_name = full_name_map._get_full_name(def_id).unwrap();
                     let strip_type_name_string = to_strip_type_name(type_full_name);
                     let strip_type_name = strip_type_name_string.as_str();
                     if _OPTION == strip_type_name {
@@ -199,11 +208,15 @@ fn extract_result(path: &clean::Path, type_: &clean::Type) -> PreludeType {
 pub(crate) fn _prelude_type_need_special_dealing(
     type_: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> bool {
     let prelude_type = PreludeType::from_type(type_, full_name_map, cache);
     let final_type = prelude_type._get_final_type();
-    if final_type == *type_ { false } else { true }
+    if final_type == *type_ {
+        false
+    } else {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -213,10 +226,10 @@ pub(crate) enum _PreludeHelper {
 }
 
 impl _PreludeHelper {
-    pub(crate) fn _from_call_type(call_type: &CallType) -> HashSet<_PreludeHelper> {
+    pub(crate) fn _from_call_type(call_type: &CallType) -> FxHashSet<_PreludeHelper> {
         match call_type {
             CallType::_DirectCall | CallType::_NotCompatible | CallType::_AsConvert(_) => {
-                HashSet::new()
+                FxHashSet::default()
             }
             CallType::_BorrowedRef(inner_call_type)
             | CallType::_ConstRawPointer(inner_call_type, _)

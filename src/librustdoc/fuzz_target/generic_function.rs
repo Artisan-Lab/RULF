@@ -1,17 +1,16 @@
-use std::collections::HashMap;
-
 use crate::clean;
+use rustc_data_structures::fx::{FxHashMap};
 
 use super::api_function::ApiFunction;
 
 #[derive(Clone)]
-pub(crate) struct GenericFunction<'a> {
-    pub(crate) api_function: ApiFunction<'a>,
-    pub(crate) generic_substitute: HashMap<String, clean::Type>,
+pub(crate) struct GenericFunction {
+    pub(crate) api_function: ApiFunction,
+    pub(crate) generic_substitute: FxHashMap<String, clean::Type>,
 }
 
-impl<'a> From<ApiFunction<'a>> for GenericFunction<'a> {
-    fn from(api_function: ApiFunction<'a>) -> Self {
-        GenericFunction { api_function, generic_substitute: HashMap::new() }
+impl From<ApiFunction> for GenericFunction {
+    fn from(api_function: ApiFunction) -> Self {
+        GenericFunction { api_function, generic_substitute: FxHashMap::default() }
     }
 }

@@ -61,8 +61,9 @@ extern crate rustc_span;
 extern crate rustc_target;
 extern crate rustc_trait_selection;
 extern crate test;
-#[macro_use]
-extern crate lazy_static;
+use std::time::Instant;
+//#[macro_use]
+//extern crate lazy_static;
 // See docs in https://github.com/rust-lang/rust/blob/master/compiler/rustc/src/main.rs
 // about jemalloc.
 #[cfg(feature = "jemalloc")]
@@ -125,22 +126,70 @@ mod visit_ast;
 mod visit_lib;
 
 //use crate::process::Output;
-/*pub mod fuzz_target {
-     mod afl_util;
-     mod api_function;
-     mod api_graph;
-     mod api_sequence;
-     mod api_util;
-     mod call_type;
-     mod file_util;
-     mod fuzzable_type;
-     mod generic_function;
-     mod impl_util;
-     mod mod_visibility;
-     mod prelude_type;
-     mod print_message;
-     mod replay_util;
-}*/
+#[allow(unused)]
+mod fuzz_target;
+use fuzz_target::fuzz_target_renderer::FuzzTargetRenderer;
+// readily copy main
+pub fn fuzz_target_generator_main() {
+    let start = Instant::now();
+
+    // See docs in https://github.com/rust-lang/rust/blob/master/compiler/rustc/src/main.rs
+    // about jemalloc.
+    #[cfg(feature = "jemalloc")]
+    {
+        use std::os::raw::{c_int, c_void};
+
+        #[used]
+        static _F1: unsafe extern "C" fn(usize, usize) -> *mut c_void = jemalloc_sys::calloc;
+        #[used]
+        static _F2: unsafe extern "C" fn(*mut *mut c_void, usize, usize) -> c_int =
+            jemalloc_sys::posix_memalign;
+        #[used]
+        static _F3: unsafe extern "C" fn(usize, usize) -> *mut c_void = jemalloc_sys::aligned_alloc;
+        #[used]
+        static _F4: unsafe extern "C" fn(usize) -> *mut c_void = jemalloc_sys::malloc;
+        #[used]
+        static _F5: unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void = jemalloc_sys::realloc;
+        #[used]
+        static _F6: unsafe extern "C" fn(*mut c_void) = jemalloc_sys::free;
+
+        #[cfg(target_os = "macos")]
+        {
+            extern "C" {
+                fn _rjem_je_zone_register();
+            }
+
+            #[used]
+            static _F7: unsafe extern "C" fn() = _rjem_je_zone_register;
+        }
+    }
+
+    rustc_driver::install_ice_hook();
+
+    // When using CI artifacts (with `download_stage1 = true`), tracing is unconditionally built
+    // with `--features=static_max_level_info`, which disables almost all rustdoc logging. To avoid
+    // this, compile our own version of `tracing` that logs all levels.
+    // NOTE: this compiles both versions of tracing unconditionally, because
+    // - The compile time hit is not that bad, especially compared to rustdoc's incremental times, and
+    // - Otherwise, there's no warning that logging is being ignored when `download_stage1 = true`.
+    // NOTE: The reason this doesn't show double logging when `download_stage1 = false` and
+    // `debug_logging = true` is because all rustc logging goes to its version of tracing (the one
+    // in the sysroot), and all of rustdoc's logging goes to its version (the one in Cargo.toml).
+    init_logging();
+    rustc_driver::init_env_logger("RUSTDOC_LOG");
+
+    let exit_code = rustc_driver::catch_with_exit_code(|| match get_args() {
+        Some(args) => fuzz_target_generator_main_args(&args),
+        _ => Err(ErrorGuaranteed::unchecked_claim_error_was_emitted()),
+    });
+
+    println!(
+        "Fuzz Target Generator exits successfully. Total time cost: {:?} ms",
+        start.elapsed().as_millis()
+    );
+
+    process::exit(exit_code);
+}
 
 pub fn main() {
     // See docs in https://github.com/rust-lang/rust/blob/master/compiler/rustc/src/main.rs
@@ -228,32 +277,6 @@ fn init_logging() {
     use tracing_subscriber::layer::SubscriberExt;
     let subscriber = tracing_subscriber::Registry::default().with(filter).with(layer);
     tracing::subscriber::set_global_default(subscriber).unwrap();
-}
-
-pub fn fuzz_target_generator_main() {
-    /*let start = Instant::now();
-
-    let thread_stack_size: usize = if cfg!(target_os = "haiku") {
-        16_000_000 // 16MB on Haiku
-    } else {
-        32_000_000 // 32MB on other platforms
-    };
-    rustc_driver::set_sigpipe_handler();
-    env_logger::init_from_env("FUZZ-TARGET-GENERATOR");
-    let res = std::thread::Builder::new()
-        .stack_size(thread_stack_size)
-        .spawn(move || get_args().map(|args| fuzz_target_generator_main_args(&args)).unwrap_or(1))
-        .unwrap()
-        .join()
-        .unwrap_or(rustc_driver::EXIT_FAILURE);
-
-    println!(
-        "Fuzz Target Generator exits successfully. Total time cost: {:?} ms",
-        start.elapsed().as_millis()
-    );
-
-    process::exit(res);*/
-    todo!()
 }
 
 fn get_args() -> Option<Vec<String>> {
@@ -748,8 +771,9 @@ fn run_renderer<'tcx, T: formats::FormatRenderer<'tcx>>(
         }
     }
 }
+fn fuzz_target_generator_main_args(at_args: &[String]) -> MainResult {
+    let args = rustc_driver::args::arg_expand_all(at_args);
 
-/* fn fuzz_target_generator_main_args(args: &[String]) -> i32 {
     let mut options = getopts::Options::new();
     for option in opts() {
         (option.apply)(&mut options);
@@ -760,16 +784,146 @@ fn run_renderer<'tcx, T: formats::FormatRenderer<'tcx>>(
             early_error(ErrorOutputType::default(), &err.to_string());
         }
     };
-    let options = match config::Options::from_matches(&matches) {
+
+    // Note that we discard any distinction between different non-zero exit
+    // codes from `from_matches` here.
+    let (options, render_options) = match config::Options::from_matches(&matches, args) {
         Ok(opts) => opts,
-        Err(code) => return code,
+        Err(code) => {
+            return if code == 0 {
+                Ok(())
+            } else {
+                Err(ErrorGuaranteed::unchecked_claim_error_was_emitted())
+            };
+        }
     };
-    /*rustc_interface::interface::setup_callbacks_and_run_in_default_thread_pool_with_globals(
-        options.edition,
-        move || fuzz_target_generator_main_options(options),
-    )*/
-    todo!("fix it");
-} */
+
+    let diag = core::new_handler(
+        options.error_format,
+        None,
+        options.diagnostic_width,
+        &options.unstable_opts,
+    );
+
+    match (options.should_test, options.markdown_input()) {
+        (true, true) => return wrap_return(&diag, markdown::test(options)),
+        (true, false) => return doctest::run(options),
+        (false, true) => {
+            let input = options.input.clone();
+            let edition = options.edition;
+            let config = core::create_config(options);
+
+            // `markdown::render` can invoke `doctest::make_test`, which
+            // requires session globals and a thread pool, so we use
+            // `run_compiler`.
+            return wrap_return(
+                &diag,
+                interface::run_compiler(config, |_compiler| {
+                    markdown::render(&input, render_options, edition)
+                }),
+            );
+        }
+        (false, false) => {}
+    }
+
+    // need to move these items separately because we lose them by the time the closure is called,
+    // but we can't create the Handler ahead of time because it's not Send
+    let show_coverage = options.show_coverage;
+    let run_check = options.run_check;
+
+    // First, parse the crate and extract all relevant information.
+    info!("starting to run rustc");
+
+    // Interpret the input file as a rust source file, passing it through the
+    // compiler all the way through the analysis passes. The rustdoc output is
+    // then generated from the cleaned AST of the crate. This runs all the
+    // plug/cleaning passes.
+    let crate_version = options.crate_version.clone();
+
+    let output_format = options.output_format;
+    let externs = options.externs.clone();
+    let scrape_examples_options = options.scrape_examples_options.clone();
+
+    let config = core::create_config(options);
+
+    interface::run_compiler(config, |compiler| {
+        let sess = compiler.session();
+
+        if sess.opts.describe_lints {
+            let mut lint_store = rustc_lint::new_lint_store(
+                sess.opts.unstable_opts.no_interleave_lints,
+                sess.enable_internal_lints(),
+            );
+            let registered_lints = if let Some(register_lints) = compiler.register_lints() {
+                register_lints(sess, &mut lint_store);
+                true
+            } else {
+                false
+            };
+            rustc_driver::describe_lints(sess, &lint_store, registered_lints);
+            return Ok(());
+        }
+
+        compiler.enter(|queries| {
+            // We need to hold on to the complete resolver, so we cause everything to be
+            // cloned for the analysis passes to use. Suboptimal, but necessary in the
+            // current architecture.
+            // FIXME(#83761): Resolver cloning can lead to inconsistencies between data in the
+            // two copies because one of the copies can be modified after `TyCtxt` construction.
+            let (resolver, resolver_caches) = {
+                let (krate, resolver, _) = &*abort_on_err(queries.expansion(), sess).peek();
+                let resolver_caches = resolver.borrow_mut().access(|resolver| {
+                    collect_intra_doc_links::early_resolve_intra_doc_links(
+                        resolver,
+                        sess,
+                        krate,
+                        externs,
+                        render_options.document_private,
+                    )
+                });
+                (resolver.clone(), resolver_caches)
+            };
+
+            if sess.diagnostic().has_errors_or_lint_errors().is_some() {
+                sess.fatal("Compilation failed, aborting rustdoc");
+            }
+
+            let mut global_ctxt = abort_on_err(queries.global_ctxt(), sess).peek_mut();
+
+            global_ctxt.enter(|tcx| {
+                let (krate, render_opts, mut cache) = sess.time("run_global_ctxt", || {
+                    core::run_global_ctxt(
+                        tcx,
+                        resolver,
+                        resolver_caches,
+                        show_coverage,
+                        render_options,
+                        output_format,
+                    )
+                });
+                info!("finished with rustc");
+
+                if let Some(options) = scrape_examples_options {
+                    return scrape_examples::run(krate, render_opts, cache, tcx, options);
+                }
+
+                cache.crate_version = crate_version;
+
+                if show_coverage {
+                    // if we ran coverage, bail early, we don't need to also generate docs at this point
+                    // (also we didn't load in any of the useful passes)
+                    return Ok(());
+                } else if run_check {
+                    // Since we're in "check" mode, no need to generate anything beyond this point.
+                    return Ok(());
+                }
+
+                info!("going to format");
+                run_renderer::<FuzzTargetRenderer<'_>>(krate, render_opts, cache, tcx)
+            })
+        })
+    })
+}
 
 fn main_args(at_args: &[String]) -> MainResult {
     let args = rustc_driver::args::arg_expand_all(at_args);
@@ -931,87 +1085,3 @@ fn main_args(at_args: &[String]) -> MainResult {
         })
     })
 }
-
-/* fn fuzz_target_generator_main_options(options: config::Options) -> i32 {
-    let diag = core::new_handler(options.error_format, None, &options.debugging_options);
-
-    match (options.should_test, options.markdown_input()) {
-        (true, true) => return wrap_return(&diag, markdown::test(options)),
-        (true, false) => return wrap_return(&diag, test::run(options)),
-        (false, true) => {
-            return wrap_return(
-                &diag,
-                markdown::render(&options.input, options.render_options, options.edition),
-            );
-        }
-        (false, false) => {}
-    }
-
-    // need to move these items separately because we lose them by the time the closure is called,
-    // but we can't crates the Handler ahead of time because it's not Send
-    let diag_opts = (options.error_format, options.edition, options.debugging_options.clone());
-    let show_coverage = options.show_coverage;
-
-    // First, parse the crate and extract all relevant information.
-    info!("starting to run rustc");
-
-    // Interpret the input file as a rust source file, passing it through the
-    // compiler all the way through the analysis passes. The rustdoc output is
-    // then generated from the cleaned AST of the crate. This runs all the
-    // plug/cleaning passes.
-    let result = rustc_driver::catch_fatal_errors(move || {
-        let crate_name = options.crate_name.clone();
-        let crate_version = options.crate_version.clone();
-        let (mut krate, renderinfo, renderopts) = core::fuzz_target_generator_run_core(options);
-
-        info!("finished with rustc");
-
-        if let Some(name) = crate_name {
-            krate.name = name
-        }
-
-        krate.version = crate_version;
-
-        let out = Output { krate, renderinfo, renderopts };
-
-        if show_coverage {
-            // if we ran coverage, bail early, we don't need to also generate docs at this point
-            // (also we didn't load in any of the useful passes)
-            return rustc_driver::EXIT_SUCCESS;
-        }
-
-        let Output { krate, renderinfo, renderopts } = out;
-        info!("going to format");
-        let (error_format, edition, debugging_options) = diag_opts;
-        let diag = core::new_handler(error_format, None, &debugging_options);
-        match html::render::fuzz_target_run_clean_krate(
-            &krate,
-            &renderopts,
-            renderinfo,
-            &diag,
-            edition,
-        ) {
-            Ok(_) => rustc_driver::EXIT_SUCCESS,
-            Err(s) => {
-                println!("Error: {}", s);
-                rustc_driver::EXIT_FAILURE
-            }
-        }
-        /*
-        match html::render::run(krate, renderopts, renderinfo, &diag, edition) {
-            Ok(_) => rustc_driver::EXIT_SUCCESS,
-            Err(e) => {
-                diag.struct_err(&format!("couldn't generate documentation: {}", e.error))
-                    .note(&format!("failed to create or modify \"{}\"", e.file.display()))
-                    .emit();
-                rustc_driver::EXIT_FAILURE
-            }
-        }*/
-    });
-
-    match result {
-        Ok(output) => output,
-        Err(_) => panic::resume_unwind(Box::new(rustc_errors::FatalErrorMarker)),
-    }
-}
- */

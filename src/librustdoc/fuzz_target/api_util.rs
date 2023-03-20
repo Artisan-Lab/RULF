@@ -139,7 +139,7 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
 
 //get the name of a type
 pub(crate) fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap, cache:&Cache) -> String {
-    if let Some(def_id) = &type_.def_id(cache) {
+    if let Some(def_id) = type_.def_id(cache) {
         if let Some(full_name) = full_name_map._get_full_name(def_id) {
             return full_name.clone();
         }

@@ -1,12 +1,13 @@
 use crate::fuzz_target::api_graph::ApiGraph;
-use std::collections::HashMap;
+use lazy_static::lazy_static;
+use rustc_data_structures::fx::{FxHashMap};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
 lazy_static! {
-    static ref CRATE_TEST_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref CRATE_TEST_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("url", "/home/jjf/afl_fast_work/url_afl_work");
         m.insert("regex_syntax", "/home/jjf/afl_fast_work/regex-syntax-afl-work");
         m.insert("semver_parser", "/home/jjf/afl_fast_work/semver-parser-afl-work");
@@ -36,8 +37,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RANDOM_TEST_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref RANDOM_TEST_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("regex", "/home/jjf/random_work/regex-work");
         m.insert("url", "/home/jjf/random_work/url-work");
         m.insert("time", "/home/jjf/random_work/time-work");
@@ -46,8 +47,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref LIBFUZZER_FUZZ_TARGET_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
         m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
         m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
@@ -57,8 +58,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RANDOM_TEST_FILE_NUMBERS: HashMap<&'static str, usize> = {
-        let mut m = HashMap::new();
+    static ref RANDOM_TEST_FILE_NUMBERS: FxHashMap<&'static str, usize> = {
+        let mut m = FxHashMap::default();
         m.insert("url", 61);
         m.insert("regex", 67);
         m.insert("time", 118);

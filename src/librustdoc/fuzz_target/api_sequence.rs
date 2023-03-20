@@ -1,3 +1,4 @@
+use crate::formats::cache::Cache;
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
 use crate::fuzz_target::api_util;
@@ -5,7 +6,7 @@ use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
-use std::collections::{HashMap, HashSet};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub(crate) enum ParamType {
@@ -32,7 +33,12 @@ impl ApiCall {
         ApiCall { func, params }
     }
 
-    pub(crate) fn _add_param(&mut self, param_type: ParamType, param_index: usize, call_type: CallType) {
+    pub(crate) fn _add_param(
+        &mut self,
+        param_type: ParamType,
+        param_index: usize,
+        call_type: CallType,
+    ) {
         self.params.push((param_type, param_index, call_type));
     }
 }
@@ -41,14 +47,14 @@ impl ApiCall {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ApiSequence {
     //TODO:如何表示函数调用序列？
-    pub(crate) functions: Vec<ApiCall>,               //函数调用序列
-    pub(crate) fuzzable_params: Vec<FuzzableType>,    //需要传入的fuzzable变量
-    pub(crate) _using_traits: Vec<String>,            //需要use引入的traits的路径
-    pub(crate) _unsafe_tag: bool,                     //标志这个调用序列是否需要加上unsafe标记
-    pub(crate) _moved: HashSet<usize>,                //表示哪些返回值已经被move掉，不再能被使用
-    pub(crate) _fuzzable_mut_tag: HashSet<usize>,     //表示哪些fuzzable的变量需要带上mut标记
-    pub(crate) _function_mut_tag: HashSet<usize>,     //表示哪些function的返回值需要带上mut标记
-    pub(crate) _covered_dependencies: HashSet<usize>, //表示用到了哪些dependency,即边覆盖率
+    pub(crate) functions: Vec<ApiCall>,             //函数调用序列
+    pub(crate) fuzzable_params: Vec<FuzzableType>,  //需要传入的fuzzable变量
+    pub(crate) _using_traits: Vec<String>,          //需要use引入的traits的路径
+    pub(crate) _unsafe_tag: bool,                   //标志这个调用序列是否需要加上unsafe标记
+    pub(crate) _moved: FxHashSet<usize>,            //表示哪些返回值已经被move掉，不再能被使用
+    pub(crate) _fuzzable_mut_tag: FxHashSet<usize>, //表示哪些fuzzable的变量需要带上mut标记
+    pub(crate) _function_mut_tag: FxHashSet<usize>, //表示哪些function的返回值需要带上mut标记
+    pub(crate) _covered_dependencies: FxHashSet<usize>, //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
@@ -57,10 +63,10 @@ impl ApiSequence {
         let fuzzable_params = Vec::new();
         let _using_traits = Vec::new();
         let _unsafe_tag = false;
-        let _moved = HashSet::new();
-        let _fuzzable_mut_tag = HashSet::new();
-        let _function_mut_tag = HashSet::new();
-        let _covered_dependencies = HashSet::new();
+        let _moved = FxHashSet::default();
+        let _fuzzable_mut_tag = FxHashSet::default();
+        let _function_mut_tag = FxHashSet::default();
+        let _covered_dependencies = FxHashSet::default();
         ApiSequence {
             functions,
             fuzzable_params,
@@ -183,7 +189,11 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_moved(&self, index: usize) -> bool {
-        if self._moved.contains(&index) { true } else { false }
+        if self._moved.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
     pub(crate) fn _insert_move_index(&mut self, index: usize) {
@@ -199,7 +209,11 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_fuzzable_need_mut_tag(&self, index: usize) -> bool {
-        if self._fuzzable_mut_tag.contains(&index) { true } else { false }
+        if self._fuzzable_mut_tag.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
     pub(crate) fn _insert_function_mut_tag(&mut self, index: usize) {
@@ -207,7 +221,11 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_function_need_mut_tag(&self, index: usize) -> bool {
-        if self._function_mut_tag.contains(&index) { true } else { false }
+        if self._function_mut_tag.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
     pub(crate) fn set_unsafe(&mut self) {
@@ -267,7 +285,7 @@ impl ApiSequence {
             dead_api_call.push(true);
         }
 
-        let mut used_params = HashMap::new(); // param_index, 最后一次使用这个param的api call index
+        let mut used_params = FxHashMap::default(); // param_index, 最后一次使用这个param的api call index
 
         let api_call_num = self.functions.len();
         for api_call_index in 0..api_call_num {
@@ -327,7 +345,11 @@ impl ApiSequence {
         return false;
     }
 
-    pub(crate) fn _to_replay_crash_file(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
+    pub(crate) fn _to_replay_crash_file(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = self._to_afl_except_main(_api_graph, test_index);
         res = res.replace("#[macro_use]\nextern crate afl;\n", "");
         res.push_str(replay_util::_read_crash_file_data());
@@ -342,7 +364,11 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _to_libfuzzer_test_file(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
+    pub(crate) fn _to_libfuzzer_test_file(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = self._to_afl_except_main(_api_graph, test_index);
         res = res.replace(
             "#[macro_use]\nextern crate afl;\n",
@@ -360,7 +386,11 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _to_afl_except_main(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
+    pub(crate) fn _to_afl_except_main(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = String::new();
         //加入可能需要开启的feature gate
         let feature_gates = afl_util::_get_feature_gates_of_sequence(&self.fuzzable_params);
@@ -391,7 +421,7 @@ impl ApiSequence {
     }
 
     pub(crate) fn _prelude_helper_functions(&self) -> Option<String> {
-        let mut prelude_helpers = HashSet::new();
+        let mut prelude_helpers = FxHashSet::default();
         for api_call in &self.functions {
             let params = &api_call.params;
             for (_, _, call_type) in params {
@@ -568,6 +598,7 @@ impl ApiSequence {
             res.push_str("unsafe {\n");
             let unsafe_function_body = self._generate_function_body_string(
                 _api_graph,
+                _api_graph.cache(),
                 indent_size + 4,
                 param_prefix,
                 local_param_prefix,
@@ -578,6 +609,7 @@ impl ApiSequence {
         } else {
             let function_body = self._generate_function_body_string(
                 _api_graph,
+                _api_graph.cache(),
                 indent_size,
                 param_prefix,
                 local_param_prefix,
@@ -597,7 +629,7 @@ impl ApiSequence {
         let indent = _generate_indent(indent_size);
         let mut res = String::new();
         //using trait需要去重
-        let mut has_used_traits = HashSet::new();
+        let mut has_used_traits = FxHashSet::default();
         for using_trait_ in &self._using_traits {
             if has_used_traits.contains(using_trait_) {
                 continue;
@@ -666,6 +698,7 @@ impl ApiSequence {
     pub(crate) fn _generate_function_body_string(
         &self,
         _api_graph: &ApiGraph<'_>,
+        cache: &Cache,
         outer_indent: usize,
         param_prefix: &str,
         local_param_prefix: &str,
@@ -704,7 +737,7 @@ impl ApiSequence {
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
                     let call_type = &call_type_array[0];
-                    let param_string = call_type._to_call_string(&param_name, full_name_map, _api_graph.cache);
+                    let param_string = call_type._to_call_string(&param_name, full_name_map, cache);
                     param_strings.push(param_string);
                 } else {
                     let mut former_param_name = param_name.clone();
@@ -720,7 +753,7 @@ impl ApiSequence {
                             "{}let mut {} = {};\n",
                             body_indent,
                             helper_name,
-                            call_type._to_call_string(&former_param_name, full_name_map, _api_graph.cache)
+                            call_type._to_call_string(&former_param_name, full_name_map, cache)
                         );
                         if helper_index > 1 {
                             if !api_util::_need_mut_tag(call_type) {
@@ -738,7 +771,7 @@ impl ApiSequence {
                     }
                     res.push_str(former_helper_line.as_str());
                     let param_string =
-                        last_call_type._to_call_string(&former_param_name, full_name_map, _api_graph.cache);
+                        last_call_type._to_call_string(&former_param_name, full_name_map, cache);
                     param_strings.push(param_string);
                 }
             }

@@ -1,5 +1,6 @@
 //This file cratecontains functions to print intermediate info
 
+use crate::formats::cache::Cache;
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
 
@@ -23,7 +24,7 @@ pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
     }
 }
 
-pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, check_visited: bool) {
+pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache:&Cache, check_visited: bool) {
     println!("functions");
     let api_functions_num = graph.api_functions.len();
     for i in 0..api_functions_num {
@@ -34,7 +35,7 @@ pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, check_visited: bool)
             }
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print(&graph.full_name_map);
+        let fn_line = api_function._pretty_print(&graph.full_name_map, cache);
 
         println!("{}:{}", i, fn_line);
     }
@@ -74,7 +75,7 @@ pub(crate) fn _print_generated_test_functions(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_well_written_function(graph, i, 0));
+        println!("{}", api_sequence._to_well_written_function(graph, i, 0,));
     }
 }
 
