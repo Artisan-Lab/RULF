@@ -1,16 +1,15 @@
+use crate::clean::{self, GenericArg, GenericBound, Lifetime, Path, TypeBinding};
+use crate::fuzz_target::prelude_type::is_preluded_type_name;
+use crate::formats::cache::Cache;
 use itertools::Itertools;
+use lazy_static::lazy_static;
+use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def_id::DefId;
-use std::collections::HashMap;
-
-use crate::clean::{self, GenericArg, GenericBound, GetDefId, Lifetime, Path, TypeBinding};
-use crate::html::render::cache::Cache;
 use rustc_hir::Mutability;
 
-use super::prelude_type::is_preluded_type_name;
-
 lazy_static! {
-    static ref PRELUDED_TYPE_NAME: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref PRELUDED_TYPE_NAME: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("core::option::Option", "Option");
         m.insert("core::result::Result", "Result");
         m.insert("alloc::string::String", "String");
@@ -67,12 +66,12 @@ impl TypeNameLevel {
 /// map def_id to full-qulified type_name
 #[derive(Debug, Clone)]
 pub struct TypeNameMap {
-    pub map: HashMap<DefId, (String, TypeNameKind)>,
+    pub map: FxHashMap<DefId, (String, TypeNameKind)>,
 }
 
 impl TypeNameMap {
     pub fn new() -> Self {
-        TypeNameMap { map: HashMap::new() }
+        TypeNameMap { map: FxHashMap::default() }
     }
 
     fn insert(&mut self, def_id: DefId, type_name: String, type_kind: TypeNameKind) {
@@ -328,11 +327,17 @@ fn generic_bound_full_name(
 // This is currently an ugly patch for serde_json
 // Some type name may contains private mod, so this type name cannot be used as return type notation.
 // we should special deal with such cases.
-pub fn only_public_type_name(type_: &clean::Type, type_name_map: &TypeNameMap, type_name_level: TypeNameLevel) -> String {
+pub fn only_public_type_name(
+    type_: &clean::Type,
+    type_name_map: &TypeNameMap,
+    type_name_level: TypeNameLevel,
+) -> String {
     let type_full_name = type_full_name(type_, type_name_map, type_name_level);
     match type_full_name.as_str() {
-        "serde_json::Result<std::net::ip::Ipv4Addr>" => "serde_json::Result<std::net::Ipv4Addr>".to_string(),
-        _ => type_full_name
+        "serde_json::Result<std::net::ip::Ipv4Addr>" => {
+            "serde_json::Result<std::net::Ipv4Addr>".to_string()
+        }
+        _ => type_full_name,
     }
 }
 
@@ -433,4 +438,3 @@ fn full_qualified_name(segments: &Vec<String>) -> String {
         .collect_vec();
     non_empty_segments.join("::")
 }
-

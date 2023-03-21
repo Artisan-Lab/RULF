@@ -1,19 +1,21 @@
-use super::api_function::{ApiFunction, ApiUnsafety};
-use super::api_util;
-use crate::clean::{self, types::GetDefId};
+use crate::clean::{self};
 use crate::clean::{Generics, WherePredicate};
-use crate::html::item_type::ItemType;
-use crate::html::render::cache::Cache;
+use crate::formats::cache::Cache;
+use crate::formats::item_type::ItemType;
+use crate::fuzz_target::api_function::{ApiFunction, ApiUnsafety};
+use crate::fuzz_target::api_util;
+use crate::html::format::join_with_double_colon;
 use itertools::Itertools;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
-use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 //TODO:是否需要为impl里面的method重新设计数据结构？目前沿用了ApiFunction,或者直接对ApiFunction进行扩展
 //两种函数目前相差一个defaultness
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::prelude_type;
-
-use super::type_util::{get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types};
+use crate::fuzz_target::type_util::{
+    get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CrateImplCollection {
@@ -79,12 +81,12 @@ impl FullNameMap {
 
 #[derive(Debug, Clone)]
 pub struct TraitsOfType {
-    pub map: HashMap<DefId, HashSet<clean::Type>>,
+    pub map: FxHashMap<DefId, FxHashSet<clean::Type>>,
 }
 
 impl TraitsOfType {
     pub fn new() -> Self {
-        TraitsOfType { map: HashMap::new() }
+        TraitsOfType { map: FxHashMap::default() }
     }
 
     pub fn add_trait_of_type(&mut self, did: DefId, trait_: &clean::Type) {
@@ -92,7 +94,7 @@ impl TraitsOfType {
             let old_traits = self.map.get_mut(&did).unwrap();
             old_traits.insert(trait_.to_owned());
         } else {
-            let mut traits = HashSet::new();
+            let mut traits = FxHashSet::default();
             traits.insert(trait_.to_owned());
             self.map.insert(did, traits);
         }
@@ -103,7 +105,7 @@ pub fn extract_impls_from_cache(
     cache: &Cache,
     full_name_map: &mut FullNameMap,
     traits_of_type: &mut TraitsOfType,
-    mut api_graph: &mut ApiGraph,
+    mut api_graph: &mut ApiGraph<'_>,
 ) {
     let mut crate_impl_collection = CrateImplCollection::new();
     let paths = &cache.paths;
@@ -180,7 +182,7 @@ pub(crate) fn _analyse_impl(
         })
         .flatten();
 
-    let impl_ty_def_id = &impl_.for_.def_id();
+    let impl_ty_def_id = &impl_.for_.def_id(api_graph.cache());
 
     let type_full_name = impl_ty_def_id
         .map(|ref def_id| {
@@ -190,7 +192,7 @@ pub(crate) fn _analyse_impl(
         .flatten();
 
     // collect associate typedefs
-    let mut associate_typedefs = HashMap::new();
+    let mut associate_typedefs = FxHashMap::default();
     inner_items.iter().for_each(|item| {
         if let clean::TypedefItem(typedef, ..) = &item.inner {
             if let Some(ref item_name) = item.name {
@@ -258,8 +260,8 @@ pub(crate) fn _analyse_impl(
                 });
 
                 // extend method generics
-                let mut generics_in_method = HashSet::new();
-                let mut free_qpaths_in_method = HashSet::new();
+                let mut generics_in_method = FxHashSet::default();
+                let mut free_qpaths_in_method = FxHashSet::default();
                 inputs.iter().for_each(|input_type| {
                     generics_in_method.extend(get_generics_of_clean_type(input_type));
                     free_qpaths_in_method.extend(get_qpaths_in_clean_type(input_type));
@@ -389,7 +391,7 @@ fn clean_type_contains_self_type(ty_: &clean::Type) -> bool {
 /// 将self类型替换为相应的结构体类型
 fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean::Type {
     let self_generic = clean::Type::Generic("Self".to_string());
-    let mut replace_type_map = HashMap::new();
+    let mut replace_type_map = FxHashMap::default();
     replace_type_map.insert(self_generic, impl_type.to_owned());
     replace_types(self_type, &replace_type_map)
 }
@@ -398,8 +400,8 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
 fn extend_generics(
     generics: &Generics,
     other_generics: &Generics,
-    generics_in_method: HashSet<String>,
-    free_qpaths_in_method: HashSet<clean::Type>,
+    generics_in_method: FxHashSet<String>,
+    free_qpaths_in_method: FxHashSet<clean::Type>,
 ) -> Generics {
     let mut generics = generics.to_owned();
     let Generics { params: other_params, where_predicates: other_where_predicates } =
@@ -468,15 +470,15 @@ fn remove_duplicate_in_vec<T>(input: &mut Vec<T>)
 where
     T: Hash + Eq,
 {
-    let hashset: HashSet<_> = input.drain(..).into_iter().collect();
-    input.extend(hashset);
+    let FxHashSet: FxHashSet<_> = input.drain(..).into_iter().collect();
+    input.extend(FxHashSet);
 }
 
 /// Assocaite type is defined with trait. So we should use self_trait as a parameter
 fn replace_self_associate_types(
     raw_type: &clean::Type,
     self_trait: &Option<clean::Type>,
-    associate_type_map: &HashMap<String, clean::Type>,
+    associate_type_map: &FxHashMap<String, clean::Type>,
 ) -> clean::Type {
     if *self_trait == None {
         return raw_type.to_owned();
@@ -579,9 +581,7 @@ pub fn where_preidicates_bounds_restrict_generic(generics: &Generics) -> bool {
                 // Generic and QPath are free generic
                 clean::Type::Generic(..) | clean::Type::QPath { .. } => false,
                 // restrict generic
-                _ => {
-                    true
-                }
+                _ => true,
             }
         } else {
             false

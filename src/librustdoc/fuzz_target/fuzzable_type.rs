@@ -5,7 +5,7 @@ use rustc_hir::Mutability;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::prelude_type::PreludeType;
 
-use super::type_name::TypeNameMap;
+use crate::fuzz_target::type_name::TypeNameMap;
 
 //如果构造一个fuzzable的变量
 #[derive(Debug, Clone, Eq, PartialEq)]

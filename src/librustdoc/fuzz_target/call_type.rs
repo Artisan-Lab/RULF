@@ -1,7 +1,6 @@
-use super::api_function::ApiUnsafety;
 use crate::clean;
-
-use super::type_name::{type_full_name, TypeNameMap};
+use crate::fuzz_target::api_function::ApiUnsafety;
+use crate::fuzz_target::type_name::{type_full_name, TypeNameMap};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum CallType {
@@ -47,8 +46,12 @@ impl CallType {
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *const ");
                 call_string.push_str(
-                    type_full_name(ty_, type_name_map, super::type_name::TypeNameLevel::All)
-                        .as_str(),
+                    type_full_name(
+                        ty_,
+                        type_name_map,
+                        crate::fuzz_target::type_name::TypeNameLevel::All,
+                    )
+                    .as_str(),
                 );
                 call_string
             }
@@ -59,8 +62,12 @@ impl CallType {
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *mut ");
                 call_string.push_str(
-                    type_full_name(ty_, type_name_map, super::type_name::TypeNameLevel::All)
-                        .as_str(),
+                    type_full_name(
+                        ty_,
+                        type_name_map,
+                        crate::fuzz_target::type_name::TypeNameLevel::All,
+                    )
+                    .as_str(),
                 );
                 call_string
             }

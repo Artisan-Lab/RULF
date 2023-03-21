@@ -52,8 +52,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
-        let m = HashMap::new();
+    static ref LIBFUZZER_FUZZ_TARGET_DIR: FxHashMap<&'static str, &'static str> = {
+        let m = FxHashMap::default();
         // m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
         // m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
         // m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");

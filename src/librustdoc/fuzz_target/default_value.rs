@@ -4,7 +4,7 @@ use crate::clean::{self, Lifetime, PrimitiveType};
 
 use rustc_hir::Mutability;
 
-use super::{
+use crate::fuzz_target::{
     call_type::CallType,
     type_name::{type_full_name, TypeNameLevel, TypeNameMap},
 };

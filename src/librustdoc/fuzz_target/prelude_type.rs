@@ -7,7 +7,7 @@ use crate::fuzz_target::impl_util::FullNameMap;
 use lazy_static::lazy_static;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
-use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
+use crate::fuzz_target::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 
 lazy_static! {
     static ref PRELUDED_TYPE: FxHashMap<&'static str, &'static str> = {
@@ -32,9 +32,9 @@ pub fn is_preluded_type_name(type_name: &String) -> bool {
     }
 }
 
-pub fn get_all_preluded_type() -> HashSet<String> {
+pub fn get_all_preluded_type() -> FxHashSet<String> {
     PRELUDED_TYPE.iter().map(|(prelude_type, _)| prelude_type.to_string()).collect()
-    // let mut res = HashSet::new();
+    // let mut res = FxHashSet::default();
     // for (prelude_type_, _) in PRELUDED_TYPE.iter() {
     //     res.insert(prelude_type_.to_string());
     // }

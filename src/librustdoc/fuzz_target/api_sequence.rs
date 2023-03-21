@@ -3,13 +3,14 @@ use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
+use crate::fuzz_target::default_value::DefaultValue;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
+use crate::fuzz_target::std_type::StdType;
+use crate::fuzz_target::type_name::TypeNameMap;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-
-use super::default_value::DefaultValue;
-use super::std_type::StdType;
+use itertools::Itertools;
 
 const PARAM_PREFIX: &'static str = "_param";
 const LOCAL_PARAM_PREFIX: &'static str = "_local";
@@ -70,10 +71,10 @@ pub(crate) struct ApiSequence {
     pub std_function_calls: Vec<StdFunctionCall>, //使用到的标准库中的函数调用
     pub _using_traits: Vec<String>,               //需要use引入的traits的路径
     pub _unsafe_tag: bool,                        //标志这个调用序列是否需要加上unsafe标记
-    pub _moved: HashSet<usize>,                   //表示哪些返回值已经被move掉，不再能被使用
-    pub _fuzzable_mut_tag: HashSet<usize>,        //表示哪些fuzzable的变量需要带上mut标记
-    pub _function_mut_tag: HashSet<usize>,        //表示哪些function的返回值需要带上mut标记
-    covered_edges: HashSet<usize>,                //表示用到了哪些dependency,即边覆盖率
+    pub _moved: FxHashSet<usize>,                 //表示哪些返回值已经被move掉，不再能被使用
+    pub _fuzzable_mut_tag: FxHashSet<usize>,      //表示哪些fuzzable的变量需要带上mut标记
+    pub _function_mut_tag: FxHashSet<usize>,      //表示哪些function的返回值需要带上mut标记
+    covered_edges: FxHashSet<usize>,              //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
@@ -219,8 +220,8 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn get_covered_nodes(&self, graph: &ApiGraph) -> HashSet<usize> {
-        let mut res = HashSet::new();
+    pub fn get_covered_nodes(&self, graph: &ApiGraph<'_>) -> FxHashSet<usize> {
+        let mut res = FxHashSet::default();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
             let is_helper = graph.api_functions[*func_index].is_helper;
@@ -231,7 +232,7 @@ impl ApiSequence {
         res
     }
 
-    pub fn get_covered_edges(&self, graph: &ApiGraph) -> HashSet<usize> {
+    pub fn get_covered_edges(&self, graph: &ApiGraph<'_>) -> FxHashSet<usize> {
         self.covered_edges
             .iter()
             .filter(|edge| !graph.api_dependencies[**edge].from_helper)
@@ -257,11 +258,7 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_fuzzable_need_mut_tag(&self, index: usize) -> bool {
-        if self._fuzzable_mut_tag.contains(&index) {
-            true
-        } else {
-            false
-        }
+        if self._fuzzable_mut_tag.contains(&index) { true } else { false }
     }
 
     pub(crate) fn _insert_function_mut_tag(&mut self, index: usize) {
@@ -269,11 +266,7 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_function_need_mut_tag(&self, index: usize) -> bool {
-        if self._function_mut_tag.contains(&index) {
-            true
-        } else {
-            false
-        }
+        if self._function_mut_tag.contains(&index) { true } else { false }
     }
 
     pub(crate) fn set_unsafe(&mut self) {
@@ -732,7 +725,6 @@ impl ApiSequence {
     pub(crate) fn _generate_function_body_string(
         &self,
         _api_graph: &ApiGraph<'_>,
-        cache: &Cache,
         outer_indent: usize,
     ) -> String {
         let extra_indent = 4;
@@ -810,7 +802,7 @@ impl ApiSequence {
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
                     let call_type = &call_type_array[0];
-                    let param_string = call_type._to_call_string(&param_name, full_name_map, cache);
+                    let param_string = call_type._to_call_string(&param_name, type_name_map);
                     param_strings.push(param_string);
                 } else {
                     let mut former_param_name = param_name.clone();
@@ -826,7 +818,7 @@ impl ApiSequence {
                             "{}let mut {} = {};\n",
                             body_indent,
                             helper_name,
-                            call_type._to_call_string(&former_param_name, full_name_map, cache)
+                            call_type._to_call_string(&former_param_name, type_name_map)
                         );
                         if helper_index > 1 {
                             if !api_util::_need_mut_tag(call_type) {
@@ -844,7 +836,7 @@ impl ApiSequence {
                     }
                     res.push_str(former_helper_line.as_str());
                     let param_string =
-                        last_call_type._to_call_string(&former_param_name, full_name_map, cache);
+                        last_call_type._to_call_string(&former_param_name, type_name_map);
                     param_strings.push(param_string);
                 }
             }

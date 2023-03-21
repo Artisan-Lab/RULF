@@ -4,6 +4,7 @@ use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
+use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 use rustc_hir::{self, Mutability};
 
 pub(crate) fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
@@ -13,7 +14,7 @@ pub(crate) fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type
         input_types.push(arg_ty);
     }
     input_types */
-    inputs.values.iter().map(|arg|{arg.type_.clone()}).collect()
+    inputs.values.iter().map(|arg| arg.type_.clone()).collect()
 }
 
 pub(crate) fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
@@ -88,7 +89,7 @@ pub fn is_opaque_type(ty_: &clean::Type) -> bool {
     if let clean::Type::ImplTrait(_) = ty_ { true } else { false }
 }
 
-pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap, cache:&Cache) -> bool {
+pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap, cache: &Cache) -> bool {
     match ty {
         clean::Type::Path { .. } => {
             //TODO:need more analyse
@@ -101,15 +102,13 @@ pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap, cache:&Cache)
             }
             return false;
         }
-        clean::Type::Generic(_s) => {
-            false
-        }
+        clean::Type::Generic(_s) => false,
         clean::Type::Primitive(_) => true,
         clean::Type::BareFunction(_) => false,
         clean::Type::Tuple(inner) => {
             let mut flag = true;
             for inner_type in inner {
-                if !_is_end_type(inner_type, full_name_map, cache) {
+                if !_is_end_type(inner_type, type_name_map, cache) {
                     flag = false;
                     break;
                 }
@@ -120,11 +119,11 @@ pub fn _is_end_type(ty: &clean::Type, type_name_map: &TypeNameMap, cache:&Cache)
         | clean::Type::Array(inner, ..)
         | clean::Type::RawPointer(_, inner) => {
             let inner_type = &**inner;
-            return _is_end_type(inner_type, full_name_map, cache);
+            return _is_end_type(inner_type, type_name_map, cache);
         }
         clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
-            return _is_end_type(inner_type, full_name_map, cache);
+            return _is_end_type(inner_type, type_name_map, cache);
         }
         clean::Type::QPath { .. } => {
             //TODO: qpath
@@ -187,10 +186,10 @@ pub fn same_type(
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
             //TODO:should take lifetime into account?
-            return _borrowed_ref_in_same_type(mutability, type_, output_type, full_name_map, cache);
+            return _borrowed_ref_in_same_type(mutability, type_, output_type, type_name_map);
         }
         clean::Type::RawPointer(mutability, type_) => {
-            return _raw_pointer_in_same_type(mutability, type_, output_type, full_name_map, cache);
+            return _raw_pointer_in_same_type(mutability, type_, output_type, type_name_map);
         }
         _ => {}
     }
@@ -258,6 +257,7 @@ fn _same_type_resolved_path(
     output_type: &clean::Type,
     input_type: &clean::Type,
     type_name_map: &TypeNameMap,
+    cache: &Cache,
 ) -> CallType {
     //处理output type 是 prelude type的情况
     if prelude_type::is_prelude_type(output_type, type_name_map) {
@@ -286,7 +286,7 @@ fn _same_type_resolved_path(
                 return CallType::_DirectCall;
             } else if _resolved_path_equal_without_lifetime(output_type, input_type) {
                 return CallType::_DirectCall;
-            } else if _same_def_id_and_type_name(output_type, input_type, type_name_map) {
+            } else if _same_def_id_and_type_name(output_type, input_type, type_name_map, cache) {
                 return CallType::_DirectCall;
             } else {
                 return CallType::_NotCompatible;
@@ -300,12 +300,13 @@ fn _same_def_id_and_type_name(
     output_type: &clean::Type,
     input_type: &clean::Type,
     type_name_map: &TypeNameMap,
+    cache: &Cache,
 ) -> bool {
     let input_type_name = type_full_name(input_type, type_name_map, TypeNameLevel::All);
     let output_type_name = type_full_name(output_type, type_name_map, TypeNameLevel::All);
     input_type_name.as_str() != "Unknown type"
         && output_type_name.as_str() != "Unknown type"
-        && output_type.def_id() == input_type.def_id()
+        && output_type.def_id(cache) == input_type.def_id(cache)
         && output_type_name == input_type_name
 }
 
@@ -414,7 +415,7 @@ fn _same_type_raw_pointer(
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
-        }, 
+        }
         _ => {
             return CallType::_UnsafeDeref(Box::new(inner_compatible));
         }
@@ -534,7 +535,7 @@ pub(crate) fn _copy_type(type_: &clean::Type) -> bool {
                 return false;
             }
         },
-        clean::Type::BareFunction(_)  | clean::Type::Infer => return false,
+        clean::Type::BareFunction(_) | clean::Type::Infer => return false,
         clean::Type::Tuple(types) => {
             //如果全都是可以copy的，那么整个元组也是可以copy的
             for ty_ in types {
@@ -575,7 +576,7 @@ pub(crate) fn _copy_type(type_: &clean::Type) -> bool {
             //TODO:不确定，遇到再看
             return false;
         }
-        _=>{
+        _ => {
             unimplemented!();
         }
     }
@@ -665,12 +666,13 @@ pub(crate) fn _need_mut_tag(call_type: &CallType) -> bool {
     }
 }
 
-pub(crate) fn _resolved_path_equal_without_lifetime(ltype: &clean::Type, rtype: &clean::Type) -> bool {
-    if let clean::Type::Path { path: lpath, ..} = ltype
-    {
-        if let clean::Type::Path { path: rpath, .. } = rtype
-        {
-            if lpath.generics().is_some() || rpath.generics().is_some(){
+pub(crate) fn _resolved_path_equal_without_lifetime(
+    ltype: &clean::Type,
+    rtype: &clean::Type,
+) -> bool {
+    if let clean::Type::Path { path: lpath, .. } = ltype {
+        if let clean::Type::Path { path: rpath, .. } = rtype {
+            if lpath.generics().is_some() || rpath.generics().is_some() {
                 return false;
             }
             if lpath.def_id() != rpath.def_id() {
@@ -681,7 +683,9 @@ pub(crate) fn _resolved_path_equal_without_lifetime(ltype: &clean::Type, rtype: 
             let lsegment_len = lsegments.len();
             let rsegment_len = rsegments.len();
 
-            if /* *lglobal != *rglobal || */ *lres != *rres || lsegment_len != rsegment_len {
+            if
+            /* *lglobal != *rglobal || */
+            *lres != *rres || lsegment_len != rsegment_len {
                 return false;
             }
             let l_segments_without_lifetime = new_segments_without_lifetime(lsegments);
@@ -712,12 +716,16 @@ fn new_segments_without_lifetime(
                     clean::GenericArg::Lifetime(..) => {}
                     clean::GenericArg::Const(..) | clean::GenericArg::Type(..) => {
                         new_args.push(arg.clone());
-                    },
-                    _ => {unimplemented!();}
+                    }
+                    _ => {
+                        unimplemented!();
+                    }
                 }
             }
-            let new_generic_args =
-                clean::GenericArgs::AngleBracketed { args: new_args.into(), bindings: bindings.clone() };
+            let new_generic_args = clean::GenericArgs::AngleBracketed {
+                args: new_args.into(),
+                bindings: bindings.clone(),
+            };
             let new_path_segment =
                 clean::PathSegment { name: segment_name.clone(), args: new_generic_args };
             new_segments_without_lifetime.push(new_path_segment);

@@ -1,15 +1,14 @@
 use crate::clean::{self, Path};
-use crate::html::render::cache::Cache;
+use crate::formats::cache::Cache;
+use crate::fuzz_target::api_util::is_generic_type;
 use itertools::Itertools;
-use rustc_hir::def::{DefKind, Res};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
-use std::collections::{HashMap, HashSet};
 
-use super::api_util::is_generic_type;
-
-pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type> {
-    let mut res = HashSet::new();
+pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> FxHashSet<clean::Type> {
+    let mut res = FxHashSet::default();
     match clean_type.to_owned() {
         clean::Type::QPath { .. } => {
             res.insert(clean_type.to_owned());
@@ -53,8 +52,8 @@ pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> HashSet<clean::Type
     }
 }
 
-pub fn get_generics_of_clean_type(clean_type: &clean::Type) -> HashSet<String> {
-    let mut res = HashSet::new();
+pub fn get_generics_of_clean_type(clean_type: &clean::Type) -> FxHashSet<String> {
+    let mut res = FxHashSet::default();
     match clean_type {
         clean::Type::Generic(generic_name) => {
             res.insert(generic_name.to_owned());
@@ -111,8 +110,8 @@ pub fn generics_has_no_content(generics: &clean::Generics) -> bool {
     generics.params.len() == 0 && generics.where_predicates.len() == 0
 }
 
-pub fn collect_traits_in_current_crate(cache: &Cache) -> HashMap<DefId, String> {
-    let mut res = HashMap::new();
+pub fn collect_traits_in_current_crate(cache: &Cache) -> FxHashMap<DefId, String> {
+    let mut res = FxHashMap::default();
     cache.traits.iter().for_each(|(def_id, _)| {
         // trait in current crate
         if let Some(path) = cache.exact_paths.get(&def_id) {
@@ -130,7 +129,7 @@ pub fn collect_traits_in_current_crate(cache: &Cache) -> HashMap<DefId, String> 
 /// replace types in raw_type with replace_type_map
 pub fn replace_types(
     raw_type: &clean::Type,
-    replace_type_map: &HashMap<clean::Type, clean::Type>,
+    replace_type_map: &FxHashMap<clean::Type, clean::Type>,
 ) -> clean::Type {
     if replace_type_map.contains_key(raw_type) {
         return replace_type_map.get(raw_type).unwrap().to_owned();
@@ -234,7 +233,7 @@ pub fn extract_only_one_type_parameter(trait_bound: &clean::Type) -> Option<clea
 }
 
 // extract all occurred types in a type
-pub fn extract_types(ty_: &clean::Type) -> HashSet<clean::Type> {
+pub fn extract_types(ty_: &clean::Type) -> FxHashSet<clean::Type> {
     match ty_ {
         clean::Type::Primitive(..)
         | clean::Type::BareFunction(..)
@@ -242,7 +241,7 @@ pub fn extract_types(ty_: &clean::Type) -> HashSet<clean::Type> {
         | clean::Type::ImplTrait(..)
         | clean::Type::QPath { .. }
         | clean::Type::Infer
-        | clean::Type::Never => HashSet::new(),
+        | clean::Type::Never => FxHashSet::default(),
         clean::Type::ResolvedPath { path, .. } => {
             let mut path_types = extract_types_in_path(path);
             path_types.insert(ty_.to_owned());
@@ -253,7 +252,7 @@ pub fn extract_types(ty_: &clean::Type) -> HashSet<clean::Type> {
         clean::Type::RawPointer(_, type_) => extract_types(&**type_),
         clean::Type::Slice(type_) => extract_types(&**type_),
         clean::Type::Tuple(types) => {
-            types.iter().map(|type_| extract_types(type_)).fold(HashSet::new(), |mut l, r| {
+            types.iter().map(|type_| extract_types(type_)).fold(FxHashSet::default(), |mut l, r| {
                 l.extend(r);
                 l
             })
@@ -261,8 +260,8 @@ pub fn extract_types(ty_: &clean::Type) -> HashSet<clean::Type> {
     }
 }
 
-fn extract_types_in_path(path: &Path) -> HashSet<clean::Type> {
-    let mut res = HashSet::new();
+fn extract_types_in_path(path: &Path) -> FxHashSet<clean::Type> {
+    let mut res = FxHashSet::default();
     for segments in path.segments.iter() {
         if let clean::GenericArgs::AngleBracketed { ref args, .. } = segments.args {
             args.iter().for_each(|generic_arg| {

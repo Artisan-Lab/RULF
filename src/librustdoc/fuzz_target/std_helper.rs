@@ -1,8 +1,8 @@
 use crate::clean;
 
-use super::api_function::{ApiFunction, ApiUnsafety};
-use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
-use super::type_util::{str_type, usize_type};
+use crate::fuzz_target::api_function::{ApiFunction, ApiUnsafety};
+use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
+use crate::fuzz_target::type_util::{str_type, usize_type};
 use rustc_hir::Mutability;
 pub enum StdHelper {
     StdPathPath(clean::Type),

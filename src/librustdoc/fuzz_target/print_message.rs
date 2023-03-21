@@ -1,14 +1,15 @@
 //This file cratecontains functions to print intermediate info
 
-use super::api_graph::ApiGraph;
-use super::api_graph::ApiType;
-use super::type_name::type_full_name;
-use super::type_name::TypeNameLevel;
+use crate::fuzz_target::api_graph::ApiGraph;
+use crate::fuzz_target::api_graph::ApiType;
+use crate::fuzz_target::type_name::type_full_name;
+use crate::fuzz_target::type_name::TypeNameLevel;
+use crate::formats::cache::Cache;
 
 /// traits of primitive types
 
 //print generated sequences
-pub fn _print_pretty_sequences(graph: &ApiGraph) {
+pub fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
     debug!("sequences:");
     for api_sequence in &graph.api_sequences {
         let mut one_sequence = String::new();
@@ -113,7 +114,7 @@ pub(crate) fn _print_generic_functions(graph: &ApiGraph<'_>) {
     });
 }
 
-pub fn _print_type_in_current_crate(graph: &ApiGraph) {
+pub fn _print_type_in_current_crate(graph: &ApiGraph<'_>) {
     debug!("Type in current crate:");
     graph.defined_types.type_full_names.iter().for_each(|(did, full_name)| {
         debug!("full name: {}", full_name);
@@ -126,14 +127,14 @@ pub fn _print_type_in_current_crate(graph: &ApiGraph) {
     });
 }
 
-pub fn _print_traits_in_current_crate(graph: &ApiGraph) {
+pub fn _print_traits_in_current_crate(graph: &ApiGraph<'_>) {
     debug!("traits_in_current_crate:");
     graph.defined_types.traits.iter().for_each(|(_, trait_name)| {
         debug!("{}", trait_name);
     });
 }
 
-pub fn _print_type_full_names(graph: &ApiGraph) {
+pub fn _print_type_full_names(graph: &ApiGraph<'_>) {
     debug!("type_full_names");
     graph.api_functions.iter().for_each(|api_func| {
         debug!("Function name: {}", api_func.full_name);

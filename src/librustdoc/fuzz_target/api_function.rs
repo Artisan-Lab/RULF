@@ -1,17 +1,14 @@
-use rustc_data_structures::fx::{FxHashSet};
-
+use crate::clean;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableType};
 use crate::fuzz_target::impl_util::FullNameMap;
-use super::{api_util, type_name::{_type_name_with_def_id, only_public_type_name}};
+use crate::fuzz_target::type_name::{_type_name_with_def_id, only_public_type_name};
+use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 use itertools::Itertools;
+use rustc_data_structures::fx::FxHashSet;
 use rustc_hir::{self, Mutability};
-
-use crate::clean;
-
-use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum ApiUnsafety {
@@ -50,13 +47,13 @@ impl ApiUnsafety {
 }
 
 impl ApiFunction {
-    pub(crate) fn _is_end_function(&self, full_name_map: &FullNameMap, cache: &Cache) -> bool {
+    pub(crate) fn _is_end_function(&self, type_name_map: &TypeNameMap, cache: &Cache) -> bool {
         if self.contains_mut_borrow() {
             return false;
         }
         let return_type = &self.output;
         match return_type {
-            Some(ty) => api_util::_is_end_type(ty, type_name_map),
+            Some(ty) => api_util::_is_end_type(ty, type_name_map, cache),
             None => true,
         }
         //TODO:考虑可变引用或者是可变裸指针做参数的情况
@@ -82,16 +79,15 @@ impl ApiFunction {
     }
 
     pub(crate) fn is_defined_on_prelude_type(&self, prelude_types: &FxHashSet<String>) -> bool {
-        let function_name_contains_prelude_type =
+        let function_name_contains_prelude_type = prefixes.iter().any(|prelude_type| {
+            let prelude_type_prefix = format!("{}::", prelude_type);
+            self.full_name.starts_with(prelude_type_prefix.as_str())
+        });
+        let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
             prefixes.iter().any(|prelude_type| {
                 let prelude_type_prefix = format!("{}::", prelude_type);
-                self.full_name.starts_with(prelude_type_prefix.as_str())
-            });
-        let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
-            prefixes.iter().any(|prelude_type|{
-                let prelude_type_prefix = format!("{}::", prelude_type);
                 trait_name.starts_with(prelude_type_prefix.as_str())
-            } )
+            })
         } else {
             false
         };
@@ -102,7 +98,7 @@ impl ApiFunction {
         let input_types = &self.inputs;
         let mut flag = true;
         for ty in input_types {
-            if !api_util::_is_end_type(&ty, type_name_map) {
+            if !api_util::_is_end_type(&ty, type_name_map, cache) {
                 flag = false;
                 break;
             }
@@ -154,7 +150,11 @@ impl ApiFunction {
 
     pub fn return_type_name(&self, type_name_map: &TypeNameMap) -> Option<String> {
         self.output.as_ref().and_then(|ty| {
-            Some(only_public_type_name(ty, type_name_map, super::type_name::TypeNameLevel::All))
+            Some(only_public_type_name(
+                ty,
+                type_name_map,
+                crate::fuzz_target::type_name::TypeNameLevel::All,
+            ))
         })
     }
 }

@@ -1,8 +1,8 @@
 use crate::clean::{self, PrimitiveType};
 
-use super::call_type::CallType;
-use super::fuzzable_type::FuzzableType;
-use super::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
+use crate::fuzz_target::call_type::CallType;
+use crate::fuzz_target::fuzzable_type::FuzzableType;
+use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
 
 /// support special std type. Std types are dealt with case by case now.
 #[derive(Debug, Clone, PartialEq, Eq)]

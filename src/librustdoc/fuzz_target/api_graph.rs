@@ -1,32 +1,32 @@
+use crate::clean;
+use crate::clean::Visibility;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
+use crate::fuzz_target::api_sequence::StdFunctionCall;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
+use crate::fuzz_target::default_value::DefaultValue;
 use crate::fuzz_target::fuzz_target_renderer::FuzzTargetContext;
 use crate::fuzz_target::fuzzable_type;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
+use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::impl_util::FullNameMap;
+use crate::fuzz_target::impl_util::TraitsOfType;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
+use crate::fuzz_target::std_helper::StdHelper;
+use crate::fuzz_target::std_type::StdCallType;
+use crate::fuzz_target::type_name::TypeNameMap;
+use crate::fuzz_target::type_util::extract_types;
 use crate::TyCtxt;
+use itertools::Itertools;
 use lazy_static::lazy_static;
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use std::rc::Rc;
-use std::fmt;
-//use crate::clean::{PrimitiveType};
 use rand::{self, Rng};
-
-use crate::clean::Visibility;
-
-use super::api_sequence::StdFunctionCall;
-use super::default_value::DefaultValue;
-use super::generic_function::GenericFunction;
-use super::impl_util::TraitsOfType;
-use super::std_helper::StdHelper;
-use super::std_type::StdCallType;
-use super::type_name::TypeNameMap;
-use super::type_util::extract_types;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_hir::def_id::DefId;
+use std::fmt;
+use std::rc::Rc;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: FxHashMap<&'static str, usize> = {
@@ -55,7 +55,7 @@ pub(crate) struct ApiGraph<'tcx> {
     pub(crate) api_functions_visited: Vec<bool>,
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
-    pub(crate) full_name_map: FullNameMap,  //did to full_name
+    pub(crate) full_name_map: FullNameMap, //did to full_name
     pub(crate) type_name_map: TypeNameMap,
     pub(crate) defined_types: DefinedTypes,
     pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
@@ -102,20 +102,20 @@ pub struct ApiDependency {
 
 #[derive(Debug, Clone)]
 pub struct DefinedTypes {
-    pub types: HashMap<DefId, clean::Type>,
-    pub traits: HashMap<DefId, String>,
+    pub types: FxHashMap<DefId, clean::Type>,
+    pub traits: FxHashMap<DefId, String>,
     /// used to add type notation
-    pub type_full_names: HashMap<DefId, String>,
-    pub traits_of_type: HashMap<DefId, HashSet<clean::Type>>,
+    pub type_full_names: FxHashMap<DefId, String>,
+    pub traits_of_type: FxHashMap<DefId, FxHashSet<clean::Type>>,
 }
 
 impl DefinedTypes {
     pub fn new() -> Self {
         DefinedTypes {
-            types: HashMap::new(),
-            traits: HashMap::new(),
-            type_full_names: HashMap::new(),
-            traits_of_type: HashMap::new(),
+            types: FxHashMap::default(),
+            traits: FxHashMap::default(),
+            type_full_names: FxHashMap::default(),
+            traits_of_type: FxHashMap::default(),
         }
     }
 
@@ -128,7 +128,7 @@ impl DefinedTypes {
         self.traits_of_type = traits_of_type.map;
     }
 
-    pub fn set_traits_in_current_crate(&mut self, traits: HashMap<DefId, String>) {
+    pub fn set_traits_in_current_crate(&mut self, traits: FxHashMap<DefId, String>) {
         self.traits = traits;
     }
 }
@@ -138,7 +138,6 @@ impl<'tcx> ApiGraph<'tcx> {
         //let _sequences_of_all_algorithm = FxHashMap::default();
 
         ApiGraph {
-
             api_functions: Vec::new(),
             api_functions_visited: Vec::new(),
             api_dependencies: Vec::new(),
@@ -146,9 +145,9 @@ impl<'tcx> ApiGraph<'tcx> {
             full_name_map: FullNameMap::new(),
             type_name_map: TypeNameMap::new(), // only take place
             defined_types: DefinedTypes::new(),
-            mod_visibility: ModVisibity::new(_crate_name),
+            mod_visibility: ModVisibity::new(&_crate_name),
             generic_functions: Vec::new(),
-            functions_with_unsupported_fuzzable_types: HashSet::new(),
+            functions_with_unsupported_fuzzable_types: FxHashSet::default(),
             failed_generic_functions: Vec::new(),
             _crate_name,
             cx,
@@ -156,7 +155,6 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    
     pub(crate) fn cache(&self) -> &Cache {
         &self.cx.cache
     }
@@ -164,7 +162,6 @@ impl<'tcx> ApiGraph<'tcx> {
     pub(crate) fn tcx(&self) -> TyCtxt<'tcx> {
         self.cx.tcx
     }
-
 
     pub fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun._unsafe_tag._is_unsafe() {
@@ -181,7 +178,12 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    pub(crate) fn add_defined_type(&mut self, def_id: DefId, type_: clean::Type, type_full_name: String) {
+    pub(crate) fn add_defined_type(
+        &mut self,
+        def_id: DefId,
+        type_: clean::Type,
+        type_full_name: String,
+    ) {
         self.defined_types.add_new_type(def_id, type_, type_full_name);
     }
 
@@ -241,21 +243,23 @@ impl<'tcx> ApiGraph<'tcx> {
         self.type_name_map = type_name_map;
     }
 
-    pub fn set_traits_in_current_crate(&mut self, traits_in_current_crate: HashMap<DefId, String>) {
+    pub fn set_traits_in_current_crate(
+        &mut self,
+        traits_in_current_crate: FxHashMap<DefId, String>,
+    ) {
         self.defined_types.set_traits_in_current_crate(traits_in_current_crate);
     }
 
     pub fn eagerly_monomorphize_generic_functions(&mut self) {
-
         trace!("There are {} functions to monomorphize", self.generic_functions.len());
         self.generic_functions.iter().for_each(|gf| {
             trace!("{}", gf.api_function.full_name);
         });
 
         let mut known_bounds = Vec::new();
-        let mut bound_type_map = HashMap::new();
-        let mut failed_bounds = HashSet::new();
-        let mut global_replace_map = HashMap::new();
+        let mut bound_type_map = FxHashMap::default();
+        let mut failed_bounds = FxHashSet::default();
+        let mut global_replace_map = FxHashMap::default();
         let mut primitive_types = 0usize;
         let mut convert_traits = 0usize;
         let mut defined_types = 0usize;
@@ -335,13 +339,12 @@ impl<'tcx> ApiGraph<'tcx> {
         trace!("after add: {}", self.api_functions.len());
         info!("failed bounds: ");
         failed_bounds.iter().for_each(|index| {
-
             info!("{}", known_bounds[*index]._format_string_(&self.type_name_map));
         });
     }
 
     pub fn add_std_helpers(&mut self) {
-        let mut all_types = HashSet::new();
+        let mut all_types = FxHashSet::default();
         self.api_functions.iter().for_each(|api_func| {
             api_func.inputs.iter().for_each(|input_ty| {
                 all_types.extend(extract_types(input_ty));
@@ -366,7 +369,7 @@ impl<'tcx> ApiGraph<'tcx> {
         for i in 0..api_num {
             let first_fun = &self.api_functions[i];
             let from_helper = first_fun.is_helper;
-            if first_fun._is_end_function(&self.type_name_map) {
+            if first_fun._is_end_function(&self.type_name_map, self.cache()) {
                 //如果第一个函数是终止节点，就不寻找这样的依赖
                 continue;
             }
@@ -375,7 +378,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 for j in 0..api_num {
                     //TODO:是否要把i=j的情况去掉？
                     let second_fun = &self.api_functions[j];
-                    if second_fun._is_start_function(&self.full_name_map, self.cache()) {
+                    if second_fun._is_start_function(&self.type_name_map, self.cache()) {
                         //如果第二个节点是开始节点，那么直接跳过
                         continue;
                     }
@@ -743,7 +746,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 let input_param_num = inputs.len();
                 for i in 0..input_param_num {
                     let input_type = &inputs[i];
-                    if api_util::is_fuzzable_type(input_type, &self.full_name_map, self.cache()) {
+                    if api_util::is_fuzzable_type(input_type, &self.type_name_map) {
                         continue;
                     }
                     let mut can_find_dependency_flag = false;
@@ -991,8 +994,8 @@ impl<'tcx> ApiGraph<'tcx> {
         stop_at_visit_all_nodes: bool,
     ) -> Vec<ApiSequence> {
         let mut res = Vec::new();
-        let mut to_cover_nodes = HashSet::new();
-        let mut to_cover_edges = HashSet::new();
+        let mut to_cover_nodes = FxHashSet::default();
+        let mut to_cover_edges = FxHashSet::default();
 
         let valid_seqs = self
             .api_sequences
@@ -1118,8 +1121,8 @@ impl<'tcx> ApiGraph<'tcx> {
             self.api_dependencies.iter().filter(|api_dep| api_dep.from_helper).count();
         let not_helper_edges = self.api_dependencies.len() - helper_edges;
         info!("total edges: {} ({} helpers).", not_helper_edges, helper_edges);
-        let mut covered_nodes = HashSet::new();
-        let mut covered_edges = HashSet::new();
+        let mut covered_nodes = FxHashSet::default();
+        let mut covered_edges = FxHashSet::default();
         chosen_seqs.iter().for_each(|seq| {
             covered_nodes.extend(seq.get_covered_nodes(&self));
             covered_edges.extend(seq.get_covered_edges(&self));
@@ -1165,7 +1168,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 let mut new_sequence = sequence.clone();
                 let mut api_call = ApiCall::_new(input_fun_index);
                 let mut _moved_indexes = FxHashSet::default(); //用来保存发生move的那些语句的index
-                                                         //用来保存会被多次可变引用的情况
+                //用来保存会被多次可变引用的情况
                 let mut _multi_mut = FxHashSet::default();
                 let mut _immutable_borrow = FxHashSet::default();
 
@@ -1388,7 +1391,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 match api_type {
                     ApiType::BareFunction => {
                         let last_func = &self.api_functions[*index];
-                        if last_func._is_end_function(&self.type_name_map) {
+                        if last_func._is_end_function(&self.type_name_map, self.cache()) {
                             return true;
                         } else {
                             return false;

@@ -1,24 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-
-use itertools::Itertools;
-
-use rustc_hir::def_id::DefId;
-
 use crate::clean::{self, GenericBound};
-
-use super::api_function::ApiFunction;
-use super::generic_type::{generic_bounds_contains_trait_with_generic, SimplifiedGenericBound};
-use super::impl_util::where_preidicates_bounds_restrict_generic;
-use super::type_name::TypeNameMap;
-use super::type_util::{get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types};
-
+use crate::fuzz_target::api_function::ApiFunction;
+use crate::fuzz_target::generic_type::{
+    generic_bounds_contains_trait_with_generic, SimplifiedGenericBound,
+};
+use crate::fuzz_target::impl_util::where_preidicates_bounds_restrict_generic;
+use crate::fuzz_target::type_name::TypeNameMap;
+use crate::fuzz_target::type_util::{
+    get_generics_of_clean_type, get_qpaths_in_clean_type, replace_types,
+};
+use itertools::Itertools;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_hir::def_id::DefId;
+use std::convert::TryFrom;
 #[derive(Debug, Clone)]
 pub struct GenericFunction {
     pub api_function: ApiFunction,
-    pub generics: HashSet<String>,
-    pub type_bounds: HashMap<clean::Type, SimplifiedGenericBound>,
-    pub remaining_qpaths: HashSet<clean::Type>,
+    pub generics: FxHashSet<String>,
+    pub type_bounds: FxHashMap<clean::Type, SimplifiedGenericBound>,
+    pub remaining_qpaths: FxHashSet<clean::Type>,
 }
 
 pub enum GenericFunctionError {
@@ -37,9 +36,9 @@ impl TryFrom<ApiFunction> for GenericFunction {
     fn try_from(api_function: ApiFunction) -> Result<Self, Self::Error> {
         let mut generic_function = GenericFunction {
             api_function,
-            generics: HashSet::new(),
-            type_bounds: HashMap::new(),
-            remaining_qpaths: HashSet::new(),
+            generics: FxHashSet::default(),
+            type_bounds: FxHashMap::default(),
+            remaining_qpaths: FxHashSet::default(),
         };
         generic_function.collect_generics();
         if where_preidicates_bounds_restrict_generic(&generic_function.api_function.generics) {
@@ -65,7 +64,7 @@ impl TryFrom<ApiFunction> for GenericFunction {
 
 impl GenericFunction {
     fn collect_generics(&mut self) {
-        let mut generics = HashSet::new();
+        let mut generics = FxHashSet::default();
         self.api_function.inputs.iter().for_each(|type_| {
             generics.extend(get_generics_of_clean_type(type_));
         });
@@ -77,7 +76,7 @@ impl GenericFunction {
 
     /// collect qpath that relies on some generic
     fn collect_remaining_qpath(&mut self) {
-        let mut remaining_qpath = HashSet::new();
+        let mut remaining_qpath = FxHashSet::default();
         self.api_function.inputs.iter().for_each(|type_| {
             remaining_qpath.extend(get_qpaths_in_clean_type(type_));
         });
@@ -96,10 +95,7 @@ impl GenericFunction {
                 .iter()
                 .any(|generic_param_def| generic_param_def.name == *generic);
             if !contains_generic_def {
-                error!(
-                    "{} in {} does not have definition.",
-                    self.api_function.full_name, generic
-                );
+                error!("{} in {} does not have definition.", self.api_function.full_name, generic);
             }
         });
 
@@ -164,14 +160,14 @@ impl GenericFunction {
             }
         });
         where_predicates.iter().for_each(|where_predicate| {
-            if let clean::WherePredicate::BoundPredicate { ty, bounds } = where_predicate {
+            if let clean::WherePredicate::BoundPredicate { ty, bounds, .. } = where_predicate {
                 self.push_one_type_bounds(bounds, ty.to_owned());
             }
         })
     }
 
-    fn collect_opaque_types(&self) -> HashMap<clean::Type, SimplifiedGenericBound> {
-        let mut opaque_types = HashMap::new();
+    fn collect_opaque_types(&self) -> FxHashMap<clean::Type, SimplifiedGenericBound> {
+        let mut opaque_types = FxHashMap::default();
         self.api_function.inputs.iter().for_each(|input_ty| {
             if let clean::Type::ImplTrait(bounds) = input_ty {
                 if !generic_bounds_contains_trait_with_generic(bounds) {
@@ -202,18 +198,18 @@ impl GenericFunction {
 
     pub fn try_monomorphize(
         &self,
-        types: &HashMap<DefId, clean::Type>,
+        types: &FxHashMap<DefId, clean::Type>,
         type_name_map: &TypeNameMap,
-        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+        traits_of_type: &FxHashMap<DefId, FxHashSet<clean::Type>>,
         known_bounds: &mut Vec<SimplifiedGenericBound>,
-        bound_type_map: &mut HashMap<usize, clean::Type>,
-        failed_bounds: &mut HashSet<usize>,
+        bound_type_map: &mut FxHashMap<usize, clean::Type>,
+        failed_bounds: &mut FxHashSet<usize>,
         primitive_types: &mut usize,
         convert_traits: &mut usize,
         defined_types: &mut usize,
-        global_replace_map: &mut HashMap<clean::Type, clean::Type>,
+        global_replace_map: &mut FxHashMap<clean::Type, clean::Type>,
     ) -> Result<ApiFunction, ()> {
-        let mut replace_map = HashMap::new();
+        let mut replace_map = FxHashMap::default();
         self.type_bounds.iter().for_each(|(type_, bound)| {
             if bound.is_empty() {
                 // if this is an empty bounds
@@ -262,7 +258,7 @@ impl GenericFunction {
 
     pub fn can_be_fully_monomorphized(
         &self,
-        replace_map: &HashMap<clean::Type, clean::Type>,
+        replace_map: &FxHashMap<clean::Type, clean::Type>,
     ) -> bool {
         let generic_fully_monomorphized = self.generics.iter().all(|generic| {
             replace_map.iter().any(|(type_, ..)| {
@@ -286,9 +282,9 @@ impl GenericFunction {
             .api_function
             .output
             .as_ref()
-            .map_or(HashSet::new(), |output_ty| get_generics_of_clean_type(&output_ty));
+            .map_or(FxHashSet::default(), |output_ty| get_generics_of_clean_type(&output_ty));
         let input_type_generics =
-            self.api_function.inputs.iter().fold(HashSet::new(), |mut former, ty| {
+            self.api_function.inputs.iter().fold(FxHashSet::default(), |mut former, ty| {
                 former.extend(get_generics_of_clean_type(ty));
                 former
             });
@@ -297,8 +293,8 @@ impl GenericFunction {
 
     pub fn monomorphize(
         &self,
-        replace_map: &HashMap<clean::Type, clean::Type>,
-        opaque_replace_map: &HashMap<clean::Type, clean::Type>,
+        replace_map: &FxHashMap<clean::Type, clean::Type>,
+        opaque_replace_map: &FxHashMap<clean::Type, clean::Type>,
     ) -> ApiFunction {
         let ApiFunction {
             full_name,
@@ -336,12 +332,12 @@ impl GenericFunction {
 
     fn get_opaque_replace_map(
         &self,
-        types: &HashMap<DefId, clean::Type>,
+        types: &FxHashMap<DefId, clean::Type>,
         type_name_map: &TypeNameMap,
-        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
-    ) -> HashMap<clean::Type, clean::Type> {
+        traits_of_type: &FxHashMap<DefId, FxHashSet<clean::Type>>,
+    ) -> FxHashMap<clean::Type, clean::Type> {
         let opaque_types = self.collect_opaque_types();
-        let mut opaque_replace_map = HashMap::new();
+        let mut opaque_replace_map = FxHashMap::default();
         for (opaque_type, bounds) in opaque_types.iter() {
             if let Some(replace_type) =
                 bounds.can_be_some_type(types, type_name_map, traits_of_type)

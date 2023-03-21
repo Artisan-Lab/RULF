@@ -2,15 +2,15 @@ use itertools::Itertools;
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{FxHashMap, FxHashSet},
     convert::TryFrom,
 };
 
 use crate::clean::{self, GenericBound};
 
-use super::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
-use super::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
-use super::type_util::{i32_type, str_type, u8_slice_type};
+use crate::fuzz_target::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
+use crate::fuzz_target::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
+use crate::fuzz_target::type_util::{i32_type, str_type, u8_slice_type};
 
 // FIXME: Why these are not marker from std?.
 pub static NUMERIC_TRAITS: [&'static str; 11] = [
@@ -49,7 +49,7 @@ pub enum GenericBoundError {
 /// This represents generic bound without `trait with generic`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimplifiedGenericBound {
-    trait_bounds: HashSet<clean::Type>,
+    trait_bounds: FxHashSet<clean::Type>,
 }
 
 pub enum ReplaceType {
@@ -158,9 +158,9 @@ impl SimplifiedGenericBound {
     /// determine whether a generic bound can be replaced with some type
     pub fn can_be_some_type(
         &self,
-        types: &HashMap<DefId, clean::Type>,
+        types: &FxHashMap<DefId, clean::Type>,
         type_name_map: &TypeNameMap,
-        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+        traits_of_type: &FxHashMap<DefId, FxHashSet<clean::Type>>,
     ) -> Option<ReplaceType> {
         if self.can_be_numeric_type(type_name_map) {
             Some(ReplaceType::Numeric)
@@ -258,9 +258,9 @@ impl SimplifiedGenericBound {
 
     pub fn can_be_defined_type(
         &self,
-        types: &HashMap<DefId, clean::Type>,
+        types: &FxHashMap<DefId, clean::Type>,
         type_name_map: &TypeNameMap,
-        traits_of_type: &HashMap<DefId, HashSet<clean::Type>>,
+        traits_of_type: &FxHashMap<DefId, FxHashSet<clean::Type>>,
     ) -> Option<clean::Type> {
         for (def_id, type_) in types {
             if let Some(traits) = traits_of_type.get(def_id) {
