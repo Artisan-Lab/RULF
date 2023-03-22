@@ -26,7 +26,7 @@ pub(crate) fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Typ
 
 pub fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
-    ty.generics().is_some_and(|v|{!v.is_empty()})
+    ty.generics().is_some() && !ty.generics().unwrap().is_empty()
     /* match ty {
         // QPath and generic are all generic type
         clean::Type::Generic(_) | clean::Type::QPath { .. } => true,
@@ -179,6 +179,7 @@ pub fn same_type(
     output_type: &clean::Type,
     input_type: &clean::Type,
     type_name_map: &TypeNameMap,
+    cache:&Cache
 ) -> CallType {
     //same type, direct call
     if output_type == input_type {

@@ -134,7 +134,7 @@ impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
                 } else {
                     unreachable!("Lifetime bounds should be already filtered. Internal Error.");
                 }
-            }).fold(FxHashSet::<clean::Type>::default(), |set,p|{set.insert(p); set})
+            }).fold(FxHashSet::<clean::Type>::default(), |set,p|{set.insert(p); set});
         Ok(SimplifiedGenericBound { trait_bounds })
     }
 }

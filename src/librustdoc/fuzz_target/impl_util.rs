@@ -110,12 +110,12 @@ pub fn extract_impls_from_cache(
     let mut crate_impl_collection = CrateImplCollection::new();
     //construct the map of `did to type`
     for (did, (syms, item_type)) in cache.paths {
-        let full_name = join_with_double_colon(syms);
+        let full_name = join_with_double_colon(&syms);
         full_name_map.push_mapping(*did, &full_name, *item_type);
     }
 
     for (did, (syms, item_type)) in cache.external_paths {
-        let full_name = join_with_double_colon(syms);
+        let full_name = join_with_double_colon(&syms);
 
         if prelude_type::is_preluded_type_name(&full_name) {
             full_name_map.push_mapping(*did, &full_name, *item_type);

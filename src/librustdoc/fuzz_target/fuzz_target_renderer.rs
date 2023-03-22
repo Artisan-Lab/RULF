@@ -9,6 +9,7 @@ use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::file_util;
 use crate::fuzz_target::impl_util::{self, FullNameMap};
+use crate::fuzz_target::type_name::TypeNameMap;
 use crate::fuzz_target::type_util::collect_traits_in_current_crate;
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
