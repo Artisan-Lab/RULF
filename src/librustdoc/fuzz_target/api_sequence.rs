@@ -9,8 +9,8 @@ use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
 use crate::fuzz_target::std_type::StdType;
 use crate::fuzz_target::type_name::TypeNameMap;
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use itertools::Itertools;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
 const PARAM_PREFIX: &'static str = "_param";
 const LOCAL_PARAM_PREFIX: &'static str = "_local";
@@ -372,7 +372,7 @@ impl ApiSequence {
         dead_api_call
     }
 
-    pub(crate) fn _contains_dead_code_except_last_one(&self, _api_graph: &ApiGraph<'_>) -> bool {
+    pub(crate) fn contains_dead_code(&self, _api_graph: &ApiGraph<'_>) -> bool {
         let sequence_len = self.len();
         if sequence_len <= 1 {
             return false;

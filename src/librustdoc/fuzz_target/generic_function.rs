@@ -93,7 +93,7 @@ impl GenericFunction {
                 .generics
                 .params
                 .iter()
-                .any(|generic_param_def| generic_param_def.name == *generic);
+                .any(|generic_param_def| generic_param_def.name == generic);
             if !contains_generic_def {
                 error!("{} in {} does not have definition.", self.api_function.full_name, generic);
             }

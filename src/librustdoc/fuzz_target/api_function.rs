@@ -78,7 +78,7 @@ impl ApiFunction {
         return false;
     }
 
-    pub(crate) fn is_defined_on_prelude_type(&self, prelude_types: &FxHashSet<String>) -> bool {
+    pub(crate) fn contains_prelude_type_prefix(&self, prefixes: &FxHashSet<String>) -> bool {
         let function_name_contains_prelude_type = prefixes.iter().any(|prelude_type| {
             let prelude_type_prefix = format!("{}::", prelude_type);
             self.full_name.starts_with(prelude_type_prefix.as_str())

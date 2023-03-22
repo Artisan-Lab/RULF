@@ -108,19 +108,17 @@ pub fn extract_impls_from_cache(
     mut api_graph: &mut ApiGraph<'_>,
 ) {
     let mut crate_impl_collection = CrateImplCollection::new();
-    let paths = &cache.paths;
     //construct the map of `did to type`
-    for (did, (syms, item_type)) in paths {
+    for (did, (syms, item_type)) in cache.paths {
         let full_name = join_with_double_colon(syms);
         full_name_map.push_mapping(*did, &full_name, *item_type);
     }
 
-    let extertal_paths = &cache.external_paths;
-    for (did, (strings, item_type)) in extertal_paths {
-        let full_name = full_path(&strings);
+    for (did, (syms, item_type)) in cache.external_paths {
+        let full_name = join_with_double_colon(syms);
 
         if prelude_type::is_preluded_type_name(&full_name) {
-            full_name_map.push_mapping(&did, &full_name, *item_type);
+            full_name_map.push_mapping(*did, &full_name, *item_type);
         }
     }
 
@@ -518,8 +516,8 @@ fn replace_self_associate_types(
                 .collect_vec();
             clean::Type::Tuple(new_types)
         }
-        clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
-            let clean::Path { global, res, segments } = path;
+        clean::Type::Path { path} => {
+            let clean::Path { res, segments } = path;
             let new_segments = segments
                 .into_iter()
                 .map(|path_segment| {
@@ -566,8 +564,8 @@ fn replace_self_associate_types(
                     clean::PathSegment { name, args: new_args }
                 })
                 .collect_vec();
-            let new_path = clean::Path { global, res, segments: new_segments };
-            clean::Type::ResolvedPath { path: new_path, param_names, did, is_generic }
+            let new_path = clean::Path { res, segments: new_segments };
+            clean::Type::Path { path: new_path}
         }
         _ => raw_type.to_owned(),
     }

@@ -3,7 +3,7 @@ use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util::is_generic_type;
 use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use rustc_hir::def::Res;
+use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
 
@@ -24,7 +24,7 @@ pub fn get_qpaths_in_clean_type(clean_type: &clean::Type) -> FxHashSet<clean::Ty
             });
             res
         }
-        clean::Type::ResolvedPath { path, .. } => {
+        clean::Type::Path { path, .. } => {
             let segments = path.segments;
             segments.into_iter().for_each(|path_segment| {
                 let args = path_segment.args;
@@ -59,7 +59,7 @@ pub fn get_generics_of_clean_type(clean_type: &clean::Type) -> FxHashSet<String>
             res.insert(generic_name.to_owned());
             return res;
         }
-        clean::Type::ResolvedPath { .. } => {
+        clean::Type::Path { .. } => {
             clean_type.generics().iter().for_each(|types| {
                 types.iter().for_each(|type_| {
                     let generics = get_generics_of_clean_type(type_);
@@ -93,8 +93,8 @@ pub fn from_struct_to_clean_type(did: DefId, name: String) -> clean::Type {
     let args = clean::GenericArgs::AngleBracketed { args: Vec::new(), bindings: Vec::new() };
     let path_segment = clean::PathSegment { name, args };
     let segments = vec![path_segment];
-    let path = clean::Path { global: false, res, segments };
-    clean::Type::ResolvedPath { path, param_names: None, did, is_generic: false }
+    let path = clean::Path { res, segments };
+    clean::Type::Path { path }
 }
 
 pub fn from_enum_to_clean_type(did: DefId, name: String) -> clean::Type {
@@ -102,8 +102,8 @@ pub fn from_enum_to_clean_type(did: DefId, name: String) -> clean::Type {
     let args = clean::GenericArgs::AngleBracketed { args: Vec::new(), bindings: Vec::new() };
     let path_segment = clean::PathSegment { name, args };
     let segments = vec![path_segment];
-    let path = clean::Path { global: false, res, segments };
-    clean::Type::ResolvedPath { path, param_names: None, did, is_generic: false }
+    let path = clean::Path { res, segments };
+    clean::Type::Path { path }
 }
 
 pub fn generics_has_no_content(generics: &clean::Generics) -> bool {
@@ -159,8 +159,8 @@ pub fn replace_types(
                 .collect_vec();
             clean::Type::Tuple(new_types)
         }
-        clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
-            let clean::Path { global, res, segments } = path;
+        clean::Type::Path { path } => {
+            let clean::Path { res, segments } = path;
             let new_segments = segments
                 .into_iter()
                 .map(|path_segment| {
@@ -196,15 +196,15 @@ pub fn replace_types(
                     clean::PathSegment { name, args: new_args }
                 })
                 .collect_vec();
-            let new_path = clean::Path { global, res, segments: new_segments };
-            clean::Type::ResolvedPath { path: new_path, param_names, did, is_generic }
+            let new_path = clean::Path { res, segments: new_segments };
+            clean::Type::Path { path: new_path }
         }
         _ => raw_type.to_owned(),
     }
 }
 
 pub fn extract_only_one_type_parameter(trait_bound: &clean::Type) -> Option<clean::Type> {
-    let path = if let clean::Type::ResolvedPath { path, .. } = trait_bound {
+    let path = if let clean::Type::Path { path, .. } = trait_bound {
         path
     } else {
         return None;
@@ -240,9 +240,8 @@ pub fn extract_types(ty_: &clean::Type) -> FxHashSet<clean::Type> {
         | clean::Type::Generic(..)
         | clean::Type::ImplTrait(..)
         | clean::Type::QPath { .. }
-        | clean::Type::Infer
-        | clean::Type::Never => FxHashSet::default(),
-        clean::Type::ResolvedPath { path, .. } => {
+        | clean::Type::Infer => FxHashSet::default(),
+        clean::Type::Path { path, .. } => {
             let mut path_types = extract_types_in_path(path);
             path_types.insert(ty_.to_owned());
             path_types

@@ -67,7 +67,7 @@ pub(crate) enum PreludeType {
 impl PreludeType {
     pub fn from_type(type_: &clean::Type, type_name_map: &TypeNameMap) -> Self {
         match type_ {
-            clean::Type::ResolvedPath { path, .. } => {
+            clean::Type::Path { path, .. } => {
                 if is_preluded_type(type_, type_name_map) {
                     let type_name = type_name(type_, type_name_map, TypeNameLevel::All);
                     let strip_type_name_string = to_strip_type_name(&type_name);

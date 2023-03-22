@@ -312,7 +312,7 @@ impl FuzzableType {
 //判断一个类型是不是fuzzable的，以及如何调用相应的fuzzable变量
 pub fn fuzzable_call_type(ty_: &clean::Type, type_name_map: &TypeNameMap) -> FuzzableCallType {
     match ty_ {
-        clean::Type::ResolvedPath { .. } => {
+        clean::Type::Path { .. } => {
             let prelude_type = PreludeType::from_type(ty_, type_name_map);
             //result类型的变量不应该作为fuzzable的变量。只考虑作为别的函数的返回值
             match &prelude_type {

@@ -1,7 +1,7 @@
 use crate::clean::{self, types::PrimitiveType};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
+use crate::fuzz_target::fuzzable_type::{FuzzableCallType, FuzzableType};
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use crate::fuzz_target::type_name::{type_full_name, TypeNameLevel, TypeNameMap};
@@ -26,10 +26,12 @@ pub(crate) fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Typ
 
 pub fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
-    match ty {
+    ty.generics().is_some_and(|v|{!v.is_empty()})
+    /* match ty {
         // QPath and generic are all generic type
         clean::Type::Generic(_) | clean::Type::QPath { .. } => true,
-        clean::Type::ResolvedPath { path, is_generic, .. } => {
+        clean::Type::Path { path } => {
+            path.generics().is_some() && path.generics().
             if *is_generic {
                 return true;
             }
@@ -48,12 +50,12 @@ pub fn is_generic_type(ty: &clean::Type) -> bool {
                     }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
                         for input_ty in inputs.iter() {
-                            if _is_generic_type(input_ty) {
+                            if is_generic_type(input_ty) {
                                 return true;
                             }
                         }
                         if let Some(output_ty) = output {
-                            if _is_generic_type(&output_ty) {
+                            if is_generic_type(&output_ty) {
                                 return true;
                             }
                         }
@@ -82,7 +84,7 @@ pub fn is_generic_type(ty: &clean::Type) -> bool {
             // 如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
             return false;
         }
-    }
+    } */
 }
 
 pub fn is_opaque_type(ty_: &clean::Type) -> bool {
@@ -212,7 +214,7 @@ pub fn same_type(
     //对输出类型进行分类讨论
     match output_type {
         //结构体、枚举、联合
-        clean::Type::ResolvedPath { .. } => {
+        clean::Type::Path { .. } => {
             _same_type_resolved_path(output_type, input_type, type_name_map, cache)
         }
         //范型
@@ -275,7 +277,7 @@ fn _same_type_resolved_path(
     }
 
     match input_type {
-        clean::Type::ResolvedPath { .. } => {
+        clean::Type::Path { .. } => {
             // 目前尝试过两种比较类型相等的方法，都存在问题
             // 1是直接比较def id，但是这种比较方法并不充分，比如存在 Option<usize> != Option<&str>，但这两个类型def id是一样的
             // 2是直接比较两个type相等，但是存在虽然type不相等，但是类型仍然是同一种类型的情况

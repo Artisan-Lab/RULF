@@ -9,6 +9,7 @@ use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::file_util;
 use crate::fuzz_target::impl_util::{self, FullNameMap};
+use crate::fuzz_target::type_util::collect_traits_in_current_crate;
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
 use rustc_span::symbol::Symbol;
@@ -28,6 +29,7 @@ pub struct FuzzTargetRenderer<'tcx> {
     current: Vec<Symbol>,
     api_dependency_graph: Rc<RefCell<ApiGraph<'tcx>>>,
     full_name_map: Rc<RefCell<FullNameMap>>,
+    //structs: Rc<RefCell<FxHashSet<>>>
 }
 
 impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
@@ -47,14 +49,24 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         println!("crate: {}", krate.module.name.unwrap().as_str());
         let rcx = Rc::new(FuzzTargetContext { cache, tcx });
         let mut api_dependency_graph = ApiGraph::new(krate.name(tcx).to_string(), rcx.clone());
+        let type_name_map = TypeNameMap::from(&cache);
+
         //从cache中提出def_id与full_name的对应关系，存入full_name_map来进行调用
         //同时提取impl块中的内容，存入api_dependency_graph
-        let mut full_name_map = FullNameMap::new();
-        impl_util::extract_impls_from_cache(&mut full_name_map, &mut api_dependency_graph);
-        println!("==== full name map ====");
+        let mut full_name_map = impl_util::FullNameMap::new();
+        let mut traits_of_type = impl_util::TraitsOfType::new();
+        impl_util::extract_impls_from_cache(
+            &cache,
+            &mut full_name_map,
+            &mut traits_of_type,
+            &mut api_dependency_graph,
+        );
+        let traits_in_current_crate = collect_traits_in_current_crate(&cache);
+        api_dependency_graph.set_traits_in_current_crate(traits_in_current_crate);
+        /* println!("==== full name map ====");
         println!("len: {:?}", full_name_map.map.len());
         println!("{:?}", full_name_map);
-        println!("==== full name map end ====");
+        println!("==== full name map end ===="); */
 
         Ok((
             FuzzTargetRenderer {
@@ -81,29 +93,39 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
             debug_str.push_str(name.as_str());
         }
         debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
+        debug_str.push_str(&format!("\n item id: {:?}", item.item_id));
         debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
         println!("{}", debug_str);
         let full_name: String = join_with_double_colon(&self.current) + item.name.unwrap().as_str();
-        if let ItemKind::FunctionItem(ref func) = *item.kind {
-            println!("func = {:?}", func);
-            let decl = func.decl.clone();
-            let clean::FnDecl { inputs, output, .. } = decl;
-            let generics = func.generics.clone();
-            let inputs = api_util::_extract_input_types(&inputs);
-            let output = api_util::_extract_output_type(&output);
+        match *item.kind {
+            ItemKind::FunctionItem(ref func) => {
+                let decl = func.decl.clone();
+                let clean::FnDecl { inputs, output, .. } = decl;
+                let generics = func.generics.clone();
+                let inputs = api_util::_extract_input_types(&inputs);
+                let output = api_util::_extract_output_type(&output);
 
-            let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(
-                &item.fn_header(self.context.tcx).unwrap(),
-            );
-            let api_fun = api_function::ApiFunction {
-                full_name,
-                generics,
-                inputs,
-                output,
-                _trait_full_path: None,
-                _unsafe_tag: api_unsafety,
-            };
-            self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+                let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(
+                    &item.fn_header(self.context.tcx).unwrap(),
+                );
+                let api_fun = api_function::ApiFunction {
+                    full_name,
+                    generics,
+                    inputs,
+                    output,
+                    _trait_full_path: None,
+                    _unsafe_tag: api_unsafety,
+                    return_type_notation: false,
+                    is_helper: false,
+                };
+                self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+            }
+            ItemKind::StructItem(_) => {}
+            ItemKind::TraitItem(_) => {}
+            ItemKind::TraitAliasItem(_) => {
+                println!("TraitAliasItem: {:?}", item);
+            }
+            _ => {}
         }
 
         Ok(())
@@ -142,6 +164,13 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
+
+        //单态化泛型函数
+        let enable_generic_function = true;
+        if enable_generic_function {
+            api_dependency_graph.eagerly_monomorphize_generic_functions();
+        }
+
         //寻找所有依赖，并且构建序列
         api_dependency_graph.find_all_dependencies();
         //api_dependency_graph._print_pretty_dependencies();

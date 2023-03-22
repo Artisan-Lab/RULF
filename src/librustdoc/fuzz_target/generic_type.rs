@@ -1,12 +1,10 @@
+use crate::clean::{self, GenericBound};
 use itertools::Itertools;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use rustc_hir::Mutability;
-use std::{
-    collections::{FxHashMap, FxHashSet},
-    convert::TryFrom,
-};
-
-use crate::clean::{self, GenericBound};
+use std::convert::TryFrom;
+use std::default;
 
 use crate::fuzz_target::type_name::{type_full_name, type_name, TypeNameLevel, TypeNameMap};
 use crate::fuzz_target::type_util::{extract_only_one_type_parameter, mutable_u8_slice_type};
@@ -136,8 +134,7 @@ impl TryFrom<&[GenericBound]> for SimplifiedGenericBound {
                 } else {
                     unreachable!("Lifetime bounds should be already filtered. Internal Error.");
                 }
-            })
-            .collect();
+            }).fold(FxHashSet::<clean::Type>::default(), |set,p|{set.insert(p); set})
         Ok(SimplifiedGenericBound { trait_bounds })
     }
 }

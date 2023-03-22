@@ -133,7 +133,7 @@ pub fn type_full_name(
     type_name_level: TypeNameLevel,
 ) -> String {
     let type_name = match type_ {
-        clean::Type::ResolvedPath { path, did, .. } => {
+        clean::Type::Path { path, did, .. } => {
             let type_name =
                 if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
                     type_name
@@ -201,7 +201,7 @@ pub fn type_name(
     type_name_level: TypeNameLevel,
 ) -> String {
     let type_name = match type_ {
-        clean::Type::ResolvedPath { did, .. } => {
+        clean::Type::Path { did, .. } => {
             if let Some(type_name) = type_name_map.get_type_name(did, type_name_level) {
                 return type_name;
             } else {
@@ -220,7 +220,6 @@ pub fn type_name(
         clean::Type::Array(ty, len) => {
             format!("[{};{}]", type_name(&**ty, type_name_map, type_name_level), len)
         }
-        clean::Type::Never => "!".to_string(),
         clean::Type::RawPointer(mutability, ty) => {
             let modifier = raw_pointer_modifier(mutability);
             format!("*{}{}", modifier, type_name(&**ty, type_name_map, type_name_level))
