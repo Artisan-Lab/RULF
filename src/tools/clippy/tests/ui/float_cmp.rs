@@ -2,9 +2,9 @@
 #![allow(
     unused,
     clippy::no_effect,
+    clippy::op_ref,
     clippy::unnecessary_operation,
-    clippy::cast_lossless,
-    clippy::many_single_char_names
+    clippy::cast_lossless
 )]
 
 use std::ops::Add;
@@ -20,19 +20,11 @@ where
 }
 
 fn eq_fl(x: f32, y: f32) -> bool {
-    if x.is_nan() {
-        y.is_nan()
-    } else {
-        x == y
-    } // no error, inside "eq" fn
+    if x.is_nan() { y.is_nan() } else { x == y } // no error, inside "eq" fn
 }
 
 fn fl_eq(x: f32, y: f32) -> bool {
-    if x.is_nan() {
-        y.is_nan()
-    } else {
-        x == y
-    } // no error, inside "eq" fn
+    if x.is_nan() { y.is_nan() } else { x == y } // no error, inside "eq" fn
 }
 
 struct X {
@@ -116,4 +108,8 @@ fn main() {
     1.23f64.signum() != x64.signum();
     1.23f64.signum() != -(x64.signum());
     1.23f64.signum() != 3.21f64.signum();
+
+    // the comparison should also look through references
+    &0.0 == &ZERO;
+    &&&&0.0 == &&&&ZERO;
 }

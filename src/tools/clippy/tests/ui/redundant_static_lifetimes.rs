@@ -1,9 +1,10 @@
 // run-rustfix
 
+#![feature(custom_inner_attributes)]
 #![allow(unused)]
 
 #[derive(Debug)]
-struct Foo {}
+struct Foo;
 
 const VAR_ONE: &'static str = "Test constant #1"; // ERROR Consider removing 'static.
 
@@ -53,4 +54,16 @@ impl Foo {
 
 impl Bar for Foo {
     const TRAIT_VAR: &'static str = "foo";
+}
+
+fn msrv_1_16() {
+    #![clippy::msrv = "1.16"]
+
+    static V: &'static u8 = &16;
+}
+
+fn msrv_1_17() {
+    #![clippy::msrv = "1.17"]
+
+    static V: &'static u8 = &17;
 }

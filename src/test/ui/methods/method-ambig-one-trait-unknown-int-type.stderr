@@ -1,10 +1,32 @@
-error[E0282]: type annotations needed for `std::vec::Vec<T>`
-  --> $DIR/method-ambig-one-trait-unknown-int-type.rs:24:17
+error[E0282]: type annotations needed for `Vec<T>`
+  --> $DIR/method-ambig-one-trait-unknown-int-type.rs:24:9
    |
 LL |     let mut x = Vec::new();
-   |         -----   ^^^^^^^^ cannot infer type for type parameter `T`
-   |         |
-   |         consider giving `x` the explicit type `std::vec::Vec<T>`, where the type parameter `T` is specified
+   |         ^^^^^
+   |
+help: consider giving `x` an explicit type, where the type for type parameter `T` is specified
+   |
+LL |     let mut x: Vec<T> = Vec::new();
+   |              ++++++++
+
+error[E0283]: type annotations needed
+  --> $DIR/method-ambig-one-trait-unknown-int-type.rs:26:7
+   |
+LL |     x.foo();
+   |       ^^^
+   |
+note: multiple `impl`s satisfying `Vec<_>: Foo` found
+  --> $DIR/method-ambig-one-trait-unknown-int-type.rs:9:1
+   |
+LL | impl Foo for Vec<usize> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+...
+LL | impl Foo for Vec<isize> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+help: try using a fully qualified path to specify the expected types
+   |
+LL |     <Vec<T> as Foo>::foo(&x);
+   |     ++++++++++++++++++++++ ~
 
 error[E0308]: mismatched types
   --> $DIR/method-ambig-one-trait-unknown-int-type.rs:33:20
@@ -14,12 +36,12 @@ LL |     let y: usize = x.foo();
    |            |
    |            expected due to this
    |
-help: you can convert an `isize` to `usize` and panic if the converted value wouldn't fit
+help: you can convert an `isize` to a `usize` and panic if the converted value doesn't fit
    |
 LL |     let y: usize = x.foo().try_into().unwrap();
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ++++++++++++++++++++
 
-error: aborting due to 2 previous errors
+error: aborting due to 3 previous errors
 
-Some errors have detailed explanations: E0282, E0308.
+Some errors have detailed explanations: E0282, E0283, E0308.
 For more information about an error, try `rustc --explain E0282`.

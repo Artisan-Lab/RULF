@@ -1,3 +1,4 @@
+use crate::formats::cache::Cache;
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
 use crate::fuzz_target::api_util;
@@ -5,62 +6,67 @@ use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
-use std::collections::{HashMap, HashSet};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub enum ParamType {
+pub(crate) enum ParamType {
     _FunctionReturn,
     _FuzzableType,
 }
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct ApiCall {
-    pub func: (ApiType, usize), //要调用的函数类型，以及在对应数组中的位置
-    pub params: Vec<(ParamType, usize, CallType)>, //参数类型(表示是使用之前的返回值，还是使用fuzzable的变量)，在当前的调用序列中参数所在的位置，以及如何调用
+pub(crate) struct ApiCall {
+    pub(crate) func: (ApiType, usize), //要调用的函数类型，以及在对应数组中的位置
+    pub(crate) params: Vec<(ParamType, usize, CallType)>, //参数类型(表示是使用之前的返回值，还是使用fuzzable的变量)，在当前的调用序列中参数所在的位置，以及如何调用
 }
 
 impl ApiCall {
-    pub fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
+    pub(crate) fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
         let func = (api_type.clone(), index);
         let params = Vec::new();
         ApiCall { func, params }
     }
 
-    pub fn _new(fun_index: usize) -> Self {
+    pub(crate) fn _new(fun_index: usize) -> Self {
         let api_type = ApiType::BareFunction;
         let func = (api_type, fun_index);
         let params = Vec::new();
         ApiCall { func, params }
     }
 
-    pub fn _add_param(&mut self, param_type: ParamType, param_index: usize, call_type: CallType) {
+    pub(crate) fn _add_param(
+        &mut self,
+        param_type: ParamType,
+        param_index: usize,
+        call_type: CallType,
+    ) {
         self.params.push((param_type, param_index, call_type));
     }
 }
 
 //function call sequences
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ApiSequence {
+pub(crate) struct ApiSequence {
     //TODO:如何表示函数调用序列？
-    pub functions: Vec<ApiCall>,               //函数调用序列
-    pub fuzzable_params: Vec<FuzzableType>,    //需要传入的fuzzable变量
-    pub _using_traits: Vec<String>,            //需要use引入的traits的路径
-    pub _unsafe_tag: bool,                     //标志这个调用序列是否需要加上unsafe标记
-    pub _moved: HashSet<usize>,                //表示哪些返回值已经被move掉，不再能被使用
-    pub _fuzzable_mut_tag: HashSet<usize>,     //表示哪些fuzzable的变量需要带上mut标记
-    pub _function_mut_tag: HashSet<usize>,     //表示哪些function的返回值需要带上mut标记
-    pub _covered_dependencies: HashSet<usize>, //表示用到了哪些dependency,即边覆盖率
+    pub(crate) functions: Vec<ApiCall>,             //函数调用序列
+    pub(crate) fuzzable_params: Vec<FuzzableType>,  //需要传入的fuzzable变量
+    pub(crate) _using_traits: Vec<String>,          //需要use引入的traits的路径
+    pub(crate) _unsafe_tag: bool,                   //标志这个调用序列是否需要加上unsafe标记
+    pub(crate) _moved: FxHashSet<usize>,            //表示哪些返回值已经被move掉，不再能被使用
+    pub(crate) _fuzzable_mut_tag: FxHashSet<usize>, //表示哪些fuzzable的变量需要带上mut标记
+    pub(crate) _function_mut_tag: FxHashSet<usize>, //表示哪些function的返回值需要带上mut标记
+    pub(crate) _covered_dependencies: FxHashSet<usize>, //表示用到了哪些dependency,即边覆盖率
 }
 
 impl ApiSequence {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let functions = Vec::new();
         let fuzzable_params = Vec::new();
         let _using_traits = Vec::new();
         let _unsafe_tag = false;
-        let _moved = HashSet::new();
-        let _fuzzable_mut_tag = HashSet::new();
-        let _function_mut_tag = HashSet::new();
-        let _covered_dependencies = HashSet::new();
+        let _moved = FxHashSet::default();
+        let _fuzzable_mut_tag = FxHashSet::default();
+        let _function_mut_tag = FxHashSet::default();
+        let _covered_dependencies = FxHashSet::default();
         ApiSequence {
             functions,
             fuzzable_params,
@@ -73,20 +79,20 @@ impl ApiSequence {
         }
     }
 
-    pub fn _add_fn_without_params(&mut self, api_type: &ApiType, index: usize) {
+    pub(crate) fn _add_fn_without_params(&mut self, api_type: &ApiType, index: usize) {
         let api_call = ApiCall::_new_without_params(api_type, index);
         self.functions.push(api_call);
     }
 
-    pub fn _add_dependency(&mut self, dependency: usize) {
+    pub(crate) fn _add_dependency(&mut self, dependency: usize) {
         self._covered_dependencies.insert(dependency);
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.functions.len()
     }
 
-    pub fn _has_no_fuzzables(&self) -> bool {
+    pub(crate) fn _has_no_fuzzables(&self) -> bool {
         if self.fuzzable_params.len() <= 0 {
             return true;
         } else {
@@ -94,7 +100,7 @@ impl ApiSequence {
         }
     }
 
-    pub fn _last_api_func_index(&self) -> Option<usize> {
+    pub(crate) fn _last_api_func_index(&self) -> Option<usize> {
         if self.len() == 0 {
             None
         } else {
@@ -106,7 +112,7 @@ impl ApiSequence {
         }
     }
 
-    pub fn _merge_another_sequence(&self, other: &ApiSequence) -> Self {
+    pub(crate) fn _merge_another_sequence(&self, other: &ApiSequence) -> Self {
         let mut res = self.clone();
         let first_func_number = res.functions.len();
         let first_fuzzable_number = res.fuzzable_params.len();
@@ -147,7 +153,7 @@ impl ApiSequence {
         res
     }
 
-    pub fn _merge_sequences(sequences: &Vec<ApiSequence>) -> Self {
+    pub(crate) fn _merge_sequences(sequences: &Vec<ApiSequence>) -> Self {
         let sequences_len = sequences.len();
         if sequences_len <= 0 {
             //println!("Should not merge with no sequence");
@@ -161,7 +167,7 @@ impl ApiSequence {
         basic_sequence
     }
 
-    pub fn _contains_api_function(&self, index: usize) -> bool {
+    pub(crate) fn _contains_api_function(&self, index: usize) -> bool {
         for api_call in &self.functions {
             let (_, func_index) = api_call.func;
             if index == func_index {
@@ -171,7 +177,7 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn _get_contained_api_functions(&self) -> Vec<usize> {
+    pub(crate) fn _get_contained_api_functions(&self) -> Vec<usize> {
         let mut res = Vec::new();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
@@ -182,43 +188,55 @@ impl ApiSequence {
         res
     }
 
-    pub fn _is_moved(&self, index: usize) -> bool {
-        if self._moved.contains(&index) { true } else { false }
+    pub(crate) fn _is_moved(&self, index: usize) -> bool {
+        if self._moved.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn _insert_move_index(&mut self, index: usize) {
+    pub(crate) fn _insert_move_index(&mut self, index: usize) {
         self._moved.insert(index);
     }
 
-    pub fn _add_fn(&mut self, api_call: ApiCall) {
+    pub(crate) fn _add_fn(&mut self, api_call: ApiCall) {
         self.functions.push(api_call);
     }
 
-    pub fn _insert_fuzzable_mut_tag(&mut self, index: usize) {
+    pub(crate) fn _insert_fuzzable_mut_tag(&mut self, index: usize) {
         self._fuzzable_mut_tag.insert(index);
     }
 
-    pub fn _is_fuzzable_need_mut_tag(&self, index: usize) -> bool {
-        if self._fuzzable_mut_tag.contains(&index) { true } else { false }
+    pub(crate) fn _is_fuzzable_need_mut_tag(&self, index: usize) -> bool {
+        if self._fuzzable_mut_tag.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn _insert_function_mut_tag(&mut self, index: usize) {
+    pub(crate) fn _insert_function_mut_tag(&mut self, index: usize) {
         self._function_mut_tag.insert(index);
     }
 
-    pub fn _is_function_need_mut_tag(&self, index: usize) -> bool {
-        if self._function_mut_tag.contains(&index) { true } else { false }
+    pub(crate) fn _is_function_need_mut_tag(&self, index: usize) -> bool {
+        if self._function_mut_tag.contains(&index) {
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn set_unsafe(&mut self) {
+    pub(crate) fn set_unsafe(&mut self) {
         self._unsafe_tag = true;
     }
 
-    pub fn add_trait(&mut self, trait_full_path: &String) {
+    pub(crate) fn add_trait(&mut self, trait_full_path: &String) {
         self._using_traits.push(trait_full_path.clone());
     }
 
-    pub fn _is_fuzzables_fixed_length(&self) -> bool {
+    pub(crate) fn _is_fuzzables_fixed_length(&self) -> bool {
         for fuzzable_param in &self.fuzzable_params {
             if !fuzzable_param._is_fixed_length() {
                 return false;
@@ -227,7 +245,7 @@ impl ApiSequence {
         return true;
     }
 
-    pub fn _fuzzables_min_length(&self) -> usize {
+    pub(crate) fn _fuzzables_min_length(&self) -> usize {
         let mut total_length = 0;
         for fuzzable_param in &self.fuzzable_params {
             total_length = total_length + fuzzable_param._min_length();
@@ -235,7 +253,7 @@ impl ApiSequence {
         total_length
     }
 
-    pub fn _contains_multi_dynamic_length_fuzzable(&self) -> bool {
+    pub(crate) fn _contains_multi_dynamic_length_fuzzable(&self) -> bool {
         for fuzzable_param in &self.fuzzable_params {
             if fuzzable_param._is_multiple_dynamic_length() {
                 return true;
@@ -244,7 +262,7 @@ impl ApiSequence {
         false
     }
 
-    pub fn _fuzzable_fixed_part_length(&self) -> usize {
+    pub(crate) fn _fuzzable_fixed_part_length(&self) -> usize {
         let mut total_length = 0;
         for fuzzable_param in &self.fuzzable_params {
             total_length = total_length + fuzzable_param._fixed_part_length();
@@ -252,7 +270,7 @@ impl ApiSequence {
         total_length
     }
 
-    pub fn _dynamic_length_param_number(&self) -> usize {
+    pub(crate) fn _dynamic_length_param_number(&self) -> usize {
         let mut total_number = 0;
         for fuzzable_param in &self.fuzzable_params {
             total_number = total_number + fuzzable_param._dynamic_length_param_number();
@@ -260,14 +278,14 @@ impl ApiSequence {
         total_number
     }
 
-    pub fn _dead_code(&self, _api_graph: &ApiGraph) -> Vec<bool> {
+    pub(crate) fn _dead_code(&self, _api_graph: &ApiGraph<'_>) -> Vec<bool> {
         let sequence_len = self.len();
         let mut dead_api_call = Vec::new();
         for _ in 0..sequence_len {
             dead_api_call.push(true);
         }
 
-        let mut used_params = HashMap::new(); // param_index, 最后一次使用这个param的api call index
+        let mut used_params = FxHashMap::default(); // param_index, 最后一次使用这个param的api call index
 
         let api_call_num = self.functions.len();
         for api_call_index in 0..api_call_num {
@@ -313,7 +331,7 @@ impl ApiSequence {
         dead_api_call
     }
 
-    pub fn _contains_dead_code_except_last_one(&self, _api_graph: &ApiGraph) -> bool {
+    pub(crate) fn _contains_dead_code_except_last_one(&self, _api_graph: &ApiGraph<'_>) -> bool {
         let sequence_len = self.len();
         if sequence_len <= 1 {
             return false;
@@ -327,7 +345,11 @@ impl ApiSequence {
         return false;
     }
 
-    pub fn _to_replay_crash_file(&self, _api_graph: &ApiGraph, test_index: usize) -> String {
+    pub(crate) fn _to_replay_crash_file(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = self._to_afl_except_main(_api_graph, test_index);
         res = res.replace("#[macro_use]\nextern crate afl;\n", "");
         res.push_str(replay_util::_read_crash_file_data());
@@ -336,13 +358,17 @@ impl ApiSequence {
         res
     }
 
-    pub fn _to_afl_test_file(&self, _api_graph: &ApiGraph, test_index: usize) -> String {
+    pub(crate) fn _to_afl_test_file(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
         let mut res = self._to_afl_except_main(_api_graph, test_index);
         res.push_str(self._afl_main_function(test_index).as_str());
         res
     }
 
-    pub fn _to_libfuzzer_test_file(&self, _api_graph: &ApiGraph, test_index: usize) -> String {
+    pub(crate) fn _to_libfuzzer_test_file(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = self._to_afl_except_main(_api_graph, test_index);
         res = res.replace(
             "#[macro_use]\nextern crate afl;\n",
@@ -352,7 +378,7 @@ impl ApiSequence {
         res
     }
 
-    pub fn _libfuzzer_fuzz_main(&self, test_index: usize) -> String {
+    pub(crate) fn _libfuzzer_fuzz_main(&self, test_index: usize) -> String {
         let mut res = String::new();
         res.push_str("fuzz_target!(|data: &[u8]| {\n");
         res.push_str(self._afl_closure_body(0, test_index).as_str());
@@ -360,7 +386,11 @@ impl ApiSequence {
         res
     }
 
-    pub fn _to_afl_except_main(&self, _api_graph: &ApiGraph, test_index: usize) -> String {
+    pub(crate) fn _to_afl_except_main(
+        &self,
+        _api_graph: &ApiGraph<'_>,
+        test_index: usize,
+    ) -> String {
         let mut res = String::new();
         //加入可能需要开启的feature gate
         let feature_gates = afl_util::_get_feature_gates_of_sequence(&self.fuzzable_params);
@@ -390,8 +420,8 @@ impl ApiSequence {
         res
     }
 
-    pub fn _prelude_helper_functions(&self) -> Option<String> {
-        let mut prelude_helpers = HashSet::new();
+    pub(crate) fn _prelude_helper_functions(&self) -> Option<String> {
+        let mut prelude_helpers = FxHashSet::default();
         for api_call in &self.functions {
             let params = &api_call.params;
             for (_, _, call_type) in params {
@@ -412,7 +442,7 @@ impl ApiSequence {
         Some(res)
     }
 
-    pub fn _afl_helper_functions(&self) -> Option<String> {
+    pub(crate) fn _afl_helper_functions(&self) -> Option<String> {
         let afl_helper_functions =
             afl_util::_get_afl_helpers_functions_of_sequence(&self.fuzzable_params);
         match afl_helper_functions {
@@ -427,7 +457,7 @@ impl ApiSequence {
         }
     }
 
-    pub fn _afl_main_function(&self, test_index: usize) -> String {
+    pub(crate) fn _afl_main_function(&self, test_index: usize) -> String {
         let mut res = String::new();
         let indent = _generate_indent(4);
         res.push_str("fn main() {\n");
@@ -440,7 +470,7 @@ impl ApiSequence {
         res
     }
 
-    pub fn _reproduce_main_function(&self, test_index: usize) -> String {
+    pub(crate) fn _reproduce_main_function(&self, test_index: usize) -> String {
         format!(
             "fn main() {{
     let _content = _read_data();
@@ -453,7 +483,7 @@ impl ApiSequence {
         )
     }
 
-    pub fn _afl_closure_body(&self, outer_indent: usize, test_index: usize) -> String {
+    pub(crate) fn _afl_closure_body(&self, outer_indent: usize, test_index: usize) -> String {
         let extra_indent = 4;
         let mut res = String::new();
         let indent = _generate_indent(outer_indent + extra_indent);
@@ -534,9 +564,9 @@ impl ApiSequence {
         res
     }
 
-    pub fn _to_well_written_function(
+    pub(crate) fn _to_well_written_function(
         &self,
-        _api_graph: &ApiGraph,
+        _api_graph: &ApiGraph<'_>,
         test_index: usize,
         indent_size: usize,
     ) -> String {
@@ -568,6 +598,7 @@ impl ApiSequence {
             res.push_str("unsafe {\n");
             let unsafe_function_body = self._generate_function_body_string(
                 _api_graph,
+                _api_graph.cache(),
                 indent_size + 4,
                 param_prefix,
                 local_param_prefix,
@@ -578,6 +609,7 @@ impl ApiSequence {
         } else {
             let function_body = self._generate_function_body_string(
                 _api_graph,
+                _api_graph.cache(),
                 indent_size,
                 param_prefix,
                 local_param_prefix,
@@ -593,11 +625,11 @@ impl ApiSequence {
         res
     }
 
-    pub fn _generate_using_traits_string(&self, indent_size: usize) -> String {
+    pub(crate) fn _generate_using_traits_string(&self, indent_size: usize) -> String {
         let indent = _generate_indent(indent_size);
         let mut res = String::new();
         //using trait需要去重
-        let mut has_used_traits = HashSet::new();
+        let mut has_used_traits = FxHashSet::default();
         for using_trait_ in &self._using_traits {
             if has_used_traits.contains(using_trait_) {
                 continue;
@@ -615,9 +647,9 @@ impl ApiSequence {
 
     //outer_indent:上层的缩进
     //extra_indent:本块需要的额外缩进
-    pub fn _generate_function_header_string(
+    pub(crate) fn _generate_function_header_string(
         &self,
-        _api_graph: &ApiGraph,
+        _api_graph: &ApiGraph<'_>,
         test_index: usize,
         outer_indent: usize,
         extra_indent: usize,
@@ -663,9 +695,10 @@ impl ApiSequence {
         res
     }
 
-    pub fn _generate_function_body_string(
+    pub(crate) fn _generate_function_body_string(
         &self,
-        _api_graph: &ApiGraph,
+        _api_graph: &ApiGraph<'_>,
+        cache: &Cache,
         outer_indent: usize,
         param_prefix: &str,
         local_param_prefix: &str,
@@ -704,7 +737,7 @@ impl ApiSequence {
                 let call_type_array_len = call_type_array.len();
                 if call_type_array_len == 1 {
                     let call_type = &call_type_array[0];
-                    let param_string = call_type._to_call_string(&param_name, full_name_map);
+                    let param_string = call_type._to_call_string(&param_name, full_name_map, cache);
                     param_strings.push(param_string);
                 } else {
                     let mut former_param_name = param_name.clone();
@@ -720,7 +753,7 @@ impl ApiSequence {
                             "{}let mut {} = {};\n",
                             body_indent,
                             helper_name,
-                            call_type._to_call_string(&former_param_name, full_name_map)
+                            call_type._to_call_string(&former_param_name, full_name_map, cache)
                         );
                         if helper_index > 1 {
                             if !api_util::_need_mut_tag(call_type) {
@@ -738,7 +771,7 @@ impl ApiSequence {
                     }
                     res.push_str(former_helper_line.as_str());
                     let param_string =
-                        last_call_type._to_call_string(&former_param_name, full_name_map);
+                        last_call_type._to_call_string(&former_param_name, full_name_map, cache);
                     param_strings.push(param_string);
                 }
             }
@@ -777,7 +810,7 @@ impl ApiSequence {
     }
 }
 
-pub fn _generate_indent(indent_size: usize) -> String {
+pub(crate) fn _generate_indent(indent_size: usize) -> String {
     let mut indent = String::new();
     for _ in 0..indent_size {
         indent.push(' ');

@@ -1,4 +1,5 @@
 use crate::clean::{self, PrimitiveType};
+use crate::formats::cache::Cache;
 use rustc_hir::Mutability;
 
 use crate::fuzz_target::call_type::CallType;
@@ -7,7 +8,7 @@ use crate::fuzz_target::prelude_type::PreludeType;
 
 //如果构造一个fuzzable的变量
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum FuzzableCallType {
+pub(crate) enum FuzzableCallType {
     NoFuzzable,
     Primitive(PrimitiveType),
     Tuple(Vec<Box<FuzzableCallType>>),
@@ -22,7 +23,7 @@ pub enum FuzzableCallType {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum FuzzableType {
+pub(crate) enum FuzzableType {
     NoFuzzable,
     Primitive(PrimitiveType),
     RefSlice(Box<FuzzableType>),
@@ -31,7 +32,7 @@ pub enum FuzzableType {
 }
 
 impl FuzzableCallType {
-    pub fn generate_fuzzable_type_and_call_type(&self) -> (FuzzableType, CallType) {
+    pub(crate) fn generate_fuzzable_type_and_call_type(&self) -> (FuzzableType, CallType) {
         //println!("fuzzable call type: {:?}", self);
         match self {
             FuzzableCallType::NoFuzzable => (FuzzableType::NoFuzzable, CallType::_NotCompatible),
@@ -141,7 +142,7 @@ impl FuzzableCallType {
 }
 
 impl FuzzableType {
-    pub fn _is_fixed_length(&self) -> bool {
+    pub(crate) fn _is_fixed_length(&self) -> bool {
         match self {
             FuzzableType::NoFuzzable => true,
             FuzzableType::Primitive(_) => true,
@@ -159,7 +160,7 @@ impl FuzzableType {
     }
 
     //当前变量最短需要多少个字节？
-    pub fn _min_length(&self) -> usize {
+    pub(crate) fn _min_length(&self) -> usize {
         match self {
             FuzzableType::NoFuzzable => 0,
             FuzzableType::Primitive(primitive_type) => {
@@ -196,7 +197,7 @@ impl FuzzableType {
     }
 
     //计算长度固定的部分所需的长度
-    pub fn _fixed_part_length(&self) -> usize {
+    pub(crate) fn _fixed_part_length(&self) -> usize {
         if self._is_fixed_length() {
             return self._min_length();
         } else {
@@ -217,7 +218,7 @@ impl FuzzableType {
     }
 
     //计算长度不固定的参数的个数，主要是需要迭代考虑元组的内部
-    pub fn _dynamic_length_param_number(&self) -> usize {
+    pub(crate) fn _dynamic_length_param_number(&self) -> usize {
         if self._is_fixed_length() {
             return 0;
         } else {
@@ -238,7 +239,7 @@ impl FuzzableType {
     }
 
     //多个可变长的维度，例如&[&str], &[&[u8]]
-    pub fn _is_multiple_dynamic_length(&self) -> bool {
+    pub(crate) fn _is_multiple_dynamic_length(&self) -> bool {
         match self {
             FuzzableType::RefSlice(inner_fuzzable) => {
                 if !inner_fuzzable._is_fixed_length() {
@@ -259,10 +260,10 @@ impl FuzzableType {
         }
     }
 
-    pub fn _to_type_string(&self) -> String {
+    pub(crate) fn _to_type_string(&self) -> String {
         match self {
             FuzzableType::NoFuzzable => "nofuzzable".to_string(),
-            FuzzableType::Primitive(primitive) => primitive.as_str().to_string(),
+            FuzzableType::Primitive(primitive) => primitive.as_sym().to_string(),
             FuzzableType::RefSlice(inner_) => {
                 let inner_string = inner_._to_type_string();
                 let mut res = "&[".to_string();
@@ -295,17 +296,17 @@ impl FuzzableType {
 }
 
 //判断一个类型是不是fuzzable的，以及如何调用相应的fuzzable变量
-pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> FuzzableCallType {
+pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> FuzzableCallType {
     match ty_ {
-        clean::Type::ResolvedPath { .. } => {
-            let prelude_type = PreludeType::from_type(ty_, full_name_map);
+        clean::Type::Path { .. } => {
+            let prelude_type = PreludeType::from_type(ty_, full_name_map, cache);
             //result类型的变量不应该作为fuzzable的变量。只考虑作为别的函数的返回值
             match &prelude_type {
                 PreludeType::NotPrelude(..) | PreludeType::PreludeResult { .. } => {
                     FuzzableCallType::NoFuzzable
                 }
                 PreludeType::PreludeOption(inner_type_) => {
-                    let inner_fuzzable_call_type = fuzzable_call_type(inner_type_, full_name_map);
+                    let inner_fuzzable_call_type = fuzzable_call_type(inner_type_, full_name_map, cache);
                     match inner_fuzzable_call_type {
                         FuzzableCallType::NoFuzzable => {
                             return FuzzableCallType::NoFuzzable;
@@ -328,7 +329,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
         clean::Type::Tuple(types) => {
             let mut vec = Vec::new();
             for inner_type in types {
-                let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map);
+                let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
                 match inner_fuzzable {
                     FuzzableCallType::NoFuzzable => {
                         return FuzzableCallType::NoFuzzable;
@@ -342,7 +343,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
         }
         clean::Type::Slice(inner_type) => {
             let inner_ty_ = &**inner_type;
-            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map);
+            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map, cache);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -354,7 +355,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
         }
         clean::Type::Array(inner_type, ..) => {
             let inner_ty_ = &**inner_type;
-            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map);
+            let inner_fuzzable = fuzzable_call_type(inner_ty_, full_name_map, cache);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -366,7 +367,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
         }
         clean::Type::RawPointer(mutability, type_) => {
             let inner_type = &**type_;
-            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map);
+            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -402,7 +403,7 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
                 }
                 return FuzzableCallType::STR;
             }
-            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map);
+            let inner_fuzzable = fuzzable_call_type(inner_type, full_name_map, cache);
             match inner_fuzzable {
                 FuzzableCallType::NoFuzzable => {
                     return FuzzableCallType::NoFuzzable;
@@ -423,8 +424,11 @@ pub fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap) -> Fuz
         clean::Type::ImplTrait(..) => {
             return FuzzableCallType::NoFuzzable;
         }
-        clean::Type::Never | clean::Type::Infer => {
+        clean::Type::Infer => {
             return FuzzableCallType::NoFuzzable;
+        }
+        _ => {
+            unimplemented!()
         }
     }
 }

@@ -1,17 +1,17 @@
 warning: skipping const checks
    |
 help: skipping check that does not even have a feature gate
-  --> $DIR/const_fn_ptr.rs:12:5
+  --> $DIR/const_fn_ptr.rs:11:5
    |
 LL |     X(x)
    |     ^^^^
 help: skipping check that does not even have a feature gate
-  --> $DIR/const_fn_ptr.rs:16:5
+  --> $DIR/const_fn_ptr.rs:15:5
    |
 LL |     X_CONST(x)
    |     ^^^^^^^^^^
 help: skipping check that does not even have a feature gate
-  --> $DIR/const_fn_ptr.rs:20:5
+  --> $DIR/const_fn_ptr.rs:19:5
    |
 LL |     x(y)
    |     ^^^^

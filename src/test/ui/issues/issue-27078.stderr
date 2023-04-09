@@ -1,17 +1,18 @@
 error[E0277]: the size for values of type `Self` cannot be known at compilation time
-  --> $DIR/issue-27078.rs:5:12
+  --> $DIR/issue-27078.rs:3:12
    |
 LL |     fn foo(self) -> &'static i32 {
    |            ^^^^ doesn't have a size known at compile-time
    |
-   = help: the trait `std::marker::Sized` is not implemented for `Self`
-   = note: to learn more, visit <https://doc.rust-lang.org/book/ch19-04-advanced-types.html#dynamically-sized-types-and-the-sized-trait>
-   = note: all local variables must have a statically known size
-   = help: unsized locals are gated as an unstable feature
+   = help: unsized fn params are gated as an unstable feature
 help: consider further restricting `Self`
    |
-LL |     fn foo(self) -> &'static i32 where Self: std::marker::Sized {
-   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+LL |     fn foo(self) -> &'static i32 where Self: Sized {
+   |                                  +++++++++++++++++
+help: function arguments must have a statically known size, borrowed types always have a known size
+   |
+LL |     fn foo(&self) -> &'static i32 {
+   |            +
 
 error: aborting due to previous error
 

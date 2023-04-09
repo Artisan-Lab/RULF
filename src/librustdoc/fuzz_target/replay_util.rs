@@ -1,4 +1,4 @@
-pub fn _read_crash_file_data() -> &'static str {
+pub(crate) fn _read_crash_file_data() -> &'static str {
     "fn _read_data()-> Vec<u8> {
     use std::env;
     use std::process::exit;

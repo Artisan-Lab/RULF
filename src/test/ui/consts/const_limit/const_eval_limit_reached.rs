@@ -4,7 +4,7 @@
 const X: usize = {
     let mut x = 0;
     while x != 1000 {
-        //~^ ERROR any use of this value will cause an error
+        //~^ ERROR evaluation of constant value failed
         x += 1;
     }
 

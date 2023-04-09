@@ -4,9 +4,6 @@
 
 // check-pass
 
-#![feature(move_ref_pattern)]
-#![feature(bindings_after_at)]
-
 fn main() {
     return;
 

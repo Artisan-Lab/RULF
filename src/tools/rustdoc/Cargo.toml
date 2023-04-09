@@ -1,8 +1,7 @@
 [package]
 name = "rustdoc-tool"
 version = "0.0.0"
-authors = ["The Rust Project Developers"]
-edition = "2018"
+edition = "2021"
 
 # Cargo adds a number of paths to the dylib search path on windows, which results in
 # the wrong rustdoc being executed. To avoid the conflicting rustdocs, we name the "tool"
@@ -13,3 +12,6 @@ path = "main.rs"
 
 [dependencies]
 rustdoc = { path = "../../librustdoc" }
+
+[features]
+jemalloc = ['rustdoc/jemalloc']

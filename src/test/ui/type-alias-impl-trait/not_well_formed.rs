@@ -1,7 +1,6 @@
 #![feature(type_alias_impl_trait)]
 
-fn main() {
-}
+fn main() {}
 
 trait TraitWithAssoc {
     type Assoc;

@@ -1,4 +1,8 @@
 #![deny(clippy::option_option)]
+#![allow(clippy::unnecessary_wraps)]
+
+const C: Option<Option<i32>> = None;
+static S: Option<Option<i32>> = None;
 
 fn input(_: Option<Option<u8>>) {}
 
@@ -72,8 +76,6 @@ mod issue_4298 {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(default)]
         #[serde(borrow)]
-        // FIXME: should not lint here
-        #[allow(clippy::option_option)]
         foo: Option<Option<Cow<'a, str>>>,
     }
 

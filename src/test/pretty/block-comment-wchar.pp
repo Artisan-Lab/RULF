@@ -1,6 +1,6 @@
 // This is meant as a test case for Issue 3961.
 //
-// Test via: rustc --pretty normal src/test/pretty/block-comment-wchar.rs
+// Test via: rustc -Zunpretty normal src/test/pretty/block-comment-wchar.rs
 // ignore-tidy-cr
 // ignore-tidy-tab
 // pp-exact:block-comment-wchar.pp
@@ -73,7 +73,6 @@ fn f() {
     */
 
 
-
     /* */
 
     /*
@@ -81,7 +80,6 @@ fn f() {
       Space 6+2:                     compare A
       Ogham Space Mark 6+2: compare B
     */
-
     /* */
 
     /*
@@ -92,12 +90,12 @@ fn f() {
 }
 
 fn main() {
-    // Taken from http://www.unicode.org/Public/UNIDATA/PropList.txt
+    // Taken from https://www.unicode.org/Public/UNIDATA/PropList.txt
     let chars =
         ['\x0A', '\x0B', '\x0C', '\x0D', '\x20', '\u{85}', '\u{A0}',
-         '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}', '\u{2003}',
-         '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
-         '\u{2009}', '\u{200A}', '\u{2028}', '\u{2029}', '\u{202F}',
-         '\u{205F}', '\u{3000}'];
+                '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}', '\u{2003}',
+                '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
+                '\u{2009}', '\u{200A}', '\u{2028}', '\u{2029}', '\u{202F}',
+                '\u{205F}', '\u{3000}'];
     for c in &chars { let ws = c.is_whitespace(); println!("{} {}", c, ws); }
 }

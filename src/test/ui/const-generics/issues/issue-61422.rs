@@ -1,8 +1,4 @@
 // check-pass
-
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 use std::mem;
 
 // Neither of the uninits below are currently accepted as not UB, however,

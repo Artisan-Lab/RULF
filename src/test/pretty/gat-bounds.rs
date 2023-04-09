@@ -3,8 +3,6 @@
 
 // pretty-compare-only
 
-#![feature(generic_associated_types)]
-
 trait X {
     type Y<T>: Trait where Self: Sized;
 }
@@ -12,5 +10,7 @@ trait X {
 impl X for () {
     type Y<T> where Self: Sized = u32;
 }
+
+fn f<T: X<Y<()> = i32>>() {}
 
 fn main() { }

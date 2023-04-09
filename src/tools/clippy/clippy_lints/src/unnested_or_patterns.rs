@@ -1,36 +1,33 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use crate::utils::ast_utils::{eq_field_pat, eq_id, eq_pat, eq_path};
-use crate::utils::{over, span_lint_and_then};
-use rustc_ast::ast::{self, Pat, PatKind, PatKind::*, DUMMY_NODE_ID};
+use clippy_utils::ast_utils::{eq_field_pat, eq_id, eq_maybe_qself, eq_pat, eq_path};
+use clippy_utils::diagnostics::span_lint_and_then;
+use clippy_utils::{meets_msrv, msrvs, over};
 use rustc_ast::mut_visit::*;
 use rustc_ast::ptr::P;
+use rustc_ast::{self as ast, Mutability, Pat, PatKind, PatKind::*, DUMMY_NODE_ID};
 use rustc_ast_pretty::pprust;
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass};
-use rustc_session::{declare_lint_pass, declare_tool_lint};
+use rustc_semver::RustcVersion;
+use rustc_session::{declare_tool_lint, impl_lint_pass};
 use rustc_span::DUMMY_SP;
 
 use std::cell::Cell;
 use std::mem;
 
 declare_clippy_lint! {
-    /// **What it does:**
-    ///
+    /// ### What it does
     /// Checks for unnested or-patterns, e.g., `Some(0) | Some(2)` and
     /// suggests replacing the pattern with a nested one, `Some(0 | 2)`.
     ///
     /// Another way to think of this is that it rewrites patterns in
     /// *disjunctive normal form (DNF)* into *conjunctive normal form (CNF)*.
     ///
-    /// **Why is this bad?**
+    /// ### Why is this bad?
+    /// In the example above, `Some` is repeated, which unnecessarily complicates the pattern.
     ///
-    /// In the example above, `Some` is repeated, which unncessarily complicates the pattern.
-    ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
     /// fn main() {
     ///     if let Some(0) | Some(2) = Some(0) {}
@@ -38,45 +35,61 @@ declare_clippy_lint! {
     /// ```
     /// Use instead:
     /// ```rust
-    /// #![feature(or_patterns)]
-    ///
     /// fn main() {
     ///     if let Some(0 | 2) = Some(0) {}
     /// }
     /// ```
+    #[clippy::version = "1.46.0"]
     pub UNNESTED_OR_PATTERNS,
     pedantic,
     "unnested or-patterns, e.g., `Foo(Bar) | Foo(Baz) instead of `Foo(Bar | Baz)`"
 }
 
-declare_lint_pass!(UnnestedOrPatterns => [UNNESTED_OR_PATTERNS]);
+#[derive(Clone, Copy)]
+pub struct UnnestedOrPatterns {
+    msrv: Option<RustcVersion>,
+}
+
+impl UnnestedOrPatterns {
+    #[must_use]
+    pub fn new(msrv: Option<RustcVersion>) -> Self {
+        Self { msrv }
+    }
+}
+
+impl_lint_pass!(UnnestedOrPatterns => [UNNESTED_OR_PATTERNS]);
 
 impl EarlyLintPass for UnnestedOrPatterns {
     fn check_arm(&mut self, cx: &EarlyContext<'_>, a: &ast::Arm) {
-        lint_unnested_or_patterns(cx, &a.pat);
+        if meets_msrv(self.msrv, msrvs::OR_PATTERNS) {
+            lint_unnested_or_patterns(cx, &a.pat);
+        }
     }
 
     fn check_expr(&mut self, cx: &EarlyContext<'_>, e: &ast::Expr) {
-        if let ast::ExprKind::Let(pat, _) = &e.kind {
-            lint_unnested_or_patterns(cx, pat);
+        if meets_msrv(self.msrv, msrvs::OR_PATTERNS) {
+            if let ast::ExprKind::Let(pat, _, _) = &e.kind {
+                lint_unnested_or_patterns(cx, pat);
+            }
         }
     }
 
     fn check_param(&mut self, cx: &EarlyContext<'_>, p: &ast::Param) {
-        lint_unnested_or_patterns(cx, &p.pat);
+        if meets_msrv(self.msrv, msrvs::OR_PATTERNS) {
+            lint_unnested_or_patterns(cx, &p.pat);
+        }
     }
 
     fn check_local(&mut self, cx: &EarlyContext<'_>, l: &ast::Local) {
-        lint_unnested_or_patterns(cx, &l.pat);
+        if meets_msrv(self.msrv, msrvs::OR_PATTERNS) {
+            lint_unnested_or_patterns(cx, &l.pat);
+        }
     }
+
+    extract_msrv_attr!(EarlyContext);
 }
 
 fn lint_unnested_or_patterns(cx: &EarlyContext<'_>, pat: &Pat) {
-    if !cx.sess.opts.unstable_features.is_nightly_build() {
-        // User cannot do `#![feature(or_patterns)]`, so bail.
-        return;
-    }
-
     if let Ident(.., None) | Lit(_) | Wild | Path(..) | Range(..) | Rest | MacCall(_) = pat.kind {
         // This is a leaf pattern, so cloning is unprofitable.
         return;
@@ -124,12 +137,12 @@ fn insert_necessary_parens(pat: &mut P<Pat>) {
     struct Visitor;
     impl MutVisitor for Visitor {
         fn visit_pat(&mut self, pat: &mut P<Pat>) {
-            use ast::{BindingMode::*, Mutability::*};
+            use ast::BindingAnnotation;
             noop_visit_pat(pat, self);
             let target = match &mut pat.kind {
                 // `i @ a | b`, `box a | b`, and `& mut? a | b`.
                 Ident(.., Some(p)) | Box(p) | Ref(p, _) if matches!(&p.kind, Or(ps) if ps.len() > 1) => p,
-                Ref(p, Not) if matches!(p.kind, Ident(ByValue(Mut), ..)) => p, // `&(mut x)`
+                Ref(p, Mutability::Not) if matches!(p.kind, Ident(BindingAnnotation::MUT, ..)) => p, // `&(mut x)`
                 _ => return,
             };
             target.kind = Paren(P(take_pat(target)));
@@ -150,9 +163,8 @@ fn unnest_or_patterns(pat: &mut P<Pat>) -> bool {
             noop_visit_pat(p, self);
 
             // Don't have an or-pattern? Just quit early on.
-            let alternatives = match &mut p.kind {
-                Or(ps) => ps,
-                _ => return,
+            let Or(alternatives) = &mut p.kind else {
+                return
             };
 
             // Collapse or-patterns directly nested in or-patterns.
@@ -217,6 +229,10 @@ fn transform_with_focus_on_idx(alternatives: &mut Vec<P<Pat>>, focus_idx: usize)
         // with which a pattern `C(p_0)` may be formed,
         // which we would want to join with other `C(p_j)`s.
         Ident(.., None) | Lit(_) | Wild | Path(..) | Range(..) | Rest | MacCall(_)
+        // Skip immutable refs, as grouping them saves few characters,
+        // and almost always requires adding parens (increasing noisiness).
+        // In the case of only two patterns, replacement adds net characters.
+        | Ref(_, Mutability::Not)
         // Dealt with elsewhere.
         | Or(_) | Paren(_) => false,
         // Transform `box x | ... | box y` into `box (x | y)`.
@@ -228,10 +244,10 @@ fn transform_with_focus_on_idx(alternatives: &mut Vec<P<Pat>>, focus_idx: usize)
             |k| matches!(k, Box(_)),
             |k| always_pat!(k, Box(p) => p),
         ),
-        // Transform `&m x | ... | &m y` into `&m (x | y)`.
-        Ref(target, m1) => extend_with_matching(
+        // Transform `&mut x | ... | &mut y` into `&mut (x | y)`.
+        Ref(target, Mutability::Mut) => extend_with_matching(
             target, start, alternatives,
-            |k| matches!(k, Ref(_, m2) if m1 == m2), // Mutabilities must match.
+            |k| matches!(k, Ref(_, Mutability::Mut)),
             |k| always_pat!(k, Ref(p, _) => p),
         ),
         // Transform `b @ p0 | ... b @ p1` into `b @ (p0 | p1)`.
@@ -254,16 +270,17 @@ fn transform_with_focus_on_idx(alternatives: &mut Vec<P<Pat>>, focus_idx: usize)
             |k| always_pat!(k, Tuple(ps) => ps),
         ),
         // Transform `S(pre, x, post) | ... | S(pre, y, post)` into `S(pre, x | y, post)`.
-        TupleStruct(path1, ps1) => extend_with_matching_product(
+        TupleStruct(qself1, path1, ps1) => extend_with_matching_product(
             ps1, start, alternatives,
             |k, ps1, idx| matches!(
                 k,
-                TupleStruct(path2, ps2) if eq_path(path1, path2) && eq_pre_post(ps1, ps2, idx)
+                TupleStruct(qself2, path2, ps2)
+                    if eq_maybe_qself(qself1, qself2) && eq_path(path1, path2) && eq_pre_post(ps1, ps2, idx)
             ),
-            |k| always_pat!(k, TupleStruct(_, ps) => ps),
+            |k| always_pat!(k, TupleStruct(_, _, ps) => ps),
         ),
         // Transform a record pattern `S { fp_0, ..., fp_n }`.
-        Struct(path1, fps1, rest1) => extend_with_struct_pat(path1, fps1, *rest1, start, alternatives),
+        Struct(qself1, path1, fps1, rest1) => extend_with_struct_pat(qself1, path1, fps1, *rest1, start, alternatives),
     };
 
     alternatives[focus_idx].kind = focus_kind;
@@ -275,8 +292,9 @@ fn transform_with_focus_on_idx(alternatives: &mut Vec<P<Pat>>, focus_idx: usize)
 /// So when we fixate on some `ident_k: pat_k`, we try to find `ident_k` in the other pattern
 /// and check that all `fp_i` where `i ∈ ((0...n) \ k)` between two patterns are equal.
 fn extend_with_struct_pat(
+    qself1: &Option<ast::QSelf>,
     path1: &ast::Path,
-    fps1: &mut Vec<ast::FieldPat>,
+    fps1: &mut [ast::PatField],
     rest1: bool,
     start: usize,
     alternatives: &mut Vec<P<Pat>>,
@@ -287,8 +305,9 @@ fn extend_with_struct_pat(
             start,
             alternatives,
             |k| {
-                matches!(k, Struct(path2, fps2, rest2)
+                matches!(k, Struct(qself2, path2, fps2, rest2)
                 if rest1 == *rest2 // If one struct pattern has `..` so must the other.
+                && eq_maybe_qself(qself1, qself2)
                 && eq_path(path1, path2)
                 && fps1.len() == fps2.len()
                 && fps1.iter().enumerate().all(|(idx_1, fp1)| {
@@ -304,7 +323,7 @@ fn extend_with_struct_pat(
                 }))
             },
             // Extract `p2_k`.
-            |k| always_pat!(k, Struct(_, mut fps, _) => fps.swap_remove(pos_in_2.take().unwrap()).pat),
+            |k| always_pat!(k, Struct(_, _, mut fps, _) => fps.swap_remove(pos_in_2.take().unwrap()).pat),
         );
         extend_with_tail_or(&mut fps1[idx].pat, tail_or)
     })
@@ -316,7 +335,7 @@ fn extend_with_struct_pat(
 /// while also requiring `ps1[..n] ~ ps2[..n]` (pre) and `ps1[n + 1..] ~ ps2[n + 1..]` (post),
 /// where `~` denotes semantic equality.
 fn extend_with_matching_product(
-    targets: &mut Vec<P<Pat>>,
+    targets: &mut [P<Pat>],
     start: usize,
     alternatives: &mut Vec<P<Pat>>,
     predicate: impl Fn(&PatKind, &[P<Pat>], usize) -> bool,
@@ -340,6 +359,7 @@ fn take_pat(from: &mut Pat) -> Pat {
         id: DUMMY_NODE_ID,
         kind: Wild,
         span: DUMMY_SP,
+        tokens: None,
     };
     mem::replace(from, dummy)
 }
@@ -400,8 +420,8 @@ fn extend_with_matching(
 
 /// Are the patterns in `ps1` and `ps2` equal save for `ps1[idx]` compared to `ps2[idx]`?
 fn eq_pre_post(ps1: &[P<Pat>], ps2: &[P<Pat>], idx: usize) -> bool {
-    ps1[idx].is_rest() == ps2[idx].is_rest() // Avoid `[x, ..] | [x, 0]` => `[x, .. | 0]`.
-        && ps1.len() == ps2.len()
+    ps1.len() == ps2.len()
+        && ps1[idx].is_rest() == ps2[idx].is_rest() // Avoid `[x, ..] | [x, 0]` => `[x, .. | 0]`.
         && over(&ps1[..idx], &ps2[..idx], |l, r| eq_pat(l, r))
         && over(&ps1[idx + 1..], &ps2[idx + 1..], |l, r| eq_pat(l, r))
 }

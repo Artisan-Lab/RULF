@@ -20,16 +20,15 @@ struct Foo4C {
     baz: usize
 }
 
+#[warn(unaligned_references)]
 pub fn main() {
     let foo = Foo1 { bar: 1, baz: 2 };
-    let brw = unsafe { &foo.baz };
+    let brw = &foo.baz; //~WARN reference to packed field is unaligned
+    //~^ previously accepted
     assert_eq!(*brw, 2);
 
     let foo = Foo2 { bar: 1, baz: 2 };
-    let brw = unsafe { &foo.baz };
-    assert_eq!(*brw, 2);
-
-    let foo = Foo4C { bar: 1, baz: 2 };
-    let brw = unsafe { &foo.baz };
+    let brw = &foo.baz; //~WARN reference to packed field is unaligned
+    //~^ previously accepted
     assert_eq!(*brw, 2);
 }

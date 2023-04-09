@@ -3,6 +3,6 @@
 // compile-flags: --emit=dep-info,metadata
 
 const FOO: i32 = [][0];
-//~^ ERROR any use of this value will cause an error
+//~^ ERROR evaluation of constant value failed
 
 fn main() {}

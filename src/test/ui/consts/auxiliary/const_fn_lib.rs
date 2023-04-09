@@ -1,6 +1,5 @@
 // Crate that exports a const fn. Used for testing cross-crate.
 
-#![feature(const_fn)]
 #![crate_type="rlib"]
 
 pub const fn foo() -> usize { 22 }

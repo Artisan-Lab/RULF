@@ -1,7 +1,9 @@
+// Checks that `impl Trait<{anon_const}> for Type` evaluates successfully.
 // run-pass
+// revisions: full min
 
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
+#![cfg_attr(full, feature(generic_const_exprs))]
+#![cfg_attr(full, allow(incomplete_features))]
 
 trait IsZeroTrait<const IS_ZERO: bool>{}
 

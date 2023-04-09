@@ -1,13 +1,10 @@
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 fn f<T: Copy, const N: usize>(x: T) -> [T; N] {
     [x; N]
 }
 
 fn g<T, const N: usize>(x: T) -> [T; N] {
     [x; N]
-    //~^ ERROR the trait bound `T: std::marker::Copy` is not satisfied
+    //~^ ERROR the trait bound `T: Copy` is not satisfied
 }
 
 fn main() {

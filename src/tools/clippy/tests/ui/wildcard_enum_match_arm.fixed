@@ -1,16 +1,18 @@
 // run-rustfix
-
+// aux-build:non-exhaustive-enum.rs
 #![deny(clippy::wildcard_enum_match_arm)]
+#![allow(dead_code, unreachable_code, unused_variables)]
 #![allow(
-    unreachable_code,
-    unused_variables,
-    dead_code,
+    clippy::diverging_sub_expression,
     clippy::single_match,
-    clippy::wildcard_in_or_patterns,
-    clippy::unnested_or_patterns
+    clippy::uninlined_format_args,
+    clippy::unnested_or_patterns,
+    clippy::wildcard_in_or_patterns
 )]
 
-use std::io::ErrorKind;
+extern crate non_exhaustive_enum;
+
+use non_exhaustive_enum::ErrorKind;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Color {
@@ -76,27 +78,25 @@ fn main() {
     let error_kind = ErrorKind::NotFound;
     match error_kind {
         ErrorKind::NotFound => {},
-        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::NotConnected | std::io::ErrorKind::AddrInUse | std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::WouldBlock | std::io::ErrorKind::InvalidInput | std::io::ErrorKind::InvalidData | std::io::ErrorKind::TimedOut | std::io::ErrorKind::WriteZero | std::io::ErrorKind::Interrupted | std::io::ErrorKind::Other | std::io::ErrorKind::UnexpectedEof | _ => {},
+        ErrorKind::PermissionDenied | _ => {},
     }
     match error_kind {
         ErrorKind::NotFound => {},
         ErrorKind::PermissionDenied => {},
-        ErrorKind::ConnectionRefused => {},
-        ErrorKind::ConnectionReset => {},
-        ErrorKind::ConnectionAborted => {},
-        ErrorKind::NotConnected => {},
-        ErrorKind::AddrInUse => {},
-        ErrorKind::AddrNotAvailable => {},
-        ErrorKind::BrokenPipe => {},
-        ErrorKind::AlreadyExists => {},
-        ErrorKind::WouldBlock => {},
-        ErrorKind::InvalidInput => {},
-        ErrorKind::InvalidData => {},
-        ErrorKind::TimedOut => {},
-        ErrorKind::WriteZero => {},
-        ErrorKind::Interrupted => {},
-        ErrorKind::Other => {},
-        ErrorKind::UnexpectedEof => {},
         _ => {},
+    }
+
+    {
+        #![allow(clippy::manual_non_exhaustive)]
+        pub enum Enum {
+            A,
+            B,
+            #[doc(hidden)]
+            __Private,
+        }
+        match Enum::A {
+            Enum::A => (),
+            Enum::B | _ => (),
+        }
     }
 }

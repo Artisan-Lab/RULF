@@ -4,6 +4,8 @@ error[E0507]: cannot move out of `x.0`, as `x` is a captured variable in an `Fn`
 LL |     let x = X(Y);
    |         - captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
 LL |         let X(_t) = x;
    |               --    ^ help: consider borrowing here: `&x`
    |               |
@@ -15,6 +17,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `Fn`
    |
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
+...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
 ...
 LL |         if let Either::One(_t) = e { }
    |                            --    ^ help: consider borrowing here: `&e`
@@ -28,6 +33,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `Fn`
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
+...
 LL |         while let Either::One(_t) = e { }
    |                               --    ^ help: consider borrowing here: `&e`
    |                               |
@@ -39,6 +47,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `Fn`
    |
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
+...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
 ...
 LL |         match e {
    |               ^ help: consider borrowing here: `&e`
@@ -55,6 +66,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `Fn`
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
+...
 LL |         match e {
    |               ^ help: consider borrowing here: `&e`
 ...
@@ -70,6 +84,9 @@ error[E0507]: cannot move out of `x.0`, as `x` is a captured variable in an `Fn`
 LL |     let x = X(Y);
    |         - captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
+...
 LL |         let X(mut _t) = x;
    |               ------    ^ help: consider borrowing here: `&x`
    |               |
@@ -81,6 +98,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
    |
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
+...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
 ...
 LL |         if let Either::One(mut _t) = em { }
    |                            ------    ^^ help: consider borrowing here: `&em`
@@ -94,6 +114,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
+...
 LL |         while let Either::One(mut _t) = em { }
    |                               ------    ^^ help: consider borrowing here: `&em`
    |                               |
@@ -105,6 +128,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
    |
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
+...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
 ...
 LL |         match em {
    |               ^^ help: consider borrowing here: `&em`
@@ -121,6 +147,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
 ...
+LL |     consume_fn(|| {
+   |                -- captured by this `Fn` closure
+...
 LL |         match em {
    |               ^^ help: consider borrowing here: `&em`
 ...
@@ -136,6 +165,8 @@ error[E0507]: cannot move out of `x.0`, as `x` is a captured variable in an `FnM
 LL |     let x = X(Y);
    |         - captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 LL |         let X(_t) = x;
    |               --    ^ help: consider borrowing here: `&x`
    |               |
@@ -147,6 +178,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `FnM
    |
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
+...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 ...
 LL |         if let Either::One(_t) = e { }
    |                            --    ^ help: consider borrowing here: `&e`
@@ -160,6 +194,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `FnM
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
+...
 LL |         while let Either::One(_t) = e { }
    |                               --    ^ help: consider borrowing here: `&e`
    |                               |
@@ -171,6 +208,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `FnM
    |
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
+...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 ...
 LL |         match e {
    |               ^ help: consider borrowing here: `&e`
@@ -187,6 +227,9 @@ error[E0507]: cannot move out of `e.0`, as `e` is a captured variable in an `FnM
 LL |     let e = Either::One(X(Y));
    |         - captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
+...
 LL |         match e {
    |               ^ help: consider borrowing here: `&e`
 ...
@@ -202,6 +245,9 @@ error[E0507]: cannot move out of `x.0`, as `x` is a captured variable in an `FnM
 LL |     let x = X(Y);
    |         - captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
+...
 LL |         let X(mut _t) = x;
    |               ------    ^ help: consider borrowing here: `&x`
    |               |
@@ -213,6 +259,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
    |
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
+...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 ...
 LL |         if let Either::One(mut _t) = em { }
    |                            ------    ^^ help: consider borrowing here: `&em`
@@ -226,6 +275,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
+...
 LL |         while let Either::One(mut _t) = em { }
    |                               ------    ^^ help: consider borrowing here: `&em`
    |                               |
@@ -237,6 +289,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
    |
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
+...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 ...
 LL |         match em {
    |               ^^ help: consider borrowing here: `&em`
@@ -253,6 +308,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
 ...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
+...
 LL |         match em {
    |               ^^ help: consider borrowing here: `&em`
 ...
@@ -267,6 +325,9 @@ error[E0507]: cannot move out of `em.0`, as `em` is a captured variable in an `F
    |
 LL |     let mut em = Either::One(X(Y));
    |         ------ captured outer variable
+...
+LL |     consume_fnmut(|| {
+   |                   -- captured by this `FnMut` closure
 ...
 LL |         match em {
    |               ^^ help: consider borrowing here: `&em`

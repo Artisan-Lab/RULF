@@ -1,26 +1,23 @@
-use crate::utils::{attr_by_name, in_macro, match_path_ast, span_lint_and_help};
-use rustc_ast::ast::{AssocItemKind, Extern, FnSig, Item, ItemKind, Ty, TyKind};
+use clippy_utils::diagnostics::span_lint_and_help;
+use rustc_ast::ast::{AssocItemKind, Extern, Fn, FnSig, Impl, Item, ItemKind, Trait, Ty, TyKind};
 use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_session::{declare_tool_lint, impl_lint_pass};
-use rustc_span::Span;
-
-use std::convert::TryInto;
+use rustc_span::{sym, Span};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for excessive
+    /// ### What it does
+    /// Checks for excessive
     /// use of bools in structs.
     ///
-    /// **Why is this bad?** Excessive bools in a struct
+    /// ### Why is this bad?
+    /// Excessive bools in a struct
     /// is often a sign that it's used as a state machine,
     /// which is much better implemented as an enum.
     /// If it's not the case, excessive bools usually benefit
     /// from refactoring into two-variant enums for better
     /// readability and API.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    /// Bad:
+    /// ### Example
     /// ```rust
     /// struct S {
     ///     is_pending: bool,
@@ -29,7 +26,7 @@ declare_clippy_lint! {
     /// }
     /// ```
     ///
-    /// Good:
+    /// Use instead:
     /// ```rust
     /// enum S {
     ///     Pending,
@@ -37,31 +34,31 @@ declare_clippy_lint! {
     ///     Finished,
     /// }
     /// ```
+    #[clippy::version = "1.43.0"]
     pub STRUCT_EXCESSIVE_BOOLS,
     pedantic,
     "using too many bools in a struct"
 }
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for excessive use of
+    /// ### What it does
+    /// Checks for excessive use of
     /// bools in function definitions.
     ///
-    /// **Why is this bad?** Calls to such functions
+    /// ### Why is this bad?
+    /// Calls to such functions
     /// are confusing and error prone, because it's
     /// hard to remember argument order and you have
     /// no type system support to back you up. Using
     /// two-variant enums instead of bools often makes
     /// API easier to use.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    /// Bad:
+    /// ### Example
     /// ```rust,ignore
     /// fn f(is_round: bool, is_hot: bool) { ... }
     /// ```
     ///
-    /// Good:
+    /// Use instead:
     /// ```rust,ignore
     /// enum Shape {
     ///     Round,
@@ -75,6 +72,7 @@ declare_clippy_lint! {
     ///
     /// fn f(shape: Shape, temperature: Temperature) { ... }
     /// ```
+    #[clippy::version = "1.43.0"]
     pub FN_PARAMS_EXCESSIVE_BOOLS,
     pedantic,
     "using too many bools in function parameters"
@@ -96,7 +94,7 @@ impl ExcessiveBools {
 
     fn check_fn_sig(&self, cx: &EarlyContext<'_>, fn_sig: &FnSig, span: Span) {
         match fn_sig.header.ext {
-            Extern::Implicit | Extern::Explicit(_) => return,
+            Extern::Implicit(_) | Extern::Explicit(_, _) => return,
             Extern::None => (),
         }
 
@@ -125,19 +123,21 @@ impl_lint_pass!(ExcessiveBools => [STRUCT_EXCESSIVE_BOOLS, FN_PARAMS_EXCESSIVE_B
 
 fn is_bool_ty(ty: &Ty) -> bool {
     if let TyKind::Path(None, path) = &ty.kind {
-        return match_path_ast(path, &["bool"]);
+        if let [name] = path.segments.as_slice() {
+            return name.ident.name == sym::bool;
+        }
     }
     false
 }
 
 impl EarlyLintPass for ExcessiveBools {
     fn check_item(&mut self, cx: &EarlyContext<'_>, item: &Item) {
-        if in_macro(item.span) {
+        if item.span.from_expansion() {
             return;
         }
         match &item.kind {
             ItemKind::Struct(variant_data, _) => {
-                if attr_by_name(&item.attrs, "repr").is_some() {
+                if item.attrs.iter().any(|attr| attr.has_name(sym::repr)) {
                     return;
                 }
 
@@ -159,17 +159,17 @@ impl EarlyLintPass for ExcessiveBools {
                     );
                 }
             },
-            ItemKind::Impl {
+            ItemKind::Impl(box Impl {
                 of_trait: None, items, ..
-            }
-            | ItemKind::Trait(_, _, _, _, items) => {
+            })
+            | ItemKind::Trait(box Trait { items, .. }) => {
                 for item in items {
-                    if let AssocItemKind::Fn(_, fn_sig, _, _) = &item.kind {
-                        self.check_fn_sig(cx, fn_sig, item.span);
+                    if let AssocItemKind::Fn(box Fn { sig, .. }) = &item.kind {
+                        self.check_fn_sig(cx, sig, item.span);
                     }
                 }
             },
-            ItemKind::Fn(_, fn_sig, _, _) => self.check_fn_sig(cx, fn_sig, item.span),
+            ItemKind::Fn(box Fn { sig, .. }) => self.check_fn_sig(cx, sig, item.span),
             _ => (),
         }
     }

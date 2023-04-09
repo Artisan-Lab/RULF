@@ -1,9 +1,7 @@
 // run-pass
-// ignore-wasm32-bare compiled with panic=abort by default
+// needs-unwind
 
-#![feature(generators, generator_trait, untagged_unions)]
-#![feature(move_ref_pattern)]
-#![feature(bindings_after_at)]
+#![feature(generators, generator_trait)]
 
 #![allow(unused_assignments)]
 #![allow(unused_variables)]
@@ -13,7 +11,6 @@ use std::mem::ManuallyDrop;
 use std::ops::Generator;
 use std::panic;
 use std::pin::Pin;
-use std::usize;
 
 struct InjectedFailure;
 
@@ -47,7 +44,7 @@ impl Allocator {
         self.cur_ops.set(self.cur_ops.get() + 1);
 
         if self.cur_ops.get() == self.failing_op {
-            panic!(InjectedFailure);
+            panic::panic_any(InjectedFailure);
         }
 
         let mut data = self.data.borrow_mut();
@@ -84,7 +81,7 @@ impl<'a> Drop for Ptr<'a> {
         self.1.cur_ops.set(self.1.cur_ops.get()+1);
 
         if self.1.cur_ops.get() == self.1.failing_op {
-            panic!(InjectedFailure);
+            panic::panic_any(InjectedFailure);
         }
     }
 }
@@ -105,7 +102,7 @@ fn dynamic_drop(a: &Allocator, c: bool) {
     };
 }
 
-struct TwoPtrs<'a>(Ptr<'a>, Ptr<'a>);
+struct TwoPtrs<'a>(Ptr<'a>, #[allow(unused_tuple_struct_fields)] Ptr<'a>);
 fn struct_dynamic_drop(a: &Allocator, c0: bool, c1: bool, c: bool) {
     for i in 0..2 {
         let x;

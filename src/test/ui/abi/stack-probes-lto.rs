@@ -3,16 +3,14 @@
 // ignore-aarch64
 // ignore-mips
 // ignore-mips64
-// ignore-powerpc
-// ignore-s390x
 // ignore-sparc
 // ignore-sparc64
 // ignore-wasm
-// ignore-cloudabi no processes
 // ignore-emscripten no processes
 // ignore-sgx no processes
 // ignore-musl FIXME #31506
 // ignore-pretty
+// ignore-fuchsia no exception handler registered for segfault
 // compile-flags: -C lto
 // no-prefer-dynamic
 

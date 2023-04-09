@@ -12,7 +12,9 @@
 
 fn main() {}
 
-trait Bar { type Assoc; }
+trait Bar {
+    type Assoc;
+}
 
 trait Thing {
     type Out;
@@ -20,13 +22,15 @@ trait Thing {
 }
 
 struct AssocNoCopy;
-impl Bar for AssocNoCopy { type Assoc = String; }
+impl Bar for AssocNoCopy {
+    type Assoc = String;
+}
 
 impl Thing for AssocNoCopy {
     type Out = Box<dyn Bar<Assoc: Copy>>;
-    //~^ ERROR the trait bound `std::string::String: std::marker::Copy` is not satisfied
 
     fn func() -> Self::Out {
+        //~^ ERROR the trait bound `String: Copy` is not satisfied
         Box::new(AssocNoCopy)
     }
 }

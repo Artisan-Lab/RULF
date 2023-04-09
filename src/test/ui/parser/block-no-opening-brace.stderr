@@ -1,29 +1,41 @@
 error: expected `{`, found keyword `let`
   --> $DIR/block-no-opening-brace.rs:9:9
    |
+LL |     loop
+   |     ---- while parsing this `loop` expression
 LL |         let x = 0;
-   |         ^^^-------
-   |         |
-   |         expected `{`
-   |         help: try placing this code inside a block: `{ let x = 0; }`
+   |         ^^^ expected `{`
+   |
+help: try placing this code inside a block
+   |
+LL |         { let x = 0; }
+   |         +            +
 
 error: expected `{`, found keyword `let`
   --> $DIR/block-no-opening-brace.rs:15:9
    |
+LL |     while true
+   |     ----- ---- this `while` condition successfully parsed
+   |     |
+   |     while parsing the body of this `while` expression
 LL |         let x = 0;
-   |         ^^^-------
-   |         |
-   |         expected `{`
-   |         help: try placing this code inside a block: `{ let x = 0; }`
+   |         ^^^ expected `{`
+   |
+help: try placing this code inside a block
+   |
+LL |         { let x = 0; }
+   |         +            +
 
 error: expected `{`, found keyword `let`
   --> $DIR/block-no-opening-brace.rs:20:9
    |
 LL |         let x = 0;
-   |         ^^^-------
-   |         |
-   |         expected `{`
-   |         help: try placing this code inside a block: `{ let x = 0; }`
+   |         ^^^ expected `{`
+   |
+help: try placing this code inside a block
+   |
+LL |         { let x = 0; }
+   |         +            +
 
 error: expected expression, found reserved keyword `try`
   --> $DIR/block-no-opening-brace.rs:24:5
@@ -39,15 +51,5 @@ LL |     async
 LL |         let x = 0;
    |         ^^^ unexpected token
 
-error[E0658]: async closures are unstable
-  --> $DIR/block-no-opening-brace.rs:29:5
-   |
-LL |     async
-   |     ^^^^^
-   |
-   = note: see issue #62290 <https://github.com/rust-lang/rust/issues/62290> for more information
-   = help: add `#![feature(async_closure)]` to the crate attributes to enable
+error: aborting due to 5 previous errors
 
-error: aborting due to 6 previous errors
-
-For more information about this error, try `rustc --explain E0658`.

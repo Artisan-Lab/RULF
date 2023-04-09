@@ -1,5 +1,4 @@
 // run-rustfix
-// edition:2018
 #![warn(clippy::manual_async_fn)]
 #![allow(unused)]
 
@@ -9,7 +8,27 @@ fn fut() -> impl Future<Output = i32> {
     async { 42 }
 }
 
+#[rustfmt::skip]
+fn fut2() ->impl Future<Output = i32> {
+    async { 42 }
+}
+
+#[rustfmt::skip]
+fn fut3()-> impl Future<Output = i32> {
+    async { 42 }
+}
+
 fn empty_fut() -> impl Future<Output = ()> {
+    async {}
+}
+
+#[rustfmt::skip]
+fn empty_fut2() ->impl Future<Output = ()> {
+    async {}
+}
+
+#[rustfmt::skip]
+fn empty_fut3()-> impl Future<Output = ()> {
     async {}
 }
 
@@ -33,11 +52,11 @@ async fn already_async() -> impl Future<Output = i32> {
     async { 42 }
 }
 
-struct S {}
+struct S;
 impl S {
     fn inh_fut() -> impl Future<Output = i32> {
         async {
-            // NOTE: this code is here just to check that the identation is correct in the suggested fix
+            // NOTE: this code is here just to check that the indentation is correct in the suggested fix
             let a = 42;
             let b = 21;
             if a < b {
@@ -49,14 +68,6 @@ impl S {
             }
             42
         }
-    }
-
-    fn meth_fut(&self) -> impl Future<Output = i32> {
-        async { 42 }
-    }
-
-    fn empty_fut(&self) -> impl Future<Output = ()> {
-        async {}
     }
 
     // should be ignored
@@ -73,6 +84,46 @@ impl S {
     // should be ignored
     async fn already_async(&self) -> impl Future<Output = i32> {
         async { 42 }
+    }
+}
+
+// Tests related to lifetime capture
+
+fn elided(_: &i32) -> impl Future<Output = i32> + '_ {
+    async { 42 }
+}
+
+// should be ignored
+fn elided_not_bound(_: &i32) -> impl Future<Output = i32> {
+    async { 42 }
+}
+
+fn explicit<'a, 'b>(_: &'a i32, _: &'b i32) -> impl Future<Output = i32> + 'a + 'b {
+    async { 42 }
+}
+
+// should be ignored
+#[allow(clippy::needless_lifetimes)]
+fn explicit_not_bound<'a, 'b>(_: &'a i32, _: &'b i32) -> impl Future<Output = i32> {
+    async { 42 }
+}
+
+// should be ignored
+mod issue_5765 {
+    use std::future::Future;
+
+    struct A;
+    impl A {
+        fn f(&self) -> impl Future<Output = ()> {
+            async {}
+        }
+    }
+
+    fn test() {
+        let _future = {
+            let a = A;
+            a.f()
+        };
     }
 }
 

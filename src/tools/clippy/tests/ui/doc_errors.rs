@@ -1,5 +1,6 @@
-// edition:2018
 #![warn(clippy::missing_errors_doc)]
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::unnecessary_wraps)]
 
 use std::io;
 

@@ -1,8 +1,8 @@
 use super::*;
 
-use rustc_ast::ast::*;
 use rustc_ast::attr;
-use rustc_ast::with_default_session_globals;
+use rustc_ast::Path;
+use rustc_span::create_default_session_globals_then;
 use rustc_span::symbol::{Ident, Symbol};
 use rustc_span::DUMMY_SP;
 
@@ -52,7 +52,7 @@ macro_rules! dummy_meta_item_list {
 
 #[test]
 fn test_cfg_not() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         assert_eq!(!Cfg::False, Cfg::True);
         assert_eq!(!Cfg::True, Cfg::False);
         assert_eq!(!word_cfg("test"), Cfg::Not(Box::new(word_cfg("test"))));
@@ -70,7 +70,7 @@ fn test_cfg_not() {
 
 #[test]
 fn test_cfg_and() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         let mut x = Cfg::False;
         x &= Cfg::True;
         assert_eq!(x, Cfg::False);
@@ -154,14 +154,14 @@ fn test_cfg_and() {
 
 #[test]
 fn test_cfg_or() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         let mut x = Cfg::True;
         x |= Cfg::False;
         assert_eq!(x, Cfg::True);
 
         x = word_cfg("test");
         x |= Cfg::True;
-        assert_eq!(x, Cfg::True);
+        assert_eq!(x, word_cfg("test"));
 
         x = word_cfg("test2");
         x |= Cfg::False;
@@ -238,7 +238,7 @@ fn test_cfg_or() {
 
 #[test]
 fn test_parse_ok() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         let mi = dummy_meta_item_word("all");
         assert_eq!(Cfg::parse(&mi), Ok(word_cfg("all")));
 
@@ -271,7 +271,7 @@ fn test_parse_ok() {
 
 #[test]
 fn test_parse_err() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         let mi = attr::mk_name_value_item(Ident::from_str("foo"), LitKind::Bool(false), DUMMY_SP);
         assert!(Cfg::parse(&mi).is_err());
 
@@ -303,7 +303,7 @@ fn test_parse_err() {
 
 #[test]
 fn test_render_short_html() {
-    with_default_session_globals(|| {
+    create_default_session_globals_then(|| {
         assert_eq!(word_cfg("unix").render_short_html(), "Unix");
         assert_eq!(name_value_cfg("target_os", "macos").render_short_html(), "macOS");
         assert_eq!(name_value_cfg("target_pointer_width", "16").render_short_html(), "16-bit");
@@ -358,79 +358,110 @@ fn test_render_short_html() {
 
 #[test]
 fn test_render_long_html() {
-    with_default_session_globals(|| {
-        assert_eq!(
-            word_cfg("unix").render_long_html(),
-            "This is supported on <strong>Unix</strong> only."
-        );
+    create_default_session_globals_then(|| {
+        assert_eq!(word_cfg("unix").render_long_html(), "Available on <strong>Unix</strong> only.");
         assert_eq!(
             name_value_cfg("target_os", "macos").render_long_html(),
-            "This is supported on <strong>macOS</strong> only."
+            "Available on <strong>macOS</strong> only."
+        );
+        assert_eq!(
+            name_value_cfg("target_os", "wasi").render_long_html(),
+            "Available on <strong>WASI</strong> only."
         );
         assert_eq!(
             name_value_cfg("target_pointer_width", "16").render_long_html(),
-            "This is supported on <strong>16-bit</strong> only."
+            "Available on <strong>16-bit</strong> only."
         );
         assert_eq!(
             name_value_cfg("target_endian", "little").render_long_html(),
-            "This is supported on <strong>little-endian</strong> only."
+            "Available on <strong>little-endian</strong> only."
         );
         assert_eq!(
             (!word_cfg("windows")).render_long_html(),
-            "This is supported on <strong>non-Windows</strong> only."
+            "Available on <strong>non-Windows</strong> only."
         );
         assert_eq!(
             (word_cfg("unix") & word_cfg("windows")).render_long_html(),
-            "This is supported on <strong>Unix and Windows</strong> only."
+            "Available on <strong>Unix and Windows</strong> only."
         );
         assert_eq!(
             (word_cfg("unix") | word_cfg("windows")).render_long_html(),
-            "This is supported on <strong>Unix or Windows</strong> only."
+            "Available on <strong>Unix or Windows</strong> only."
         );
         assert_eq!(
             (word_cfg("unix") & word_cfg("windows") & word_cfg("debug_assertions"))
                 .render_long_html(),
-            "This is supported on <strong>Unix and Windows and debug-assertions enabled\
-                </strong> only."
+            "Available on <strong>Unix and Windows and debug-assertions enabled</strong> only."
         );
         assert_eq!(
             (word_cfg("unix") | word_cfg("windows") | word_cfg("debug_assertions"))
                 .render_long_html(),
-            "This is supported on <strong>Unix or Windows or debug-assertions enabled\
-                </strong> only."
+            "Available on <strong>Unix or Windows or debug-assertions enabled</strong> only."
         );
         assert_eq!(
             (!(word_cfg("unix") | word_cfg("windows") | word_cfg("debug_assertions")))
                 .render_long_html(),
-            "This is supported on <strong>neither Unix nor Windows nor debug-assertions \
-                enabled</strong>."
+            "Available on <strong>neither Unix nor Windows nor debug-assertions enabled</strong>."
         );
         assert_eq!(
             ((word_cfg("unix") & name_value_cfg("target_arch", "x86_64"))
                 | (word_cfg("windows") & name_value_cfg("target_pointer_width", "64")))
             .render_long_html(),
-            "This is supported on <strong>Unix and x86-64, or Windows and 64-bit</strong> \
-                only."
+            "Available on <strong>Unix and x86-64, or Windows and 64-bit</strong> only."
         );
         assert_eq!(
             (!(word_cfg("unix") & word_cfg("windows"))).render_long_html(),
-            "This is supported on <strong>not (Unix and Windows)</strong>."
+            "Available on <strong>not (Unix and Windows)</strong>."
         );
         assert_eq!(
             ((word_cfg("debug_assertions") | word_cfg("windows")) & word_cfg("unix"))
                 .render_long_html(),
-            "This is supported on <strong>(debug-assertions enabled or Windows) and Unix\
-            </strong> only."
+            "Available on <strong>(debug-assertions enabled or Windows) and Unix</strong> only."
         );
         assert_eq!(
             name_value_cfg("target_feature", "sse2").render_long_html(),
-            "This is supported with <strong>target feature <code>sse2</code></strong> only."
+            "Available with <strong>target feature <code>sse2</code></strong> only."
         );
         assert_eq!(
             (name_value_cfg("target_arch", "x86_64") & name_value_cfg("target_feature", "sse2"))
                 .render_long_html(),
-            "This is supported on <strong>x86-64 and target feature \
-            <code>sse2</code></strong> only."
+            "Available on <strong>x86-64 and target feature <code>sse2</code></strong> only."
         );
     })
+}
+
+#[test]
+fn test_simplify_with() {
+    // This is a tiny subset of things that could be simplified, but it likely covers 90% of
+    // real world usecases well.
+    create_default_session_globals_then(|| {
+        let foo = word_cfg("foo");
+        let bar = word_cfg("bar");
+        let baz = word_cfg("baz");
+        let quux = word_cfg("quux");
+
+        let foobar = Cfg::All(vec![foo.clone(), bar.clone()]);
+        let barbaz = Cfg::All(vec![bar.clone(), baz.clone()]);
+        let foobarbaz = Cfg::All(vec![foo.clone(), bar.clone(), baz.clone()]);
+        let bazquux = Cfg::All(vec![baz.clone(), quux.clone()]);
+
+        // Unrelated cfgs don't affect each other
+        assert_eq!(foo.simplify_with(&bar).as_ref(), Some(&foo));
+        assert_eq!(foobar.simplify_with(&bazquux).as_ref(), Some(&foobar));
+
+        // Identical cfgs are eliminated
+        assert_eq!(foo.simplify_with(&foo), None);
+        assert_eq!(foobar.simplify_with(&foobar), None);
+
+        // Multiple cfgs eliminate a single assumed cfg
+        assert_eq!(foobar.simplify_with(&foo).as_ref(), Some(&bar));
+        assert_eq!(foobar.simplify_with(&bar).as_ref(), Some(&foo));
+
+        // A single cfg is eliminated by multiple assumed cfg containing it
+        assert_eq!(foo.simplify_with(&foobar), None);
+
+        // Multiple cfgs eliminate the matching subset of multiple assumed cfg
+        assert_eq!(foobar.simplify_with(&barbaz).as_ref(), Some(&foo));
+        assert_eq!(foobar.simplify_with(&foobarbaz), None);
+    });
 }

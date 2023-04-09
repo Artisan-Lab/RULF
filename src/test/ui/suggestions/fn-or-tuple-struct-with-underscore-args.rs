@@ -8,12 +8,12 @@ trait T {
 
 fn main() {
     let _: usize = foo(_, _);
-    //~^ ERROR expected expression
-    //~| ERROR expected expression
+    //~^ ERROR `_` can only be used on the left-hand side of an assignment
+    //~| ERROR `_` can only be used on the left-hand side of an assignment
     let _: S = S(_, _);
-    //~^ ERROR expected expression
-    //~| ERROR expected expression
+    //~^ ERROR `_` can only be used on the left-hand side of an assignment
+    //~| ERROR `_` can only be used on the left-hand side of an assignment
     let _: usize = T::baz(_, _);
-    //~^ ERROR expected expression
-    //~| ERROR expected expression
+    //~^ ERROR `_` can only be used on the left-hand side of an assignment
+    //~| ERROR `_` can only be used on the left-hand side of an assignment
 }

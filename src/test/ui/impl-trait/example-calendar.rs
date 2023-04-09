@@ -2,7 +2,6 @@
 
 #![feature(fn_traits,
            step_trait,
-           step_trait_ext,
            unboxed_closures,
 )]
 
@@ -156,7 +155,7 @@ impl<'a, 'b> std::ops::Add<&'b NaiveDate> for &'a NaiveDate {
     }
 }
 
-unsafe impl std::iter::Step for NaiveDate {
+impl std::iter::Step for NaiveDate {
     fn steps_between(_: &Self, _: &Self) -> Option<usize> {
         unimplemented!()
     }

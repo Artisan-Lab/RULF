@@ -1,10 +1,11 @@
-//This file contains functions to print intermediate info
+//This file cratecontains functions to print intermediate info
 
+use crate::formats::cache::Cache;
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
 
 //print generated sequences
-pub fn _print_pretty_sequences(graph: &ApiGraph) {
+pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
     println!("sequences:");
     for api_sequence in &graph.api_sequences {
         let mut one_sequence = String::new();
@@ -23,7 +24,7 @@ pub fn _print_pretty_sequences(graph: &ApiGraph) {
     }
 }
 
-pub fn _print_pretty_functions(graph: &ApiGraph, check_visited: bool) {
+pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache:&Cache, check_visited: bool) {
     println!("functions");
     let api_functions_num = graph.api_functions.len();
     for i in 0..api_functions_num {
@@ -34,13 +35,13 @@ pub fn _print_pretty_functions(graph: &ApiGraph, check_visited: bool) {
             }
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print(&graph.full_name_map);
+        let fn_line = api_function._pretty_print(&graph.full_name_map, cache);
 
         println!("{}:{}", i, fn_line);
     }
 }
 
-pub fn _print_pretty_dependencies(graph: &ApiGraph) {
+pub(crate) fn _print_pretty_dependencies(graph: &ApiGraph<'_>) {
     println!("dependencies:");
     println!("function number: {:?}", graph.api_functions.len());
     for dependency in &graph.api_dependencies {
@@ -69,16 +70,16 @@ pub fn _print_pretty_dependencies(graph: &ApiGraph) {
     }
 }
 
-pub fn _print_generated_test_functions(graph: &ApiGraph) {
+pub(crate) fn _print_generated_test_functions(graph: &ApiGraph<'_>) {
     println!("test_functions:");
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_well_written_function(graph, i, 0));
+        println!("{}", api_sequence._to_well_written_function(graph, i, 0,));
     }
 }
 
-pub fn _print_generated_afl_file(graph: &ApiGraph) {
+pub(crate) fn _print_generated_afl_file(graph: &ApiGraph<'_>) {
     println!("afl_files:");
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
@@ -89,7 +90,7 @@ pub fn _print_generated_afl_file(graph: &ApiGraph) {
 }
 
 //libfuzzer is not supported now
-pub fn _print_generated_libfuzzer_file(graph: &ApiGraph) {
+pub(crate) fn _print_generated_libfuzzer_file(graph: &ApiGraph<'_>) {
     println!("libfuzzer files");
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
@@ -98,7 +99,7 @@ pub fn _print_generated_libfuzzer_file(graph: &ApiGraph) {
     }
 }
 
-pub fn _print_generic_functions(graph: &ApiGraph) {
+pub(crate) fn _print_generic_functions(graph: &ApiGraph<'_>) {
     println!("generic functions");
     graph.generic_functions.iter().for_each(|generic_function| {
         println!("{}", generic_function.api_function.full_name);

@@ -1,6 +1,5 @@
 // Regression test for #63952, shouldn't hang.
-
-use std::usize;
+// stderr-per-bitwidth
 
 #[repr(C)]
 #[derive(Copy, Clone)]

@@ -1,8 +1,6 @@
 // run-pass
 
-#![allow(incomplete_features)]
 #![feature(const_trait_impl)]
-#![feature(const_fn)]
 
 use std::marker::PhantomData;
 

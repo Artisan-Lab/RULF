@@ -1,10 +1,12 @@
 // run-pass
+// revisions: mir thir
+// [thir]compile-flags: -Zthir-unsafeck
 
 #![allow(stable_features)]
 // ignore-windows - this is a unix-specific test
-// ignore-cloudabi no processes
 // ignore-emscripten no processes
 // ignore-sgx no processes
+// ignore-fuchsia no execvp syscall
 #![feature(process_exec, rustc_private)]
 
 extern crate libc;
@@ -43,20 +45,6 @@ fn main() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(output.stdout, b"hello\nhello2\n");
-
-    let output = unsafe {
-        Command::new(&me)
-            .arg("test2")
-            .pre_exec(|| {
-                env::set_var("FOO", "BAR");
-                Ok(())
-            })
-            .output()
-            .unwrap()
-    };
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    assert!(output.stdout.is_empty());
 
     let output = unsafe {
         Command::new(&me)

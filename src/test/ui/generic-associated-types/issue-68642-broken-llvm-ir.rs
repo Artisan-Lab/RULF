@@ -1,8 +1,5 @@
 // Regression test for #68642
 
-#![feature(generic_associated_types)]
-//~^ WARNING the feature `generic_associated_types` is incomplete and may not
-
 trait Fun {
     type F<'a>: Fn() -> u32;
 
@@ -13,7 +10,7 @@ trait Fun {
 
 impl<T> Fun for T {
     type F<'a> = Self;
-    //~^ ERROR expected a `std::ops::Fn<()>` closure, found `T`
+    //~^ ERROR expected a `Fn<()>` closure, found `T`
 }
 
 fn main() {

@@ -1,4 +1,5 @@
-// ignore-cloudabi no std::path support
+// run-rustfix
+#![allow(dead_code)]
 
 macro_rules! y {
     () => {}

@@ -1,9 +1,5 @@
 // Tests using a combination of pattern features has the expected borrow checking behavior
-#![feature(bindings_after_at)]
-#![feature(or_patterns)]
 #![feature(box_patterns)]
-
-#![feature(move_ref_pattern)]
 
 enum Test {
     Foo,

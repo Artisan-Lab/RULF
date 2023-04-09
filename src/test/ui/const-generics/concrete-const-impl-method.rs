@@ -2,9 +2,6 @@
 // is callable.
 // run-pass
 
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 pub struct A<const N: u32>;
 
 impl A<2> {

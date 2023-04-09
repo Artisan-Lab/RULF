@@ -1,8 +1,5 @@
 // run-pass
 
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 use std::fmt;
 
 struct Array<T, const N: usize>([T; N]);

@@ -1,3 +1,4 @@
+// unit-test: ConstProp
 // compile-flags: -O
 
 // FIXME(wesleywiser): Ideally, we could const-prop away all of this and just be left with
@@ -6,7 +7,7 @@
 // Fixing either of those will allow us to const-prop this away.
 
 // EMIT_MIR_FOR_EACH_BIT_WIDTH
-// EMIT_MIR rustc.main.ConstProp.diff
+// EMIT_MIR discriminant.main.ConstProp.diff
 fn main() {
     let x = (if let Some(true) = Some(true) { 42 } else { 10 }) + 0;
 }

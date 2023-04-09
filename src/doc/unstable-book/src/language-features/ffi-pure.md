@@ -1,5 +1,9 @@
 # `ffi_pure`
 
+The tracking issue for this feature is: [#58329]
+
+------
+
 The `#[ffi_pure]` attribute applies clang's `pure` attribute to foreign
 functions declarations.
 
@@ -27,7 +31,7 @@ parameters (e.g. pointers), globals, etc. `#[ffi_pure]` functions are not
 referentially-transparent, and are therefore more relaxed than `#[ffi_const]`
 functions.
 
-However, accesing global memory through volatile or atomic reads can violate the
+However, accessing global memory through volatile or atomic reads can violate the
 requirement that two consecutive function calls shall return the same value.
 
 A `pure` function that returns unit has no effect on the abstract machine's
@@ -46,6 +50,7 @@ that the semantics of the C toolchain used to compile the binary being linked
 against are compatible with those of the `#[ffi_pure]`.
 
 
+[#58329]: https://github.com/rust-lang/rust/issues/58329
 [ARM C/C++ compiler]: http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0491c/Cacigdac.html
 [GCC]: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-pure-function-attribute
 [IBM ILE C/C++]: https://www.ibm.com/support/knowledgecenter/fr/ssw_ibm_i_71/rzarg/fn_attrib_pure.htm

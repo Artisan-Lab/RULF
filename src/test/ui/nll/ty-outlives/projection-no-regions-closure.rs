@@ -1,4 +1,4 @@
-// compile-flags:-Zborrowck=mir -Zverbose
+// compile-flags:-Zverbose
 
 // Tests closures that propagate an outlives relationship to their
 // creator where the subject is a projection with no regions (`<T as
@@ -23,7 +23,7 @@ where
     T: Iterator,
 {
     with_signature(x, |mut y| Box::new(y.next()))
-    //~^ ERROR the associated type `<T as std::iter::Iterator>::Item` may not live long enough
+    //~^ ERROR the associated type `<T as Iterator>::Item` may not live long enough
 }
 
 #[rustc_regions]
@@ -40,7 +40,7 @@ where
     T: 'b + Iterator,
 {
     with_signature(x, |mut y| Box::new(y.next()))
-    //~^ ERROR the associated type `<T as std::iter::Iterator>::Item` may not live long enough
+    //~^ ERROR the associated type `<T as Iterator>::Item` may not live long enough
 }
 
 #[rustc_regions]

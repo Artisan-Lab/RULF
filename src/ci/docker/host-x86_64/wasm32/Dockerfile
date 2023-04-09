@@ -1,8 +1,9 @@
-FROM ubuntu:16.04
+FROM ubuntu:20.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   g++ \
   make \
+  ninja-build \
   file \
   curl \
   ca-certificates \
@@ -47,15 +48,11 @@ ENV TARGETS=wasm32-unknown-emscripten
 # Use -O1 optimizations in the link step to reduce time spent optimizing.
 ENV EMCC_CFLAGS=-O1
 
+COPY static/gitconfig /etc/gitconfig
+
 # Emscripten installation is user-specific
 ENV NO_CHANGE_USER=1
 
-# FIXME: Re-enable these tests once https://github.com/rust-lang/cargo/pull/7476
-# is picked up by CI
-ENV SCRIPT python3 ../x.py test --target $TARGETS \
-    --exclude src/libcore \
-    --exclude src/liballoc \
-    --exclude src/libproc_macro \
-    --exclude src/libstd \
-    --exclude src/libterm \
-    --exclude src/libtest
+# Exclude library/alloc due to OOM in benches.
+ENV SCRIPT python3 ../x.py test --stage 2 --host='' --target $TARGETS \
+    --exclude library/alloc

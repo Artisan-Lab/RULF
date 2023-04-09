@@ -20,10 +20,10 @@ impl RawEmitter {
         if self.file.is_empty() || self.file.ends_with("\n\n") {
             return;
         }
-        writeln!(&mut self.file, "").unwrap();
+        writeln!(&mut self.file).unwrap();
     }
 
-    fn emit_bitset(&mut self, ranges: &[Range<u32>]) {
+    fn emit_bitset(&mut self, ranges: &[Range<u32>]) -> Result<(), String> {
         let last_code_point = ranges.last().unwrap().end;
         // bitset for every bit in the codepoint range
         //
@@ -44,7 +44,7 @@ impl RawEmitter {
         let unique_words =
             words.iter().cloned().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
         if unique_words.len() > u8::MAX as usize {
-            panic!("cannot pack {} into 8 bits", unique_words.len());
+            return Err(format!("cannot pack {} into 8 bits", unique_words.len()));
         }
         // needed for the chunk mapping to work
         assert_eq!(unique_words[0], 0, "has a zero word");
@@ -76,7 +76,7 @@ impl RawEmitter {
 
         writeln!(
             &mut self.file,
-            "static BITSET_CANONICAL: [u64; {}] = [{}];",
+            "const BITSET_CANONICAL: &'static [u64; {}] = &[{}];",
             canonicalized.canonical_words.len(),
             fmt_list(canonicalized.canonical_words.iter().map(|v| Bits(*v))),
         )
@@ -84,7 +84,7 @@ impl RawEmitter {
         self.bytes_used += 8 * canonicalized.canonical_words.len();
         writeln!(
             &mut self.file,
-            "static BITSET_MAPPING: [(u8, u8); {}] = [{}];",
+            "const BITSET_MAPPING: &'static [(u8, u8); {}] = &[{}];",
             canonicalized.canonicalized_words.len(),
             fmt_list(&canonicalized.canonicalized_words),
         )
@@ -96,7 +96,12 @@ impl RawEmitter {
 
         self.blank_line();
 
-        writeln!(&mut self.file, "pub fn lookup(c: char) -> bool {{").unwrap();
+        writeln!(
+            &mut self.file,
+            r#"#[rustc_const_unstable(feature = "const_unicode_case_lookup", issue = "101400")]"#
+        )
+        .unwrap();
+        writeln!(&mut self.file, "pub const fn lookup(c: char) -> bool {{").unwrap();
         writeln!(&mut self.file, "    super::bitset_search(",).unwrap();
         writeln!(&mut self.file, "        c as u32,").unwrap();
         writeln!(&mut self.file, "        &BITSET_CHUNKS_MAP,").unwrap();
@@ -105,6 +110,8 @@ impl RawEmitter {
         writeln!(&mut self.file, "        &BITSET_MAPPING,").unwrap();
         writeln!(&mut self.file, "    )").unwrap();
         writeln!(&mut self.file, "}}").unwrap();
+
+        Ok(())
     }
 
     fn emit_chunk_map(&mut self, zero_at: u8, compressed_words: &[u8], chunk_length: usize) {
@@ -119,12 +126,8 @@ impl RawEmitter {
         for chunk in compressed_words.chunks(chunk_length) {
             chunks.insert(chunk);
         }
-        let chunk_map = chunks
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, chunk)| (chunk, idx))
-            .collect::<HashMap<_, _>>();
+        let chunk_map =
+            chunks.iter().enumerate().map(|(idx, &chunk)| (chunk, idx)).collect::<HashMap<_, _>>();
         let mut chunk_indices = Vec::new();
         for chunk in compressed_words.chunks(chunk_length) {
             chunk_indices.push(chunk_map[chunk]);
@@ -132,7 +135,7 @@ impl RawEmitter {
 
         writeln!(
             &mut self.file,
-            "static BITSET_CHUNKS_MAP: [u8; {}] = [{}];",
+            "const BITSET_CHUNKS_MAP: &'static [u8; {}] = &[{}];",
             chunk_indices.len(),
             fmt_list(&chunk_indices),
         )
@@ -140,7 +143,7 @@ impl RawEmitter {
         self.bytes_used += chunk_indices.len();
         writeln!(
             &mut self.file,
-            "static BITSET_INDEX_CHUNKS: [[u8; {}]; {}] = [{}];",
+            "const BITSET_INDEX_CHUNKS: &'static [[u8; {}]; {}] = &[{}];",
             chunk_length,
             chunks.len(),
             fmt_list(chunks.iter()),
@@ -154,18 +157,27 @@ pub fn emit_codepoints(emitter: &mut RawEmitter, ranges: &[Range<u32>]) {
     emitter.blank_line();
 
     let mut bitset = emitter.clone();
-    bitset.emit_bitset(&ranges);
+    let bitset_ok = bitset.emit_bitset(&ranges).is_ok();
 
     let mut skiplist = emitter.clone();
     skiplist.emit_skiplist(&ranges);
 
-    if bitset.bytes_used <= skiplist.bytes_used {
+    if bitset_ok && bitset.bytes_used <= skiplist.bytes_used {
         *emitter = bitset;
-        emitter.desc = format!("bitset");
+        emitter.desc = String::from("bitset");
     } else {
         *emitter = skiplist;
-        emitter.desc = format!("skiplist");
+        emitter.desc = String::from("skiplist");
     }
+}
+
+pub fn emit_whitespace(emitter: &mut RawEmitter, ranges: &[Range<u32>]) {
+    emitter.blank_line();
+
+    let mut cascading = emitter.clone();
+    cascading.emit_cascading_map(&ranges);
+    *emitter = cascading;
+    emitter.desc = String::from("cascading");
 }
 
 struct Canonicalized {
@@ -289,7 +301,7 @@ impl Canonicalized {
                 // Remove the now-canonicalized word from other mappings,
                 // to ensure that we deprioritize them in the next iteration of
                 // the while loop.
-                for (_, mapped) in &mut mappings {
+                for mapped in mappings.values_mut() {
                     let mut i = 0;
                     while i != mapped.len() {
                         if mapped[i].0 == *from {
@@ -309,7 +321,7 @@ impl Canonicalized {
 
             // Remove the now-canonical word from other mappings, to ensure that
             // we deprioritize them in the next iteration of the while loop.
-            for (_, mapped) in &mut mappings {
+            for mapped in mappings.values_mut() {
                 let mut i = 0;
                 while i != mapped.len() {
                     if mapped[i].0 == to {

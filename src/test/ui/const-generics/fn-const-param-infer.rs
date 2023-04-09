@@ -1,5 +1,7 @@
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
+// revisions: full min
+
+#![cfg_attr(full, feature(adt_const_params))]
+#![cfg_attr(full, allow(incomplete_features))]
 
 struct Checked<const F: fn(usize) -> bool>;
 //~^ ERROR: using function pointers as const generic parameters

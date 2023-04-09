@@ -1,5 +1,5 @@
 #[warn(clippy::approx_constant)]
-#[allow(unused, clippy::shadow_unrelated, clippy::similar_names)]
+#[allow(clippy::similar_names)]
 fn main() {
     let my_e = 2.7182;
     let almost_e = 2.718;
@@ -57,4 +57,8 @@ fn main() {
 
     let my_sq2 = 1.4142;
     let no_sq2 = 1.414;
+
+    let my_tau = 6.2832;
+    let almost_tau = 6.28;
+    let no_tau = 6.3;
 }

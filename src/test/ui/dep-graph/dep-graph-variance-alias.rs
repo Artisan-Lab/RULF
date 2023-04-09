@@ -1,14 +1,15 @@
 // Test that changing what a `type` points to does not go unnoticed
 // by the variance analysis.
 
+// incremental
 // compile-flags: -Z query-dep-graph
 
 #![feature(rustc_attrs)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
-#![rustc_if_this_changed(hir_crate)]
 fn main() {}
 
+#[rustc_if_this_changed]
 struct Foo<T> {
     f: T,
 }

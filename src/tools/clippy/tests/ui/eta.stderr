@@ -1,80 +1,138 @@
-error: redundant closure found
-  --> $DIR/eta.rs:20:27
+error: redundant closure
+  --> $DIR/eta.rs:28:27
    |
 LL |     let a = Some(1u8).map(|a| foo(a));
-   |                           ^^^^^^^^^^ help: remove closure as shown: `foo`
+   |                           ^^^^^^^^^^ help: replace the closure with the function itself: `foo`
    |
    = note: `-D clippy::redundant-closure` implied by `-D warnings`
 
-error: redundant closure found
-  --> $DIR/eta.rs:21:10
+error: redundant closure
+  --> $DIR/eta.rs:32:40
    |
-LL |     meta(|a| foo(a));
-   |          ^^^^^^^^^^ help: remove closure as shown: `foo`
+LL |     let _: Option<Vec<u8>> = true.then(|| vec![]); // special case vec!
+   |                                        ^^^^^^^^^ help: replace the closure with `Vec::new`: `std::vec::Vec::new`
 
-error: this expression borrows a reference that is immediately dereferenced by the compiler
-  --> $DIR/eta.rs:24:21
+error: redundant closure
+  --> $DIR/eta.rs:33:35
+   |
+LL |     let d = Some(1u8).map(|a| foo((|b| foo2(b))(a))); //is adjusted?
+   |                                   ^^^^^^^^^^^^^ help: replace the closure with the function itself: `foo2`
+
+error: redundant closure
+  --> $DIR/eta.rs:34:26
    |
 LL |     all(&[1, 2, 3], &&2, |x, y| below(x, y)); //is adjusted
-   |                     ^^^ help: change this to: `&2`
-   |
-   = note: `-D clippy::needless-borrow` implied by `-D warnings`
+   |                          ^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `below`
 
-error: redundant closure found
-  --> $DIR/eta.rs:31:27
+error: redundant closure
+  --> $DIR/eta.rs:41:27
    |
 LL |     let e = Some(1u8).map(|a| generic(a));
-   |                           ^^^^^^^^^^^^^^ help: remove closure as shown: `generic`
+   |                           ^^^^^^^^^^^^^^ help: replace the closure with the function itself: `generic`
 
-error: redundant closure found
-  --> $DIR/eta.rs:74:51
+error: redundant closure
+  --> $DIR/eta.rs:87:51
    |
 LL |     let e = Some(TestStruct { some_ref: &i }).map(|a| a.foo());
-   |                                                   ^^^^^^^^^^^ help: remove closure as shown: `TestStruct::foo`
+   |                                                   ^^^^^^^^^^^ help: replace the closure with the method itself: `TestStruct::foo`
    |
    = note: `-D clippy::redundant-closure-for-method-calls` implied by `-D warnings`
 
-error: redundant closure found
-  --> $DIR/eta.rs:76:51
+error: redundant closure
+  --> $DIR/eta.rs:88:51
    |
 LL |     let e = Some(TestStruct { some_ref: &i }).map(|a| a.trait_foo());
-   |                                                   ^^^^^^^^^^^^^^^^^ help: remove closure as shown: `TestTrait::trait_foo`
+   |                                                   ^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `TestTrait::trait_foo`
 
-error: redundant closure found
-  --> $DIR/eta.rs:79:42
+error: redundant closure
+  --> $DIR/eta.rs:90:42
    |
 LL |     let e = Some(&mut vec![1, 2, 3]).map(|v| v.clear());
-   |                                          ^^^^^^^^^^^^^ help: remove closure as shown: `std::vec::Vec::clear`
+   |                                          ^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::vec::Vec::clear`
 
-error: redundant closure found
-  --> $DIR/eta.rs:84:29
+error: redundant closure
+  --> $DIR/eta.rs:94:29
    |
 LL |     let e = Some("str").map(|s| s.to_string());
-   |                             ^^^^^^^^^^^^^^^^^ help: remove closure as shown: `std::string::ToString::to_string`
+   |                             ^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::string::ToString::to_string`
 
-error: redundant closure found
-  --> $DIR/eta.rs:86:27
+error: redundant closure
+  --> $DIR/eta.rs:95:27
    |
 LL |     let e = Some('a').map(|s| s.to_uppercase());
-   |                           ^^^^^^^^^^^^^^^^^^^^ help: remove closure as shown: `char::to_uppercase`
+   |                           ^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `char::to_uppercase`
 
-error: redundant closure found
-  --> $DIR/eta.rs:89:65
+error: redundant closure
+  --> $DIR/eta.rs:97:65
    |
 LL |     let e: std::vec::Vec<char> = vec!['a', 'b', 'c'].iter().map(|c| c.to_ascii_uppercase()).collect();
-   |                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: remove closure as shown: `char::to_ascii_uppercase`
+   |                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `char::to_ascii_uppercase`
 
-error: redundant closure found
-  --> $DIR/eta.rs:172:27
+error: redundant closure
+  --> $DIR/eta.rs:160:22
+   |
+LL |     requires_fn_once(|| x());
+   |                      ^^^^^^ help: replace the closure with the function itself: `x`
+
+error: redundant closure
+  --> $DIR/eta.rs:167:27
    |
 LL |     let a = Some(1u8).map(|a| foo_ptr(a));
-   |                           ^^^^^^^^^^^^^^ help: remove closure as shown: `foo_ptr`
+   |                           ^^^^^^^^^^^^^^ help: replace the closure with the function itself: `foo_ptr`
 
-error: redundant closure found
-  --> $DIR/eta.rs:177:27
+error: redundant closure
+  --> $DIR/eta.rs:172:27
    |
 LL |     let a = Some(1u8).map(|a| closure(a));
-   |                           ^^^^^^^^^^^^^^ help: remove closure as shown: `closure`
+   |                           ^^^^^^^^^^^^^^ help: replace the closure with the function itself: `closure`
 
-error: aborting due to 12 previous errors
+error: redundant closure
+  --> $DIR/eta.rs:204:28
+   |
+LL |     x.into_iter().for_each(|x| add_to_res(x));
+   |                            ^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `&mut add_to_res`
+
+error: redundant closure
+  --> $DIR/eta.rs:205:28
+   |
+LL |     y.into_iter().for_each(|x| add_to_res(x));
+   |                            ^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `&mut add_to_res`
+
+error: redundant closure
+  --> $DIR/eta.rs:206:28
+   |
+LL |     z.into_iter().for_each(|x| add_to_res(x));
+   |                            ^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `add_to_res`
+
+error: redundant closure
+  --> $DIR/eta.rs:213:21
+   |
+LL |         Some(1).map(|n| closure(n));
+   |                     ^^^^^^^^^^^^^^ help: replace the closure with the function itself: `&mut closure`
+
+error: redundant closure
+  --> $DIR/eta.rs:217:21
+   |
+LL |         Some(1).map(|n| in_loop(n));
+   |                     ^^^^^^^^^^^^^^ help: replace the closure with the function itself: `in_loop`
+
+error: redundant closure
+  --> $DIR/eta.rs:310:18
+   |
+LL |     takes_fn_mut(|| f());
+   |                  ^^^^^^ help: replace the closure with the function itself: `&mut f`
+
+error: redundant closure
+  --> $DIR/eta.rs:313:19
+   |
+LL |     takes_fn_once(|| f());
+   |                   ^^^^^^ help: replace the closure with the function itself: `&mut f`
+
+error: redundant closure
+  --> $DIR/eta.rs:317:26
+   |
+LL |     move || takes_fn_mut(|| f_used_once())
+   |                          ^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `&mut f_used_once`
+
+error: aborting due to 22 previous errors
 

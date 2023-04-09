@@ -83,8 +83,56 @@
 // lldbr-check:(isize) closure_local = 8
 // lldb-command:continue
 
+
+// === CDB TESTS ===================================================================================
+
+// cdb-command: g
+
+// cdb-command: dx variable
+// cdb-check:variable         : 1 [Type: [...]]
+// cdb-command: dx constant
+// cdb-check:constant         : 2 [Type: [...]]
+// cdb-command: dx a_struct
+// cdb-check:a_struct         [Type: var_captured_in_nested_closure::Struct]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx struct_ref
+// cdb-check:struct_ref       : 0x[...] [Type: var_captured_in_nested_closure::Struct *]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx owned
+// cdb-check:owned            : 0x[...] : 6 [Type: [...] *]
+// cdb-check:    6 [Type: [...]]
+// cdb-command: dx closure_local
+// cdb-check:closure_local    : 8 [Type: [...]]
+// cdb-command: dx nested_closure
+// cdb-check:nested_closure   [Type: var_captured_in_nested_closure::main::closure$0::closure_env$0]
+
+// cdb-command: g
+
+// cdb-command: dx variable
+// cdb-check:variable         : 1 [Type: [...]]
+// cdb-command: dx constant
+// cdb-check:constant         : 2 [Type: [...]]
+// cdb-command: dx a_struct
+// cdb-check:a_struct         [Type: var_captured_in_nested_closure::Struct]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx struct_ref
+// cdb-check:struct_ref       : 0x[...] [Type: var_captured_in_nested_closure::Struct *]
+// cdb-check:    [+0x[...]] a                : -3 [Type: [...]]
+// cdb-check:    [+0x[...]] b                : 4.500000 [Type: [...]]
+// cdb-check:    [+0x[...]] c                : 0x5 [Type: unsigned [...]]
+// cdb-command: dx owned
+// cdb-check:owned            : 0x[...] : 6 [Type: [...] *]
+// cdb-check:    6 [Type: [...]]
+// cdb-command: dx closure_local
+// cdb-check:closure_local    : 8 [Type: [...]]
+
 #![allow(unused_variables)]
-#![feature(box_syntax)]
 #![feature(omit_gdb_pretty_printer_section)]
 #![omit_gdb_pretty_printer_section]
 
@@ -105,7 +153,7 @@ fn main() {
     };
 
     let struct_ref = &a_struct;
-    let owned: Box<_> = box 6;
+    let owned: Box<_> = Box::new(6);
 
     let mut closure = || {
         let closure_local = 8;

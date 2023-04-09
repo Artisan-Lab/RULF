@@ -6,23 +6,47 @@
 // build-pass
 // ignore-pass (test emits codegen-time warnings and verifies that they are not errors)
 
-#![warn(const_err, arithmetic_overflow, unconditional_panic)]
+//! This test ensures that when we promote code that fails to evaluate, the build still succeeds.
+
+#![warn(arithmetic_overflow, unconditional_panic)]
+
+// The only way to have promoteds that fail is in `const fn` called from `const`/`static`.
+const fn overflow() -> u32 {
+    0 - 1
+    //~^ WARN this arithmetic operation will overflow
+}
+const fn div_by_zero1() -> i32 {
+    1 / 0
+    //~^ WARN this operation will panic at runtime
+}
+const fn div_by_zero2() -> i32 {
+    1 / (1 - 1)
+    //~^ WARN this operation will panic at runtime
+}
+const fn div_by_zero3() -> i32 {
+    1 / (false as i32)
+    //~^ WARN this operation will panic at runtime
+}
+const fn oob() -> i32 {
+    [1, 2, 3][4]
+    //~^ WARN this operation will panic at runtime
+}
+
+const fn mk_false() -> bool { false }
+
+// An actually used constant referencing failing promoteds in dead code.
+// This needs to always work.
+const Y: () = {
+    if mk_false() {
+        let _x: &'static u32 = &overflow();
+        let _x: &'static i32 = &div_by_zero1();
+        let _x: &'static i32 = &div_by_zero2();
+        let _x: &'static i32 = &div_by_zero3();
+        let _x: &'static i32 = &oob();
+    }
+    ()
+};
 
 fn main() {
-    println!("{}", 0u32 - 1);
-    //[opt_with_overflow_checks,noopt]~^ WARN [arithmetic_overflow]
-    let _x = 0u32 - 1;
-    //~^ WARN [arithmetic_overflow]
-    println!("{}", 1 / (1 - 1));
-    //~^ WARN [unconditional_panic]
-    //~| WARN panic or abort [const_err]
-    //~| WARN erroneous constant used [const_err]
-    let _x = 1 / (1 - 1);
-    //~^ WARN [unconditional_panic]
-    println!("{}", 1 / (false as u32));
-    //~^ WARN [unconditional_panic]
-    //~| WARN panic or abort [const_err]
-    //~| WARN erroneous constant used [const_err]
-    let _x = 1 / (false as u32);
-    //~^ WARN [unconditional_panic]
+    let _y = Y;
 }

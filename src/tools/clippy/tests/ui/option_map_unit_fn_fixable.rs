@@ -1,7 +1,7 @@
 // run-rustfix
-
 #![warn(clippy::option_map_unit_fn)]
 #![allow(unused)]
+#![allow(clippy::uninlined_format_args, clippy::unnecessary_wraps)]
 
 fn do_nothing<T>(_: T) {}
 
@@ -22,9 +22,9 @@ struct HasOption {
 }
 
 impl HasOption {
-    fn do_option_nothing(self: &Self, value: usize) {}
+    fn do_option_nothing(&self, value: usize) {}
 
-    fn do_option_plus_one(self: &Self, value: usize) -> usize {
+    fn do_option_plus_one(&self, value: usize) -> usize {
         value + 1
     }
 }
@@ -79,6 +79,9 @@ fn option_map_unit_fn() {
 
     x.field.map(|ref value| { do_nothing(value + captured) });
 
-    option().map(do_nothing);}
+    option().map(do_nothing);
+
+    option().map(|value| println!("{:?}", value));
+}
 
 fn main() {}

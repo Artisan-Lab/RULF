@@ -1,7 +1,6 @@
 // build-pass (FIXME(62277): could be check-pass?)
 
 #![allow(warnings)]
-
 #![feature(type_alias_impl_trait)]
 
 fn main() {

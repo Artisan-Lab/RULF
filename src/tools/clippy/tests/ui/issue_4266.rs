@@ -1,5 +1,5 @@
-// edition:2018
 #![allow(dead_code)]
+#![allow(clippy::uninlined_format_args)]
 
 async fn sink1<'a>(_: &'a str) {} // lint
 async fn sink1_elided(_: &str) {} // ok
@@ -25,7 +25,9 @@ async fn all_to_one<'a>(a: &'a str, _b: &'a str) -> &'a str {
 struct Foo;
 impl Foo {
     // ok
-    pub async fn foo(&mut self) {}
+    pub async fn new(&mut self) -> Self {
+        Foo {}
+    }
 }
 
 // rust-lang/rust#61115

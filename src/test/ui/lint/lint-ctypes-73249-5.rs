@@ -1,13 +1,15 @@
 #![feature(type_alias_impl_trait)]
 #![deny(improper_ctypes)]
 
-pub trait Baz { }
+pub trait Baz {}
 
-impl Baz for u32 { }
+impl Baz for u32 {}
 
 type Qux = impl Baz;
 
-fn assign() -> Qux { 3 }
+fn assign() -> Qux {
+    3
+}
 
 #[repr(transparent)]
 pub struct A {
@@ -15,7 +17,7 @@ pub struct A {
 }
 
 extern "C" {
-    pub fn lint_me() -> A; //~ ERROR: uses type `impl Baz`
+    pub fn lint_me() -> A; //~ ERROR: uses type `Qux`
 }
 
 fn main() {}

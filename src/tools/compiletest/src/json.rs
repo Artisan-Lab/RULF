@@ -23,6 +23,14 @@ struct ArtifactNotification {
     artifact: PathBuf,
 }
 
+#[derive(Deserialize)]
+struct UnusedExternNotification {
+    #[allow(dead_code)]
+    lint_level: String,
+    #[allow(dead_code)]
+    unused_extern_names: Vec<String>,
+}
+
 #[derive(Deserialize, Clone)]
 struct DiagnosticSpan {
     file_name: String,
@@ -34,6 +42,16 @@ struct DiagnosticSpan {
     label: Option<String>,
     suggested_replacement: Option<String>,
     expansion: Option<Box<DiagnosticSpanMacroExpansion>>,
+}
+
+#[derive(Deserialize)]
+struct FutureIncompatReport {
+    future_incompat_report: Vec<FutureBreakageItem>,
+}
+
+#[derive(Deserialize)]
+struct FutureBreakageItem {
+    diagnostic: Diagnostic,
 }
 
 impl DiagnosticSpan {
@@ -64,8 +82,13 @@ struct DiagnosticSpanMacroExpansion {
 struct DiagnosticCode {
     /// The code itself.
     code: String,
-    /// An explanation for the code.
-    explanation: Option<String>,
+}
+
+pub fn rustfix_diagnostics_only(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| line.starts_with('{') && serde_json::from_str::<Diagnostic>(line).is_ok())
+        .collect()
 }
 
 pub fn extract_rendered(output: &str) -> String {
@@ -75,7 +98,30 @@ pub fn extract_rendered(output: &str) -> String {
             if line.starts_with('{') {
                 if let Ok(diagnostic) = serde_json::from_str::<Diagnostic>(line) {
                     diagnostic.rendered
-                } else if let Ok(_) = serde_json::from_str::<ArtifactNotification>(line) {
+                } else if let Ok(report) = serde_json::from_str::<FutureIncompatReport>(line) {
+                    if report.future_incompat_report.is_empty() {
+                        None
+                    } else {
+                        Some(format!(
+                            "Future incompatibility report: {}",
+                            report
+                                .future_incompat_report
+                                .into_iter()
+                                .map(|item| {
+                                    format!(
+                                        "Future breakage diagnostic:\n{}",
+                                        item.diagnostic
+                                            .rendered
+                                            .unwrap_or_else(|| "Not rendered".to_string())
+                                    )
+                                })
+                                .collect::<String>()
+                        ))
+                    }
+                } else if serde_json::from_str::<ArtifactNotification>(line).is_ok() {
+                    // Ignore the notification.
+                    None
+                } else if serde_json::from_str::<UnusedExternNotification>(line).is_ok() {
                     // Ignore the notification.
                     None
                 } else {
@@ -108,11 +154,20 @@ fn parse_line(file_name: &str, line: &str, output: &str, proc_res: &ProcRes) -> 
                 expected_errors
             }
             Err(error) => {
-                proc_res.fatal(Some(&format!(
-                    "failed to decode compiler output as json: \
-                     `{}`\nline: {}\noutput: {}",
-                    error, line, output
-                )));
+                // Ignore the future compat report message - this is handled
+                // by `extract_rendered`
+                if serde_json::from_str::<FutureIncompatReport>(line).is_ok() {
+                    vec![]
+                } else {
+                    proc_res.fatal(
+                        Some(&format!(
+                            "failed to decode compiler output as json: \
+                         `{}`\nline: {}\noutput: {}",
+                            error, line, output
+                        )),
+                        || (),
+                    );
+                }
             }
         }
     } else {

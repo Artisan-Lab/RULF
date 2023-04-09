@@ -7,15 +7,12 @@ fn main() {}
 // test that unused generic parameters are ok
 type Two<T, U> = impl Debug;
 
-fn one<T: Debug>(t: T) -> Two<T, T> {
-    t
-}
-
 fn two<T: Debug, U>(t: T, _: U) -> Two<T, U> {
-//~^ ERROR concrete type differs from previous defining opaque type use
     t
+    //~^ ERROR `T` doesn't implement `Debug`
 }
 
 fn three<T, U: Debug>(_: T, u: U) -> Two<T, U> {
     u
+    //~^ ERROR `U` doesn't implement `Debug`
 }

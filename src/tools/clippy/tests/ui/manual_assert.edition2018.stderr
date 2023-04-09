@@ -1,0 +1,20 @@
+error: only a `panic!` in `if`-then statement
+  --> $DIR/manual_assert.rs:31:5
+   |
+LL | /     if !a.is_empty() {
+LL | |         panic!("qaqaq{:?}", a);
+LL | |     }
+   | |_____^ help: try instead: `assert!(a.is_empty(), "qaqaq{:?}", a);`
+   |
+   = note: `-D clippy::manual-assert` implied by `-D warnings`
+
+error: only a `panic!` in `if`-then statement
+  --> $DIR/manual_assert.rs:66:5
+   |
+LL | /     if a.is_empty() {
+LL | |         panic!("with expansion {}", one!())
+LL | |     }
+   | |_____^ help: try instead: `assert!(!a.is_empty(), "with expansion {}", one!());`
+
+error: aborting due to 2 previous errors
+

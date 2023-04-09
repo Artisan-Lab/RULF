@@ -63,7 +63,7 @@ static STATIC8: SafeStruct = SafeStruct{field1: SafeEnum::Variant1,
 // This example should fail because field1 in the base struct is not safe
 static STATIC9: SafeStruct = SafeStruct{field1: SafeEnum::Variant1,
                                         ..SafeStruct{field1: SafeEnum::Variant3(WithDtor),
-//~^ ERROR destructors cannot be evaluated at compile-time
+//~^ ERROR destructor of
                                                      field2: SafeEnum::Variant1}};
 
 struct UnsafeStruct;
@@ -78,7 +78,6 @@ struct MyOwned;
 
 static STATIC11: Box<MyOwned> = box MyOwned;
 //~^ ERROR allocations are not allowed in statics
-//~| ERROR static contains unimplemented expression type
 
 static mut STATIC12: UnsafeStruct = UnsafeStruct;
 
@@ -88,21 +87,17 @@ static mut STATIC13: SafeStruct = SafeStruct{field1: SafeEnum::Variant1,
 static mut STATIC14: SafeStruct = SafeStruct {
     field1: SafeEnum::Variant1,
     field2: SafeEnum::Variant4("str".to_string())
-//~^ ERROR calls in statics are limited to constant functions
+//~^ ERROR cannot call non-const fn
 };
 
 static STATIC15: &'static [Box<MyOwned>] = &[
     box MyOwned, //~ ERROR allocations are not allowed in statics
-    //~| ERROR contains unimplemented expression
     box MyOwned, //~ ERROR allocations are not allowed in statics
-    //~| ERROR contains unimplemented expression
 ];
 
 static STATIC16: (&'static Box<MyOwned>, &'static Box<MyOwned>) = (
     &box MyOwned, //~ ERROR allocations are not allowed in statics
-    //~| ERROR contains unimplemented expression
     &box MyOwned, //~ ERROR allocations are not allowed in statics
-    //~| ERROR contains unimplemented expression
 );
 
 static mut STATIC17: SafeEnum = SafeEnum::Variant1;
@@ -110,11 +105,9 @@ static mut STATIC17: SafeEnum = SafeEnum::Variant1;
 static STATIC19: Box<isize> =
     box 3;
 //~^ ERROR allocations are not allowed in statics
-    //~| ERROR contains unimplemented expression
 
 pub fn main() {
     let y = { static x: Box<isize> = box 3; x };
     //~^ ERROR allocations are not allowed in statics
     //~| ERROR cannot move out of static item
-    //~| ERROR contains unimplemented expression
 }

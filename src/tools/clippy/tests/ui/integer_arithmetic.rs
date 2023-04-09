@@ -1,16 +1,11 @@
 #![warn(clippy::integer_arithmetic, clippy::float_arithmetic)]
-#![allow(
-    unused,
-    clippy::shadow_reuse,
-    clippy::shadow_unrelated,
-    clippy::no_effect,
-    clippy::unnecessary_operation,
-    clippy::op_ref
-)]
+#![allow(clippy::no_effect, clippy::unnecessary_operation, clippy::op_ref)]
 
 #[rustfmt::skip]
 fn main() {
     let mut i = 1i32;
+    let mut var1 = 0i32;
+    let mut var2 = -1i32;
     1 + i;
     i * 2;
     1 %
@@ -32,7 +27,15 @@ fn main() {
     i -= 1;
     i *= 2;
     i /= 2;
+    i /= 0;
+    i /= -1;
+    i /= var1;
+    i /= var2;
     i %= 2;
+    i %= 0;
+    i %= -1;
+    i %= var1;
+    i %= var2;
     i <<= 3;
     i >>= 2;
 

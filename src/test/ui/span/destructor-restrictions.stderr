@@ -2,12 +2,12 @@ error[E0597]: `*a` does not live long enough
   --> $DIR/destructor-restrictions.rs:8:10
    |
 LL |         *a.borrow() + 1
-   |          ^---------
+   |          ^^^^^^^^^^
    |          |
    |          borrowed value does not live long enough
    |          a temporary with access to the borrow is created here ...
 LL |     };
-   |     -- ... and the borrow might be used here, when that temporary is dropped and runs the destructor for type `std::cell::Ref<'_, i32>`
+   |     -- ... and the borrow might be used here, when that temporary is dropped and runs the destructor for type `Ref<'_, i32>`
    |     |
    |     `*a` dropped here while still borrowed
    |
@@ -16,7 +16,7 @@ LL |     };
 help: for example, you could save the expression's value in a new local variable `x` and then make `x` be the expression at the end of the block
    |
 LL |         let x = *a.borrow() + 1; x
-   |         ^^^^^^^                ^^^
+   |         +++++++                +++
 
 error: aborting due to previous error
 

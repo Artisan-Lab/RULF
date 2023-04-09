@@ -1,6 +1,6 @@
 // run-pass
 #![allow(unused_doc_comments)]
-#![feature(optin_builtin_traits)]
+#![feature(auto_traits)]
 #![feature(negative_impls)]
 
 auto trait Auto {}
@@ -9,7 +9,7 @@ unsafe auto trait AutoUnsafe {}
 impl !Auto for bool {}
 impl !AutoUnsafe for bool {}
 
-struct AutoBool(bool);
+struct AutoBool(#[allow(unused_tuple_struct_fields)] bool);
 
 impl Auto for AutoBool {}
 unsafe impl AutoUnsafe for AutoBool {}

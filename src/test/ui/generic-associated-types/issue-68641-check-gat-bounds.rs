@@ -1,8 +1,5 @@
 // Regression test for #68641
 
-#![feature(generic_associated_types)]
-//~^ WARNING the feature `generic_associated_types` is incomplete and may not
-
 trait UnsafeCopy {
     type Item<'a>: Copy;
 
@@ -13,7 +10,7 @@ trait UnsafeCopy {
 
 impl<T> UnsafeCopy for T {
     type Item<'a> = T;
-    //~^ ERROR the trait bound `T: std::marker::Copy` is not satisfied
+    //~^ ERROR the trait bound `T: Copy` is not satisfied
 }
 
 fn main() {

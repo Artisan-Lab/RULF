@@ -1,5 +1,3 @@
-#![allow(incomplete_features)]
-#![feature(generic_associated_types)]
 #![feature(associated_type_defaults)]
 
 // FIXME(#44265) add tests for type-generic and const-genertic associated types.

@@ -26,7 +26,7 @@ h2 {
 }
 </style>
 
-Welcome to an overview of the documentation provided by the Rust project.
+Welcome to an overview of the documentation provided by the [Rust project].
 All of these projects are managed by the Docs Team; there are other
 unofficial documentation resources as well!
 
@@ -93,11 +93,15 @@ accomplishing various tasks.
 
 [The Rustdoc Book](rustdoc/index.html) describes our documentation tool, `rustdoc`.
 
+## The Clippy Book
+
+[The Clippy Book](clippy/index.html) describes our static analyzer, Clippy.
+
 ## Extended Error Listing
 
 Many of Rust's errors come with error codes, and you can request extended
 diagnostics from the compiler on those errors. You can also [read them
-here](error-index.html), if you prefer to read them that way.
+here](error_codes/index.html), if you prefer to read them that way.
 
 # Master Rust
 
@@ -108,6 +112,12 @@ resources useful.
 
 [The Reference](reference/index.html) is not a formal spec, but is more detailed and
 comprehensive than the book.
+
+## The Style Guide
+
+[The Rust Style Guide](style-guide/index.html) describes the standard formatting of Rust
+code. Most developers use rustfmt to format their code, and rustfmt's default
+formatting matches this style guide.
 
 ## The Rustonomicon
 
@@ -139,3 +149,4 @@ When developing for Bare Metal or Embedded Linux systems, you may find these res
 [The Embedded Rust Book] is targeted at developers familiar with embedded development and familiar with Rust, but have not used Rust for embedded development.
 
 [The Embedded Rust Book]: embedded-book/index.html
+[Rust project]: https://www.rust-lang.org

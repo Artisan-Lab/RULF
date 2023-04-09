@@ -1,4 +1,5 @@
 #![warn(clippy::transmute_ptr_to_ptr)]
+#![allow(clippy::borrow_as_ptr)]
 
 // Make sure we can modify lifetimes, which is one of the recommended uses
 // of transmute
@@ -50,5 +51,13 @@ fn transmute_ptr_to_ptr() {
     let _: &LifetimeParam<'static> = unsafe { std::mem::transmute(&lp) };
     let _: &GenericParam<&LifetimeParam<'static>> = unsafe { std::mem::transmute(&GenericParam { t: &lp }) };
 }
+
+// dereferencing raw pointers in const contexts, should not lint as it's unstable (issue 5959)
+const _: &() = {
+    struct Zst;
+    let zst = &Zst;
+
+    unsafe { std::mem::transmute::<&'static Zst, &'static ()>(zst) }
+};
 
 fn main() {}

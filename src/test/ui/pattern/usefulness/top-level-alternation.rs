@@ -53,4 +53,5 @@ fn main() {
         1..=2 => {}, //~ ERROR unreachable pattern
         _ => {},
     }
+    let (0 | 0) = 0 else { return }; //~ ERROR unreachable pattern
 }

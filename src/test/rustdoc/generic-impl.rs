@@ -2,12 +2,12 @@
 
 use std::fmt;
 
-// @!has foo/struct.Bar.html '//h3[@id="impl-ToString"]//code' 'impl<T> ToString for T'
+// @!has foo/struct.Bar.html '//*[@id="impl-ToString-for-Bar"]' ''
 pub struct Bar;
 
-// @has foo/struct.Foo.html '//h3[@id="impl-ToString"]//code' 'impl<T> ToString for T'
+// @has foo/struct.Foo.html '//*[@id="impl-ToString-for-Foo"]//h3[@class="code-header"]' 'impl<T> ToString for T'
 pub struct Foo;
-// @has foo/struct.Foo.html '//div[@class="sidebar-links"]/a[@href="#impl-ToString"]' 'ToString'
+// @has foo/struct.Foo.html '//*[@class="sidebar-elems"]//section//a[@href="#impl-ToString-for-Foo"]' 'ToString'
 
 impl fmt::Display for Foo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

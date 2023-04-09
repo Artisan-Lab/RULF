@@ -1,8 +1,4 @@
 // run-pass
-
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 struct S<const X: u32>;
 
 impl<const X: u32> S<X> {

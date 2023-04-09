@@ -1,17 +1,21 @@
 [package]
 name = "clippy_dev"
 version = "0.0.1"
-authors = ["Philipp Hansch <dev@phansch.net>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-bytecount = "0.6"
-clap = "2.33"
-itertools = "0.9"
-regex = "1"
-lazy_static = "1.0"
+aho-corasick = "0.7"
+clap = "3.2"
+indoc = "1.0"
+itertools = "0.10.1"
+opener = "0.5"
 shell-escape = "0.1"
-walkdir = "2"
+tempfile = "3.2"
+walkdir = "2.3"
 
 [features]
 deny-warnings = []
+
+[package.metadata.rust-analyzer]
+# This package uses #[feature(rustc_private)]
+rustc_private = true

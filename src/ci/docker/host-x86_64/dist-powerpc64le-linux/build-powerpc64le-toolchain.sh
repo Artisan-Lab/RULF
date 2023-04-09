@@ -5,7 +5,7 @@ set -ex
 source shared.sh
 
 BINUTILS=2.32
-GCC=5.3.0
+GCC=8.3.0
 TARGET=powerpc64le-linux-gnu
 SYSROOT=/usr/local/$TARGET/sysroot
 
@@ -14,9 +14,11 @@ SYSROOT=/usr/local/$TARGET/sysroot
 mkdir -p $SYSROOT
 pushd $SYSROOT
 
-centos_base=http://vault.centos.org/altarch/7.3.1611/os/ppc64le/Packages/
-glibc_v=2.17-157.el7
-kernel_v=3.10.0-514.el7
+# centos_base=http://vault.centos.org/altarch/7.3.1611/os/ppc64le/Packages/
+# Mirrored from centos_base above
+centos_base=https://ci-mirrors.rust-lang.org/rustc
+glibc_v=2.17-157-2020-11-25.el7
+kernel_v=3.10.0-514-2020-11-25.el7
 for package in glibc{,-devel,-headers}-$glibc_v kernel-headers-$kernel_v; do
   curl $centos_base/$package.ppc64le.rpm | \
     rpm2cpio - | cpio -idm
@@ -30,7 +32,7 @@ popd
 # Next, download and build binutils.
 mkdir binutils-$TARGET
 pushd binutils-$TARGET
-curl https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS.tar.bz2 | tar xjf -
+curl https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS.tar.xz | tar xJf -
 mkdir binutils-build
 cd binutils-build
 hide_output ../binutils-$BINUTILS/configure --target=$TARGET --with-sysroot=$SYSROOT
@@ -42,7 +44,7 @@ rm -rf binutils-$TARGET
 # Finally, download and build gcc.
 mkdir gcc-$TARGET
 pushd gcc-$TARGET
-curl https://ftp.gnu.org/gnu/gcc/gcc-$GCC/gcc-$GCC.tar.bz2 | tar xjf -
+curl https://ftp.gnu.org/gnu/gcc/gcc-$GCC/gcc-$GCC.tar.xz | tar xJf -
 cd gcc-$GCC
 hide_output ./contrib/download_prerequisites
 

@@ -1,10 +1,11 @@
-error: constant expression depends on a generic parameter
-  --> $DIR/issue-70453-generics-in-discr-ice.rs:10:12
+error: generic parameters may not be used in const operations
+  --> $DIR/issue-70453-generics-in-discr-ice.rs:10:32
    |
 LL |     Some = std::mem::size_of::<T>(),
-   |            ^^^^^^^^^^^^^^^^^^^^^^^^
+   |                                ^ cannot perform const operation using `T`
    |
-   = note: this may fail depending on what value the parameter takes
+   = note: type parameters may not be used in const expressions
+   = help: use `#![feature(generic_const_exprs)]` to allow generic const expressions
 
 error[E0392]: parameter `T` is never used
   --> $DIR/issue-70453-generics-in-discr-ice.rs:7:20
@@ -12,7 +13,8 @@ error[E0392]: parameter `T` is never used
 LL | enum MyWeirdOption<T> {
    |                    ^ unused parameter
    |
-   = help: consider removing `T`, referring to it in a field, or using a marker such as `std::marker::PhantomData`
+   = help: consider removing `T`, referring to it in a field, or using a marker such as `PhantomData`
+   = help: if you intended `T` to be a const parameter, use `const T: usize` instead
 
 error: aborting due to 2 previous errors
 

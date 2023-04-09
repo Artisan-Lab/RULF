@@ -1,95 +1,69 @@
-FROM centos:5
+# We document platform support for minimum glibc 2.17 and kernel 3.2.
+# CentOS 7 has headers for kernel 3.10, but that's fine as long as we don't
+# actually use newer APIs in rustc or std without a fallback. It's more
+# important that we match glibc for ELF symbol versioning.
+FROM centos:7
 
 WORKDIR /build
 
-# Centos 5 is EOL and is no longer available from the usual mirrors, so switch
-# to http://vault.centos.org/
-RUN sed -i 's/enabled=1/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf
-RUN sed -i 's/mirrorlist/#mirrorlist/' /etc/yum.repos.d/*.repo
-RUN sed -i 's|#\(baseurl.*\)mirror.centos.org/centos/$releasever|\1vault.centos.org/5.11|' /etc/yum.repos.d/*.repo
-
-RUN yum upgrade -y && yum install -y \
-      curl \
+RUN yum upgrade -y && \
+    yum install -y epel-release && \
+    yum install -y \
+      automake \
       bzip2 \
+      file \
+      cmake3 \
       gcc \
       gcc-c++ \
+      git \
+      glibc-devel.i686 \
+      glibc-devel.x86_64 \
+      libedit-devel \
+      libstdc++-devel.i686 \
+      libstdc++-devel.x86_64 \
       make \
-      glibc-devel \
+      ncurses-devel \
+      openssl-devel \
+      patch \
       perl \
-      zlib-devel \
-      file \
-      xz \
-      which \
       pkgconfig \
+      python3 \
+      unzip \
       wget \
-      autoconf \
-      gettext
+      xz \
+      zlib-devel.i686 \
+      zlib-devel.x86_64
+
+RUN mkdir -p /rustroot/bin && ln -s /usr/bin/cmake3 /rustroot/bin/cmake
 
 ENV PATH=/rustroot/bin:$PATH
-ENV LD_LIBRARY_PATH=/rustroot/lib64:/rustroot/lib
+ENV LD_LIBRARY_PATH=/rustroot/lib64:/rustroot/lib32:/rustroot/lib
 ENV PKG_CONFIG_PATH=/rustroot/lib/pkgconfig
 WORKDIR /tmp
+RUN mkdir /home/user
 COPY host-x86_64/dist-x86_64-linux/shared.sh /tmp/
 
-# We need a build of openssl which supports SNI to download artifacts from
-# static.rust-lang.org. This'll be used to link into libcurl below (and used
-# later as well), so build a copy of OpenSSL with dynamic libraries into our
-# generic root.
-COPY host-x86_64/dist-x86_64-linux/build-openssl.sh /tmp/
-RUN ./build-openssl.sh
-
-# The `curl` binary on CentOS doesn't support SNI which is needed for fetching
-# some https urls we have, so install a new version of libcurl + curl which is
-# using the openssl we just built previously.
-#
-# Note that we also disable a bunch of optional features of curl that we don't
-# really need.
-COPY host-x86_64/dist-x86_64-linux/build-curl.sh /tmp/
-RUN ./build-curl.sh
-
-# binutils < 2.22 has a bug where the 32-bit executables it generates
-# immediately segfault in Rust, so we need to install our own binutils.
-#
-# See https://github.com/rust-lang/rust/issues/20440 for more info
-COPY host-x86_64/dist-x86_64-linux/build-binutils.sh /tmp/
-RUN ./build-binutils.sh
-
-# libssh2 (a dependency of Cargo) requires cmake 2.8.11 or higher but CentOS
-# only has 2.6.4, so build our own
-COPY host-x86_64/dist-x86_64-linux/build-cmake.sh /tmp/
-RUN ./build-cmake.sh
-
-# Build a version of gcc capable of building LLVM 6
+# Need at least GCC 5.1 to compile LLVM nowadays
 COPY host-x86_64/dist-x86_64-linux/build-gcc.sh /tmp/
-RUN ./build-gcc.sh
+RUN ./build-gcc.sh && yum remove -y gcc gcc-c++
 
-# CentOS 5.5 has Python 2.4 by default, but LLVM needs 2.7+
-COPY host-x86_64/dist-x86_64-linux/build-python.sh /tmp/
-RUN ./build-python.sh
-
-# Now build LLVM+Clang 7, afterwards configuring further compilations to use the
+# Now build LLVM+Clang, afterwards configuring further compilations to use the
 # clang/clang++ compilers.
-COPY host-x86_64/dist-x86_64-linux/build-clang.sh host-x86_64/dist-x86_64-linux/llvm-project-centos.patch /tmp/
+COPY host-x86_64/dist-x86_64-linux/build-clang.sh /tmp/
 RUN ./build-clang.sh
 ENV CC=clang CXX=clang++
 
-# Apparently CentOS 5.5 desn't have `git` in yum, but we're gonna need it for
-# cloning, so download and build it here.
-COPY host-x86_64/dist-x86_64-linux/build-git.sh /tmp/
-RUN ./build-git.sh
-
-# for sanitizers, we need kernel headers files newer than the ones CentOS ships
-# with so we install newer ones here
-COPY host-x86_64/dist-x86_64-linux/build-headers.sh /tmp/
-RUN ./build-headers.sh
-
-# OpenSSL requires a more recent version of perl
-# with so we install newer ones here
-COPY host-x86_64/dist-x86_64-linux/build-perl.sh /tmp/
-RUN ./build-perl.sh
+# rustc-perf version from 2022-07-22
+ENV PERF_COMMIT 3c253134664fdcba862c539d37f0de18557a9a4c
+RUN curl -LS -o perf.zip https://github.com/rust-lang/rustc-perf/archive/$PERF_COMMIT.zip && \
+    unzip perf.zip && \
+    mv rustc-perf-$PERF_COMMIT rustc-perf && \
+    rm perf.zip
 
 COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh
+
+ENV PGO_HOST=x86_64-unknown-linux-gnu
 
 ENV HOSTS=x86_64-unknown-linux-gnu
 
@@ -102,8 +76,14 @@ ENV RUST_CONFIGURE_ARGS \
       --set target.x86_64-unknown-linux-gnu.ar=/rustroot/bin/llvm-ar \
       --set target.x86_64-unknown-linux-gnu.ranlib=/rustroot/bin/llvm-ranlib \
       --set llvm.thin-lto=true \
-      --set rust.jemalloc
-ENV SCRIPT python2.7 ../x.py dist --host $HOSTS --target $HOSTS
+      --set llvm.ninja=false \
+      --set rust.jemalloc \
+      --set rust.use-lld=true \
+      --set rust.lto=thin
+ENV SCRIPT ../src/ci/pgo.sh python3 ../x.py dist \
+    --host $HOSTS --target $HOSTS \
+    --include-default-paths \
+    build-manifest bootstrap
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
 
 # This is the only builder which will create source tarballs

@@ -1,7 +1,7 @@
 // compile-flags: -Zsave-analysis
 // check-pass
 
-#![feature(type_alias_impl_trait)]
+#![feature(type_alias_impl_trait, rustc_attrs)]
 
 type T = impl Sized;
 // The concrete type referred by impl-trait-type-alias(`T`) is guaranteed

@@ -4,9 +4,10 @@
 
 use rustc_tools_util::VersionInfo;
 use std::env;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{self, Command};
+
+mod docs;
 
 const CARGO_CLIPPY_HELP: &str = r#"Checks a package to catch common mistakes and improve your Rust code.
 
@@ -14,8 +15,11 @@ Usage:
     cargo clippy [options] [--] [<opts>...]
 
 Common options:
+    --no-deps                Run Clippy only on the given crate, without linting the dependencies
+    --fix                    Automatically apply lint suggestions. This flag implies `--no-deps`
     -h, --help               Print this message
     -V, --version            Print version info and exit
+    --explain LINT           Print the documentation for a given lint
 
 Other options are the same as `cargo check`.
 
@@ -33,12 +37,12 @@ You can use tool lints to allow or deny lints from your code, eg.:
 "#;
 
 fn show_help() {
-    println!("{}", CARGO_CLIPPY_HELP);
+    println!("{CARGO_CLIPPY_HELP}");
 }
 
 fn show_version() {
     let version_info = rustc_tools_util::get_version_info!();
-    println!("{}", version_info);
+    println!("{version_info}");
 }
 
 pub fn main() {
@@ -53,16 +57,25 @@ pub fn main() {
         return;
     }
 
+    if let Some(pos) = env::args().position(|a| a == "--explain") {
+        if let Some(mut lint) = env::args().nth(pos + 1) {
+            lint.make_ascii_lowercase();
+            docs::explain(&lint.strip_prefix("clippy::").unwrap_or(&lint).replace('-', "_"));
+        } else {
+            show_help();
+        }
+        return;
+    }
+
     if let Err(code) = process(env::args().skip(2)) {
         process::exit(code);
     }
 }
 
 struct ClippyCmd {
-    unstable_options: bool,
     cargo_subcommand: &'static str,
     args: Vec<String>,
-    clippy_args: String,
+    clippy_args: Vec<String>,
 }
 
 impl ClippyCmd {
@@ -71,8 +84,8 @@ impl ClippyCmd {
         I: Iterator<Item = String>,
     {
         let mut cargo_subcommand = "check";
-        let mut unstable_options = false;
         let mut args = vec![];
+        let mut clippy_args: Vec<String> = vec![];
 
         for arg in old_args.by_ref() {
             match arg.as_str() {
@@ -80,40 +93,26 @@ impl ClippyCmd {
                     cargo_subcommand = "fix";
                     continue;
                 },
+                "--no-deps" => {
+                    clippy_args.push("--no-deps".into());
+                    continue;
+                },
                 "--" => break,
-                // Cover -Zunstable-options and -Z unstable-options
-                s if s.ends_with("unstable-options") => unstable_options = true,
                 _ => {},
             }
 
             args.push(arg);
         }
 
-        if cargo_subcommand == "fix" && !unstable_options {
-            panic!("Usage of `--fix` requires `-Z unstable-options`");
+        clippy_args.append(&mut (old_args.collect()));
+        if cargo_subcommand == "fix" && !clippy_args.iter().any(|arg| arg == "--no-deps") {
+            clippy_args.push("--no-deps".into());
         }
 
-        // Run the dogfood tests directly on nightly cargo. This is required due
-        // to a bug in rustup.rs when running cargo on custom toolchains. See issue #3118.
-        if env::var_os("CLIPPY_DOGFOOD").is_some() && cfg!(windows) {
-            args.insert(0, "+nightly".to_string());
-        }
-
-        let clippy_args: String = old_args.map(|arg| format!("{}__CLIPPY_HACKERY__", arg)).collect();
-
-        ClippyCmd {
-            unstable_options,
+        Self {
             cargo_subcommand,
             args,
             clippy_args,
-        }
-    }
-
-    fn path_env(&self) -> &'static str {
-        if self.unstable_options {
-            "RUSTC_WORKSPACE_WRAPPER"
-        } else {
-            "RUSTC_WRAPPER"
         }
     }
 
@@ -129,28 +128,20 @@ impl ClippyCmd {
         path
     }
 
-    fn target_dir() -> Option<(&'static str, OsString)> {
-        env::var_os("CLIPPY_DOGFOOD")
-            .map(|_| {
-                env::var_os("CARGO_MANIFEST_DIR").map_or_else(
-                    || std::ffi::OsString::from("clippy_dogfood"),
-                    |d| {
-                        std::path::PathBuf::from(d)
-                            .join("target")
-                            .join("dogfood")
-                            .into_os_string()
-                    },
-                )
-            })
-            .map(|p| ("CARGO_TARGET_DIR", p))
-    }
-
     fn into_std_cmd(self) -> Command {
         let mut cmd = Command::new("cargo");
+        let clippy_args: String = self
+            .clippy_args
+            .iter()
+            .map(|arg| format!("{arg}__CLIPPY_HACKERY__"))
+            .collect();
 
-        cmd.env(self.path_env(), Self::path())
-            .envs(ClippyCmd::target_dir())
-            .env("CLIPPY_ARGS", self.clippy_args)
+        // Currently, `CLIPPY_TERMINAL_WIDTH` is used only to format "unknown field" error messages.
+        let terminal_width = termize::dimensions().map_or(0, |(w, _)| w);
+
+        cmd.env("RUSTC_WORKSPACE_WRAPPER", Self::path())
+            .env("CLIPPY_ARGS", clippy_args)
+            .env("CLIPPY_TERMINAL_WIDTH", terminal_width.to_string())
             .arg(self.cargo_subcommand)
             .args(&self.args);
 
@@ -184,21 +175,27 @@ mod tests {
     use super::ClippyCmd;
 
     #[test]
-    #[should_panic]
-    fn fix_without_unstable() {
+    fn fix() {
         let args = "cargo clippy --fix".split_whitespace().map(ToString::to_string);
-        let _ = ClippyCmd::new(args);
+        let cmd = ClippyCmd::new(args);
+        assert_eq!("fix", cmd.cargo_subcommand);
+        assert!(!cmd.args.iter().any(|arg| arg.ends_with("unstable-options")));
     }
 
     #[test]
-    fn fix_unstable() {
-        let args = "cargo clippy --fix -Zunstable-options"
+    fn fix_implies_no_deps() {
+        let args = "cargo clippy --fix".split_whitespace().map(ToString::to_string);
+        let cmd = ClippyCmd::new(args);
+        assert!(cmd.clippy_args.iter().any(|arg| arg == "--no-deps"));
+    }
+
+    #[test]
+    fn no_deps_not_duplicated_with_fix() {
+        let args = "cargo clippy --fix -- --no-deps"
             .split_whitespace()
             .map(ToString::to_string);
         let cmd = ClippyCmd::new(args);
-        assert_eq!("fix", cmd.cargo_subcommand);
-        assert_eq!("RUSTC_WORKSPACE_WRAPPER", cmd.path_env());
-        assert!(cmd.args.iter().any(|arg| arg.ends_with("unstable-options")));
+        assert_eq!(cmd.clippy_args.iter().filter(|arg| *arg == "--no-deps").count(), 1);
     }
 
     #[test]
@@ -206,16 +203,5 @@ mod tests {
         let args = "cargo clippy".split_whitespace().map(ToString::to_string);
         let cmd = ClippyCmd::new(args);
         assert_eq!("check", cmd.cargo_subcommand);
-        assert_eq!("RUSTC_WRAPPER", cmd.path_env());
-    }
-
-    #[test]
-    fn check_unstable() {
-        let args = "cargo clippy -Zunstable-options"
-            .split_whitespace()
-            .map(ToString::to_string);
-        let cmd = ClippyCmd::new(args);
-        assert_eq!("check", cmd.cargo_subcommand);
-        assert_eq!("RUSTC_WORKSPACE_WRAPPER", cmd.path_env());
     }
 }

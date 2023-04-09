@@ -9,6 +9,7 @@ fn main() {
     print!("Hello {}\n", "world");
     print!("Hello {} {}\n", "world", "#2");
     print!("{}\n", 1265);
+    print!("\n");
 
     // these are all fine
     print!("");
@@ -47,5 +48,13 @@ fn main() {
     print!("\r\n");
     print!("foo\r\n");
     print!("\\r\n"); //~ ERROR
-    print!("foo\rbar\n") // ~ ERROR
+    print!("foo\rbar\n");
+
+    // Ignore expanded format strings
+    macro_rules! newline {
+        () => {
+            "\n"
+        };
+    }
+    print!(newline!());
 }

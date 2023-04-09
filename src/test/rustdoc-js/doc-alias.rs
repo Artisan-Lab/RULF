@@ -1,5 +1,3 @@
-#![feature(doc_alias)]
-
 #[doc(alias = "StructItem")]
 pub struct Struct {
     #[doc(alias = "StructFieldItem")]
@@ -7,16 +5,14 @@ pub struct Struct {
 }
 
 impl Struct {
+    #[doc(alias = "StructImplConstItem")]
+    pub const ImplConstItem: i32 = 0;
     #[doc(alias = "StructMethodItem")]
     pub fn method(&self) {}
 }
 
 impl Trait for Struct {
-    // Shouldn't be listed in aliases!
-    #[doc(alias = "ImplTraitItem")]
     type Target = u32;
-    // Shouldn't be listed in aliases!
-    #[doc(alias = "ImplAssociatedConstItem")]
     const AssociatedConst: i32 = 12;
 
     #[doc(alias = "ImplTraitFunction")]

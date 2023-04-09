@@ -6,26 +6,28 @@
 extern crate test;
 
 use crate::common::{expected_output_path, output_base_dir, output_relative_path, UI_EXTENSIONS};
-use crate::common::{CompareMode, Config, Debugger, Mode, PassMode, Pretty, TestPaths};
+use crate::common::{CompareMode, Config, Debugger, Mode, PassMode, TestPaths};
 use crate::util::logv;
 use getopts::Options;
-use log::*;
+use lazycell::LazyCell;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 use test::ColorConfig;
+use tracing::*;
 use walkdir::WalkDir;
 
-use self::header::EarlyProps;
+use self::header::{make_test_description, EarlyProps};
 
 #[cfg(test)]
 mod tests;
 
 pub mod common;
+pub mod compute_diff;
 pub mod errors;
 pub mod header;
 mod json;
@@ -35,12 +37,16 @@ pub mod runtest;
 pub mod util;
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let config = parse_config(env::args().collect());
 
     if config.valgrind_path.is_none() && config.force_valgrind {
         panic!("Can't find Valgrind to run Valgrind tests");
+    }
+
+    if !config.has_tidy && config.mode == Mode::Rustdoc {
+        eprintln!("warning: `tidy` is not installed; diffs will not be generated");
     }
 
     log_config(&config);
@@ -53,8 +59,10 @@ pub fn parse_config(args: Vec<String>) -> Config {
         .reqopt("", "run-lib-path", "path to target shared libraries", "PATH")
         .reqopt("", "rustc-path", "path to rustc to use for compiling", "PATH")
         .optopt("", "rustdoc-path", "path to rustdoc to use for compiling", "PATH")
-        .reqopt("", "lldb-python", "path to python to use for doc tests", "PATH")
-        .reqopt("", "docck-python", "path to python to use for doc tests", "PATH")
+        .optopt("", "rust-demangler-path", "path to rust-demangler to use in tests", "PATH")
+        .reqopt("", "python", "path to python to use for doc tests", "PATH")
+        .optopt("", "jsondocck-path", "path to jsondocck to use for doc tests", "PATH")
+        .optopt("", "jsondoclint-path", "path to jsondoclint to use for doc tests", "PATH")
         .optopt("", "valgrind-path", "path to Valgrind executable for Valgrind tests", "PROGRAM")
         .optflag("", "force-valgrind", "fail if Valgrind tests cannot be run under Valgrind")
         .optopt("", "run-clang-based-tests-with", "path to Clang executable", "PATH")
@@ -66,8 +74,14 @@ pub fn parse_config(args: Vec<String>) -> Config {
             "",
             "mode",
             "which sort of compile tests to run",
-            "compile-fail | run-fail | run-pass-valgrind | pretty | debug-info | codegen | rustdoc \
-             codegen-units | incremental | run-make | ui | js-doc-test | mir-opt | assembly",
+            "run-pass-valgrind | pretty | debug-info | codegen | rustdoc \
+            | rustdoc-json | codegen-units | incremental | run-make | ui | js-doc-test | mir-opt | assembly",
+        )
+        .reqopt(
+            "",
+            "suite",
+            "which suite of compile tests to run. used for nicer error reporting.",
+            "SUITE",
         )
         .optopt(
             "",
@@ -75,7 +89,9 @@ pub fn parse_config(args: Vec<String>) -> Config {
             "force {check,build,run}-pass tests to this mode.",
             "check | build | run",
         )
+        .optopt("", "run", "whether to execute run-* tests", "auto | always | never")
         .optflag("", "ignored", "run tests marked as ignored")
+        .optmulti("", "skip", "skip tests matching SUBSTRING. Can be passed multiple times", "SUBSTRING")
         .optflag("", "exact", "filters match exactly")
         .optopt(
             "",
@@ -84,8 +100,9 @@ pub fn parse_config(args: Vec<String>) -> Config {
              (eg. emulator, valgrind)",
             "PROGRAM",
         )
-        .optopt("", "host-rustcflags", "flags to pass to rustc for host", "FLAGS")
-        .optopt("", "target-rustcflags", "flags to pass to rustc for target", "FLAGS")
+        .optmulti("", "host-rustcflags", "flags to pass to rustc for host", "FLAGS")
+        .optmulti("", "target-rustcflags", "flags to pass to rustc for target", "FLAGS")
+        .optflag("", "optimize-tests", "run tests with optimizations enabled")
         .optflag("", "verbose", "run tests verbosely, showing all output")
         .optflag(
             "",
@@ -109,11 +126,13 @@ pub fn parse_config(args: Vec<String>) -> Config {
         .reqopt("", "cc", "path to a C compiler", "PATH")
         .reqopt("", "cxx", "path to a C++ compiler", "PATH")
         .reqopt("", "cflags", "flags for the C compiler", "FLAGS")
+        .reqopt("", "cxxflags", "flags for the CXX compiler", "FLAGS")
         .optopt("", "ar", "path to an archiver", "PATH")
         .optopt("", "linker", "path to a linker", "PATH")
         .reqopt("", "llvm-components", "list of LLVM components built in", "LIST")
         .optopt("", "llvm-bin-dir", "Path to LLVM's `bin` directory", "PATH")
         .optopt("", "nodejs", "the name of nodejs", "PATH")
+        .optopt("", "npm", "the name of npm", "PATH")
         .optopt("", "remote-test-client", "path to the remote test client", "PATH")
         .optopt(
             "",
@@ -127,7 +146,10 @@ pub fn parse_config(args: Vec<String>) -> Config {
             "enable this to generate a Rustfix coverage file, which is saved in \
                 `./<build_base>/rustfix_missing_coverage.txt`",
         )
-        .optflag("h", "help", "show this message");
+        .optflag("", "force-rerun", "rerun tests even if the inputs are unchanged")
+        .optflag("h", "help", "show this message")
+        .reqopt("", "channel", "current Rust channel", "CHANNEL")
+        .optopt("", "edition", "default Rust edition", "EDITION");
 
     let (argv0, args_) = args.split_first().unwrap();
     if args.len() == 1 || args[1] == "-h" || args[1] == "--help" {
@@ -162,28 +184,49 @@ pub fn parse_config(args: Vec<String>) -> Config {
 
     let target = opt_str2(matches.opt_str("target"));
     let android_cross_path = opt_path(matches, "android-cross-path");
-    let cdb = analyze_cdb(matches.opt_str("cdb"), &target);
+    let (cdb, cdb_version) = analyze_cdb(matches.opt_str("cdb"), &target);
     let (gdb, gdb_version, gdb_native_rust) =
         analyze_gdb(matches.opt_str("gdb"), &target, &android_cross_path);
-    let (lldb_version, lldb_native_rust) = extract_lldb_version(matches.opt_str("lldb-version"));
-
-    let color = match matches.opt_str("color").as_ref().map(|x| &**x) {
+    let (lldb_version, lldb_native_rust) = matches
+        .opt_str("lldb-version")
+        .as_deref()
+        .and_then(extract_lldb_version)
+        .map(|(v, b)| (Some(v), b))
+        .unwrap_or((None, false));
+    let color = match matches.opt_str("color").as_deref() {
         Some("auto") | None => ColorConfig::AutoColor,
         Some("always") => ColorConfig::AlwaysColor,
         Some("never") => ColorConfig::NeverColor,
         Some(x) => panic!("argument for --color must be auto, always, or never, but found `{}`", x),
     };
+    let llvm_version =
+        matches.opt_str("llvm-version").as_deref().and_then(header::extract_llvm_version).or_else(
+            || header::extract_llvm_version_from_binary(&matches.opt_str("llvm-filecheck")?),
+        );
 
     let src_base = opt_path(matches, "src-base");
     let run_ignored = matches.opt_present("ignored");
+    let mode = matches.opt_str("mode").unwrap().parse().expect("invalid mode");
+    let has_tidy = if mode == Mode::Rustdoc {
+        Command::new("tidy")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .status()
+            .map_or(false, |status| status.success())
+    } else {
+        // Avoid spawning an external command when we know tidy won't be used.
+        false
+    };
     Config {
         bless: matches.opt_present("bless"),
         compile_lib_path: make_absolute(opt_path(matches, "compile-lib-path")),
         run_lib_path: make_absolute(opt_path(matches, "run-lib-path")),
         rustc_path: opt_path(matches, "rustc-path"),
         rustdoc_path: matches.opt_str("rustdoc-path").map(PathBuf::from),
-        lldb_python: matches.opt_str("lldb-python").unwrap(),
-        docck_python: matches.opt_str("docck-python").unwrap(),
+        rust_demangler_path: matches.opt_str("rust-demangler-path").map(PathBuf::from),
+        python: matches.opt_str("python").unwrap(),
+        jsondocck_path: matches.opt_str("jsondocck-path"),
+        jsondoclint_path: matches.opt_str("jsondoclint-path"),
         valgrind_path: matches.opt_str("valgrind-path"),
         force_valgrind: matches.opt_present("force-valgrind"),
         run_clang_based_tests_with: matches.opt_str("run-clang-based-tests-with"),
@@ -192,28 +235,38 @@ pub fn parse_config(args: Vec<String>) -> Config {
         src_base,
         build_base: opt_path(matches, "build-base"),
         stage_id: matches.opt_str("stage-id").unwrap(),
-        mode: matches.opt_str("mode").unwrap().parse().expect("invalid mode"),
+        mode,
+        suite: matches.opt_str("suite").unwrap(),
         debugger: None,
         run_ignored,
-        filter: matches.free.first().cloned(),
+        filters: matches.free.clone(),
+        skip: matches.opt_strs("skip"),
         filter_exact: matches.opt_present("exact"),
         force_pass_mode: matches.opt_str("pass").map(|mode| {
             mode.parse::<PassMode>()
                 .unwrap_or_else(|_| panic!("unknown `--pass` option `{}` given", mode))
         }),
+        run: matches.opt_str("run").and_then(|mode| match mode.as_str() {
+            "auto" => None,
+            "always" => Some(true),
+            "never" => Some(false),
+            _ => panic!("unknown `--run` option `{}` given", mode),
+        }),
         logfile: matches.opt_str("logfile").map(|s| PathBuf::from(&s)),
         runtool: matches.opt_str("runtool"),
-        host_rustcflags: matches.opt_str("host-rustcflags"),
-        target_rustcflags: matches.opt_str("target-rustcflags"),
+        host_rustcflags: matches.opt_strs("host-rustcflags"),
+        target_rustcflags: matches.opt_strs("target-rustcflags"),
+        optimize_tests: matches.opt_present("optimize-tests"),
         target,
         host: opt_str2(matches.opt_str("host")),
         cdb,
+        cdb_version,
         gdb,
         gdb_version,
         gdb_native_rust,
         lldb_version,
         lldb_native_rust,
-        llvm_version: matches.opt_str("llvm-version"),
+        llvm_version,
         system_llvm: matches.opt_present("system-llvm"),
         android_cross_path,
         adb_path: opt_str2(matches.opt_str("adb-path")),
@@ -228,14 +281,23 @@ pub fn parse_config(args: Vec<String>) -> Config {
         remote_test_client: matches.opt_str("remote-test-client").map(PathBuf::from),
         compare_mode: matches.opt_str("compare-mode").map(CompareMode::parse),
         rustfix_coverage: matches.opt_present("rustfix-coverage"),
+        has_tidy,
+        channel: matches.opt_str("channel").unwrap(),
+        edition: matches.opt_str("edition"),
 
         cc: matches.opt_str("cc").unwrap(),
         cxx: matches.opt_str("cxx").unwrap(),
         cflags: matches.opt_str("cflags").unwrap(),
-        ar: matches.opt_str("ar").unwrap_or("ar".into()),
+        cxxflags: matches.opt_str("cxxflags").unwrap(),
+        ar: matches.opt_str("ar").unwrap_or_else(|| String::from("ar")),
         linker: matches.opt_str("linker"),
         llvm_components: matches.opt_str("llvm-components").unwrap(),
         nodejs: matches.opt_str("nodejs"),
+        npm: matches.opt_str("npm"),
+
+        force_rerun: matches.opt_present("force-rerun"),
+
+        target_cfg: LazyCell::new(),
     }
 }
 
@@ -246,20 +308,22 @@ pub fn log_config(config: &Config) {
     logv(c, format!("run_lib_path: {:?}", config.run_lib_path));
     logv(c, format!("rustc_path: {:?}", config.rustc_path.display()));
     logv(c, format!("rustdoc_path: {:?}", config.rustdoc_path));
+    logv(c, format!("rust_demangler_path: {:?}", config.rust_demangler_path));
     logv(c, format!("src_base: {:?}", config.src_base.display()));
     logv(c, format!("build_base: {:?}", config.build_base.display()));
     logv(c, format!("stage_id: {}", config.stage_id));
     logv(c, format!("mode: {}", config.mode));
     logv(c, format!("run_ignored: {}", config.run_ignored));
-    logv(c, format!("filter: {}", opt_str(&config.filter.as_ref().map(|re| re.to_owned()))));
+    logv(c, format!("filters: {:?}", config.filters));
+    logv(c, format!("skip: {:?}", config.skip));
     logv(c, format!("filter_exact: {}", config.filter_exact));
     logv(
         c,
         format!("force_pass_mode: {}", opt_str(&config.force_pass_mode.map(|m| format!("{}", m))),),
     );
     logv(c, format!("runtool: {}", opt_str(&config.runtool)));
-    logv(c, format!("host-rustcflags: {}", opt_str(&config.host_rustcflags)));
-    logv(c, format!("target-rustcflags: {}", opt_str(&config.target_rustcflags)));
+    logv(c, format!("host-rustcflags: {:?}", config.host_rustcflags));
+    logv(c, format!("target-rustcflags: {:?}", config.target_rustcflags));
     logv(c, format!("target: {}", config.target));
     logv(c, format!("host: {}", config.host));
     logv(c, format!("android-cross-path: {:?}", config.android_cross_path.display()));
@@ -288,11 +352,6 @@ pub fn opt_str2(maybestr: Option<String>) -> String {
 }
 
 pub fn run_tests(config: Config) {
-    // FIXME(#33435) Avoid spurious failures in codegen-units/partitioning tests.
-    if let Mode::CodegenUnits = config.mode {
-        let _ = fs::remove_dir_all("tmp/partitioning-tests");
-    }
-
     // If we want to collect rustfix coverage information,
     // we first make sure that the coverage file does not exist.
     // It will be created later on.
@@ -330,7 +389,7 @@ pub fn run_tests(config: Config) {
             configs.extend(configure_lldb(&config));
         }
     } else {
-        configs.push(config);
+        configs.push(config.clone());
     };
 
     let mut tests = Vec::new();
@@ -338,33 +397,52 @@ pub fn run_tests(config: Config) {
         make_tests(c, &mut tests);
     }
 
+    tests.sort_by(|a, b| a.desc.name.as_slice().cmp(&b.desc.name.as_slice()));
+
     let res = test::run_tests_console(&opts, tests);
     match res {
         Ok(true) => {}
-        Ok(false) => panic!("Some tests failed"),
+        Ok(false) => {
+            // We want to report that the tests failed, but we also want to give
+            // some indication of just what tests we were running. Especially on
+            // CI, where there can be cross-compiled tests for a lot of
+            // architectures, without this critical information it can be quite
+            // easy to miss which tests failed, and as such fail to reproduce
+            // the failure locally.
+
+            eprintln!(
+                "Some tests failed in compiletest suite={}{} mode={} host={} target={}",
+                config.suite,
+                config.compare_mode.map(|c| format!(" compare_mode={:?}", c)).unwrap_or_default(),
+                config.mode,
+                config.host,
+                config.target
+            );
+
+            std::process::exit(1);
+        }
         Err(e) => {
             // We don't know if tests passed or not, but if there was an error
-            // during testing we don't want to just suceeed (we may not have
+            // during testing we don't want to just succeed (we may not have
             // tested something), so fail.
+            //
+            // This should realistically "never" happen, so don't try to make
+            // this a pretty error message.
             panic!("I/O failure during tests: {:?}", e);
         }
     }
 }
 
 fn configure_cdb(config: &Config) -> Option<Config> {
-    if config.cdb.is_none() {
-        return None;
-    }
+    config.cdb.as_ref()?;
 
     Some(Config { debugger: Some(Debugger::Cdb), ..config.clone() })
 }
 
 fn configure_gdb(config: &Config) -> Option<Config> {
-    if config.gdb_version.is_none() {
-        return None;
-    }
+    config.gdb_version?;
 
-    if util::matches_env(&config.target, "msvc") {
+    if config.matches_env("msvc") {
         return None;
     }
 
@@ -396,27 +474,17 @@ fn configure_gdb(config: &Config) -> Option<Config> {
 }
 
 fn configure_lldb(config: &Config) -> Option<Config> {
-    if config.lldb_python_dir.is_none() {
+    config.lldb_python_dir.as_ref()?;
+
+    if let Some(350) = config.lldb_version {
+        println!(
+            "WARNING: The used version of LLDB (350) has a \
+             known issue that breaks debuginfo tests. See \
+             issue #32520 for more information. Skipping all \
+             LLDB-based tests!",
+        );
         return None;
     }
-
-    if let Some(lldb_version) = config.lldb_version.as_ref() {
-        if lldb_version == "350" {
-            println!(
-                "WARNING: The used version of LLDB ({}) has a \
-                 known issue that breaks debuginfo tests. See \
-                 issue #32520 for more information. Skipping all \
-                 LLDB-based tests!",
-                lldb_version
-            );
-            return None;
-        }
-    }
-
-    // Some older versions of LLDB seem to have problems with multiple
-    // instances running in parallel, so only run one test thread at a
-    // time.
-    env::set_var("RUST_TEST_THREADS", "1");
 
     Some(Config { debugger: Some(Debugger::Lldb), ..config.clone() })
 }
@@ -424,7 +492,7 @@ fn configure_lldb(config: &Config) -> Option<Config> {
 pub fn test_opts(config: &Config) -> test::TestOpts {
     test::TestOpts {
         exclude_should_panic: false,
-        filter: config.filter.clone(),
+        filters: config.filters.clone(),
         filter_exact: config.filter_exact,
         run_ignored: if config.run_ignored { test::RunIgnored::Yes } else { test::RunIgnored::No },
         format: if config.quiet { test::OutputFormat::Terse } else { test::OutputFormat::Pretty },
@@ -436,8 +504,10 @@ pub fn test_opts(config: &Config) -> test::TestOpts {
             Err(_) => false,
         },
         color: config.color,
+        shuffle: false,
+        shuffle_seed: None,
         test_threads: None,
-        skip: vec![],
+        skip: config.skip.clone(),
         list: false,
         options: test::Options::new(),
         time_options: None,
@@ -449,7 +519,7 @@ pub fn make_tests(config: &Config, tests: &mut Vec<test::TestDescAndFn>) {
     debug!("making tests from {:?}", config.src_base.display());
     let inputs = common_inputs_stamp(config);
     collect_tests_from_dir(config, &config.src_base, &PathBuf::new(), &inputs, tests)
-        .expect(&format!("Could not read tests from {}", config.src_base.display()));
+        .unwrap_or_else(|_| panic!("Could not read tests from {}", config.src_base.display()));
 }
 
 /// Returns a stamp constructed from input files common to all test cases.
@@ -472,6 +542,8 @@ fn common_inputs_stamp(config: &Config) -> Stamp {
         let path = rust_src_dir.join(file);
         stamp.add_path(&path);
     }
+
+    stamp.add_dir(&rust_src_dir.join("src/etc/natvis"));
 
     stamp.add_dir(&config.run_lib_path);
 
@@ -526,6 +598,7 @@ fn collect_tests_from_dir(
             debug!("found test file: {:?}", file_path.display());
             let paths =
                 TestPaths { file: file_path, relative_dir: relative_dir_path.to_path_buf() };
+
             tests.extend(make_test(config, &paths, inputs))
         } else if file_path.is_dir() {
             let relative_file_path = relative_dir_path.join(file.file_name());
@@ -554,62 +627,80 @@ pub fn is_test(file_name: &OsString) -> bool {
 }
 
 fn make_test(config: &Config, testpaths: &TestPaths, inputs: &Stamp) -> Vec<test::TestDescAndFn> {
-    let early_props = if config.mode == Mode::RunMake {
-        // Allow `ignore` directives to be in the Makefile.
-        EarlyProps::from_file(config, &testpaths.file.join("Makefile"))
+    let test_path = if config.mode == Mode::RunMake {
+        // Parse directives in the Makefile
+        testpaths.file.join("Makefile")
     } else {
-        EarlyProps::from_file(config, &testpaths.file)
+        PathBuf::from(&testpaths.file)
     };
-
-    // The `should-fail` annotation doesn't apply to pretty tests,
-    // since we run the pretty printer across all tests by default.
-    // If desired, we could add a `should-fail-pretty` annotation.
-    let should_panic = match config.mode {
-        Pretty => test::ShouldPanic::No,
-        _ => {
-            if early_props.should_fail {
-                test::ShouldPanic::Yes
-            } else {
-                test::ShouldPanic::No
-            }
-        }
-    };
+    let early_props = EarlyProps::from_file(config, &test_path);
 
     // Incremental tests are special, they inherently cannot be run in parallel.
     // `runtest::run` will be responsible for iterating over revisions.
     let revisions = if early_props.revisions.is_empty() || config.mode == Mode::Incremental {
         vec![None]
     } else {
-        early_props.revisions.iter().map(|r| Some(r)).collect()
+        early_props.revisions.iter().map(Some).collect()
     };
     revisions
         .into_iter()
         .map(|revision| {
-            let ignore = early_props.ignore
-                // Ignore tests that already run and are up to date with respect to inputs.
-                || is_up_to_date(
+            let src_file =
+                std::fs::File::open(&test_path).expect("open test file to parse ignores");
+            let cfg = revision.map(|v| &**v);
+            let test_name = crate::make_test_name(config, testpaths, revision);
+            let mut desc = make_test_description(config, test_name, &test_path, src_file, cfg);
+            // Ignore tests that already run and are up to date with respect to inputs.
+            if !config.force_rerun {
+                desc.ignore |= is_up_to_date(
                     config,
                     testpaths,
                     &early_props,
                     revision.map(|s| s.as_str()),
                     inputs,
                 );
-            test::TestDescAndFn {
-                desc: test::TestDesc {
-                    name: make_test_name(config, testpaths, revision),
-                    ignore,
-                    should_panic,
-                    allow_fail: false,
-                    test_type: test::TestType::Unknown,
-                },
-                testfn: make_test_closure(config, testpaths, revision),
             }
+            test::TestDescAndFn { desc, testfn: make_test_closure(config, testpaths, revision) }
         })
         .collect()
 }
 
 fn stamp(config: &Config, testpaths: &TestPaths, revision: Option<&str>) -> PathBuf {
     output_base_dir(config, testpaths, revision).join("stamp")
+}
+
+fn files_related_to_test(
+    config: &Config,
+    testpaths: &TestPaths,
+    props: &EarlyProps,
+    revision: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut related = vec![];
+
+    if testpaths.file.is_dir() {
+        // run-make tests use their individual directory
+        for entry in WalkDir::new(&testpaths.file) {
+            let path = entry.unwrap().into_path();
+            if path.is_file() {
+                related.push(path);
+            }
+        }
+    } else {
+        related.push(testpaths.file.clone());
+    }
+
+    for aux in &props.aux {
+        let path = testpaths.file.parent().unwrap().join("auxiliary").join(aux);
+        related.push(path);
+    }
+
+    // UI test files.
+    for extension in UI_EXTENSIONS {
+        let path = expected_output_path(testpaths, revision, &config.compare_mode, extension);
+        related.push(path);
+    }
+
+    related
 }
 
 fn is_up_to_date(
@@ -633,18 +724,8 @@ fn is_up_to_date(
 
     // Check timestamps.
     let mut inputs = inputs.clone();
-    // Use `add_dir` to account for run-make tests, which use their individual directory
-    inputs.add_dir(&testpaths.file);
-
-    for aux in &props.aux {
-        let path = testpaths.file.parent().unwrap().join("auxiliary").join(aux);
+    for path in files_related_to_test(config, testpaths, props, revision) {
         inputs.add_path(&path);
-    }
-
-    // UI test files.
-    for extension in UI_EXTENSIONS {
-        let path = &expected_output_path(testpaths, revision, &config.compare_mode, extension);
-        inputs.add_path(path);
     }
 
     inputs < Stamp::from_path(&stamp_name)
@@ -689,12 +770,10 @@ fn make_test_name(
     testpaths: &TestPaths,
     revision: Option<&String>,
 ) -> test::TestName {
-    // Convert a complete path to something like
-    //
-    //    ui/foo/bar/baz.rs
-    let path = PathBuf::from(config.src_base.file_name().unwrap())
-        .join(&testpaths.relative_dir)
-        .join(&testpaths.file.file_name().unwrap());
+    // Print the name of the file, relative to the repository root.
+    // `src_base` looks like `/path/to/rust/src/test/ui`
+    let root_directory = config.src_base.parent().unwrap().parent().unwrap().parent().unwrap();
+    let path = testpaths.file.strip_prefix(root_directory).unwrap();
     let debugger = match config.debugger {
         Some(d) => format!("-{}", d),
         None => String::new(),
@@ -723,30 +802,31 @@ fn make_test_closure(
     let testpaths = testpaths.clone();
     let revision = revision.cloned();
     test::DynTestFn(Box::new(move || {
-        runtest::run(config, &testpaths, revision.as_ref().map(|s| s.as_str()))
+        runtest::run(config, &testpaths, revision.as_deref());
+        Ok(())
     }))
 }
 
 /// Returns `true` if the given target is an Android target for the
 /// purposes of GDB testing.
-fn is_android_gdb_target(target: &String) -> bool {
-    match &target[..] {
-        "arm-linux-androideabi" | "armv7-linux-androideabi" | "aarch64-linux-android" => true,
-        _ => false,
-    }
+fn is_android_gdb_target(target: &str) -> bool {
+    matches!(
+        &target[..],
+        "arm-linux-androideabi" | "armv7-linux-androideabi" | "aarch64-linux-android"
+    )
 }
 
 /// Returns `true` if the given target is a MSVC target for the purpouses of CDB testing.
-fn is_pc_windows_msvc_target(target: &String) -> bool {
+fn is_pc_windows_msvc_target(target: &str) -> bool {
     target.ends_with("-pc-windows-msvc")
 }
 
-fn find_cdb(target: &String) -> Option<OsString> {
+fn find_cdb(target: &str) -> Option<OsString> {
     if !(cfg!(windows) && is_pc_windows_msvc_target(target)) {
         return None;
     }
 
-    let pf86 = env::var_os("ProgramFiles(x86)").or(env::var_os("ProgramFiles"))?;
+    let pf86 = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles"))?;
     let cdb_arch = if cfg!(target_arch = "x86") {
         "x86"
     } else if cfg!(target_arch = "x86_64") {
@@ -773,14 +853,36 @@ fn find_cdb(target: &String) -> Option<OsString> {
 }
 
 /// Returns Path to CDB
-fn analyze_cdb(cdb: Option<String>, target: &String) -> Option<OsString> {
-    cdb.map(|s| OsString::from(s)).or(find_cdb(target))
+fn analyze_cdb(cdb: Option<String>, target: &str) -> (Option<OsString>, Option<[u16; 4]>) {
+    let cdb = cdb.map(OsString::from).or_else(|| find_cdb(target));
+
+    let mut version = None;
+    if let Some(cdb) = cdb.as_ref() {
+        if let Ok(output) = Command::new(cdb).arg("/version").output() {
+            if let Some(first_line) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                version = extract_cdb_version(&first_line);
+            }
+        }
+    }
+
+    (cdb, version)
+}
+
+fn extract_cdb_version(full_version_line: &str) -> Option<[u16; 4]> {
+    // Example full_version_line: "cdb version 10.0.18362.1"
+    let version = full_version_line.rsplit(' ').next()?;
+    let mut components = version.split('.');
+    let major: u16 = components.next().unwrap().parse().unwrap();
+    let minor: u16 = components.next().unwrap().parse().unwrap();
+    let patch: u16 = components.next().unwrap_or("0").parse().unwrap();
+    let build: u16 = components.next().unwrap_or("0").parse().unwrap();
+    Some([major, minor, patch, build])
 }
 
 /// Returns (Path to GDB, GDB Version, GDB has Rust Support)
 fn analyze_gdb(
     gdb: Option<String>,
-    target: &String,
+    target: &str,
     android_cross_path: &PathBuf,
 ) -> (Option<String>, Option<u32>, bool) {
     #[cfg(not(windows))]
@@ -840,75 +942,41 @@ fn extract_gdb_version(full_version_line: &str) -> Option<u32> {
     // This particular form is documented in the GNU coding standards:
     // https://www.gnu.org/prep/standards/html_node/_002d_002dversion.html#g_t_002d_002dversion
 
-    // don't start parsing in the middle of a number
-    let mut prev_was_digit = false;
-    let mut in_parens = false;
-    for (pos, c) in full_version_line.char_indices() {
-        if in_parens {
-            if c == ')' {
-                in_parens = false;
-            }
-            continue;
-        } else if c == '(' {
-            in_parens = true;
-            continue;
+    let unbracketed_part = full_version_line.split('[').next().unwrap();
+    let mut splits = unbracketed_part.trim_end().rsplit(' ');
+    let version_string = splits.next().unwrap();
+
+    let mut splits = version_string.split('.');
+    let major = splits.next().unwrap();
+    let minor = splits.next().unwrap();
+    let patch = splits.next();
+
+    let major: u32 = major.parse().unwrap();
+    let (minor, patch): (u32, u32) = match minor.find(not_a_digit) {
+        None => {
+            let minor = minor.parse().unwrap();
+            let patch: u32 = match patch {
+                Some(patch) => match patch.find(not_a_digit) {
+                    None => patch.parse().unwrap(),
+                    Some(idx) if idx > 3 => 0,
+                    Some(idx) => patch[..idx].parse().unwrap(),
+                },
+                None => 0,
+            };
+            (minor, patch)
         }
-
-        if prev_was_digit || !c.is_digit(10) {
-            prev_was_digit = c.is_digit(10);
-            continue;
+        // There is no patch version after minor-date (e.g. "4-2012").
+        Some(idx) => {
+            let minor = minor[..idx].parse().unwrap();
+            (minor, 0)
         }
+    };
 
-        prev_was_digit = true;
-
-        let line = &full_version_line[pos..];
-
-        let next_split = match line.find(|c: char| !c.is_digit(10)) {
-            Some(idx) => idx,
-            None => continue, // no minor version
-        };
-
-        if line.as_bytes()[next_split] != b'.' {
-            continue; // no minor version
-        }
-
-        let major = &line[..next_split];
-        let line = &line[next_split + 1..];
-
-        let (minor, patch) = match line.find(|c: char| !c.is_digit(10)) {
-            Some(idx) => {
-                if line.as_bytes()[idx] == b'.' {
-                    let patch = &line[idx + 1..];
-
-                    let patch_len =
-                        patch.find(|c: char| !c.is_digit(10)).unwrap_or_else(|| patch.len());
-                    let patch = &patch[..patch_len];
-                    let patch = if patch_len > 3 || patch_len == 0 { None } else { Some(patch) };
-
-                    (&line[..idx], patch)
-                } else {
-                    (&line[..idx], None)
-                }
-            }
-            None => (line, None),
-        };
-
-        if minor.is_empty() {
-            continue;
-        }
-
-        let major: u32 = major.parse().unwrap();
-        let minor: u32 = minor.parse().unwrap();
-        let patch: u32 = patch.unwrap_or("0").parse().unwrap();
-
-        return Some(((major * 1000) + minor) * 1000 + patch);
-    }
-
-    None
+    Some(((major * 1000) + minor) * 1000 + patch)
 }
 
 /// Returns (LLDB version, LLDB is rust-enabled)
-fn extract_lldb_version(full_version_line: Option<String>) -> (Option<String>, bool) {
+fn extract_lldb_version(full_version_line: &str) -> Option<(u32, bool)> {
     // Extract the major LLDB version from the given version string.
     // LLDB version strings are different for Apple and non-Apple platforms.
     // The Apple variant looks like this:
@@ -917,7 +985,7 @@ fn extract_lldb_version(full_version_line: Option<String>) -> (Option<String>, b
     // lldb-300.2.51 (new versions)
     //
     // We are only interested in the major version number, so this function
-    // will return `Some("179")` and `Some("300")` respectively.
+    // will return `Some(179)` and `Some(300)` respectively.
     //
     // Upstream versions look like:
     // lldb version 6.0.1
@@ -929,53 +997,24 @@ fn extract_lldb_version(full_version_line: Option<String>) -> (Option<String>, b
     // normally fine because the only non-Apple version we test is
     // rust-enabled.
 
-    if let Some(ref full_version_line) = full_version_line {
-        if !full_version_line.trim().is_empty() {
-            let full_version_line = full_version_line.trim();
+    let full_version_line = full_version_line.trim();
 
-            for (pos, l) in full_version_line.char_indices() {
-                if l != 'l' && l != 'L' {
-                    continue;
-                }
-                if pos + 5 >= full_version_line.len() {
-                    continue;
-                }
-                let l = full_version_line[pos + 1..].chars().next().unwrap();
-                if l != 'l' && l != 'L' {
-                    continue;
-                }
-                let d = full_version_line[pos + 2..].chars().next().unwrap();
-                if d != 'd' && d != 'D' {
-                    continue;
-                }
-                let b = full_version_line[pos + 3..].chars().next().unwrap();
-                if b != 'b' && b != 'B' {
-                    continue;
-                }
-                let dash = full_version_line[pos + 4..].chars().next().unwrap();
-                if dash != '-' {
-                    continue;
-                }
-
-                let vers = full_version_line[pos + 5..]
-                    .chars()
-                    .take_while(|c| c.is_digit(10))
-                    .collect::<String>();
-                if !vers.is_empty() {
-                    return (Some(vers), full_version_line.contains("rust-enabled"));
-                }
-            }
-
-            if full_version_line.starts_with("lldb version ") {
-                let vers = full_version_line[13..]
-                    .chars()
-                    .take_while(|c| c.is_digit(10))
-                    .collect::<String>();
-                if !vers.is_empty() {
-                    return (Some(vers + "00"), full_version_line.contains("rust-enabled"));
-                }
-            }
+    if let Some(apple_ver) =
+        full_version_line.strip_prefix("LLDB-").or_else(|| full_version_line.strip_prefix("lldb-"))
+    {
+        if let Some(idx) = apple_ver.find(not_a_digit) {
+            let version: u32 = apple_ver[..idx].parse().unwrap();
+            return Some((version, full_version_line.contains("rust-enabled")));
+        }
+    } else if let Some(lldb_ver) = full_version_line.strip_prefix("lldb version ") {
+        if let Some(idx) = lldb_ver.find(not_a_digit) {
+            let version: u32 = lldb_ver[..idx].parse().ok()?;
+            return Some((version * 100, full_version_line.contains("rust-enabled")));
         }
     }
-    (None, false)
+    None
+}
+
+fn not_a_digit(c: char) -> bool {
+    !c.is_digit(10)
 }

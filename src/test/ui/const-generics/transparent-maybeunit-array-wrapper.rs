@@ -1,7 +1,8 @@
 // run-pass
+// revisions: full min
 
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
+#![cfg_attr(full, feature(adt_const_params))]
+#![cfg_attr(full, allow(incomplete_features))]
 
 use std::mem::MaybeUninit;
 

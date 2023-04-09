@@ -1,38 +1,46 @@
-error[E0277]: the trait bound `usize: std::alloc::GlobalAlloc` is not satisfied
-  --> $DIR/not-an-allocator.rs:2:1
+error[E0277]: the trait bound `usize: GlobalAlloc` is not satisfied
+  --> $DIR/not-an-allocator.rs:2:11
    |
+LL | #[global_allocator]
+   | ------------------- in this procedural macro expansion
 LL | static A: usize = 0;
-   | ^^^^^^^^^^^^^^^^^^^^ the trait `std::alloc::GlobalAlloc` is not implemented for `usize`
+   |           ^^^^^ the trait `GlobalAlloc` is not implemented for `usize`
    |
-   = note: required by `std::alloc::GlobalAlloc::alloc`
-   = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = help: the trait `GlobalAlloc` is implemented for `System`
+   = note: this error originates in the attribute macro `global_allocator` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `usize: std::alloc::GlobalAlloc` is not satisfied
-  --> $DIR/not-an-allocator.rs:2:1
+error[E0277]: the trait bound `usize: GlobalAlloc` is not satisfied
+  --> $DIR/not-an-allocator.rs:2:11
    |
+LL | #[global_allocator]
+   | ------------------- in this procedural macro expansion
 LL | static A: usize = 0;
-   | ^^^^^^^^^^^^^^^^^^^^ the trait `std::alloc::GlobalAlloc` is not implemented for `usize`
+   |           ^^^^^ the trait `GlobalAlloc` is not implemented for `usize`
    |
-   = note: required by `std::alloc::GlobalAlloc::dealloc`
-   = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = help: the trait `GlobalAlloc` is implemented for `System`
+   = note: this error originates in the attribute macro `global_allocator` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `usize: std::alloc::GlobalAlloc` is not satisfied
-  --> $DIR/not-an-allocator.rs:2:1
+error[E0277]: the trait bound `usize: GlobalAlloc` is not satisfied
+  --> $DIR/not-an-allocator.rs:2:11
    |
+LL | #[global_allocator]
+   | ------------------- in this procedural macro expansion
 LL | static A: usize = 0;
-   | ^^^^^^^^^^^^^^^^^^^^ the trait `std::alloc::GlobalAlloc` is not implemented for `usize`
+   |           ^^^^^ the trait `GlobalAlloc` is not implemented for `usize`
    |
-   = note: required by `std::alloc::GlobalAlloc::realloc`
-   = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = help: the trait `GlobalAlloc` is implemented for `System`
+   = note: this error originates in the attribute macro `global_allocator` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `usize: std::alloc::GlobalAlloc` is not satisfied
-  --> $DIR/not-an-allocator.rs:2:1
+error[E0277]: the trait bound `usize: GlobalAlloc` is not satisfied
+  --> $DIR/not-an-allocator.rs:2:11
    |
+LL | #[global_allocator]
+   | ------------------- in this procedural macro expansion
 LL | static A: usize = 0;
-   | ^^^^^^^^^^^^^^^^^^^^ the trait `std::alloc::GlobalAlloc` is not implemented for `usize`
+   |           ^^^^^ the trait `GlobalAlloc` is not implemented for `usize`
    |
-   = note: required by `std::alloc::GlobalAlloc::alloc_zeroed`
-   = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
+   = help: the trait `GlobalAlloc` is implemented for `System`
+   = note: this error originates in the attribute macro `global_allocator` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: aborting due to 4 previous errors
 

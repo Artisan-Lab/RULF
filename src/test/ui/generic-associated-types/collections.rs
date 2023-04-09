@@ -1,15 +1,13 @@
-#![allow(incomplete_features)]
-#![feature(generic_associated_types)]
 #![feature(associated_type_defaults)]
 
 // A Collection trait and collection families. Based on
-// http://smallcultfollowing.com/babysteps/blog/2016/11/03/
+// https://smallcultfollowing.com/babysteps/blog/2016/11/03/
 // associated-type-constructors-part-2-family-traits/
 
 // run-pass
 
 trait Collection<T> {
-    type Iter<'iter>: Iterator<Item=&'iter T> where T: 'iter;
+    type Iter<'iter>: Iterator<Item=&'iter T> where T: 'iter, Self: 'iter;
     type Family: CollectionFamily;
     // Test associated type defaults with parameters
     type Sibling<U>: Collection<U> =
@@ -33,7 +31,7 @@ impl CollectionFamily for VecFamily {
 }
 
 impl<T> Collection<T> for Vec<T> {
-    type Iter<'iter> where T: 'iter = std::slice::Iter<'iter, T>;
+    type Iter<'iter> = std::slice::Iter<'iter, T> where T: 'iter;
     type Family = VecFamily;
 
     fn empty() -> Self {

@@ -1,8 +1,13 @@
-error[E0599]: no method named `trait_method` found for struct `reexported_trait::FooStruct` in the current scope
+error[E0599]: no method named `trait_method` found for struct `FooStruct` in the current scope
   --> $DIR/issue-56175.rs:5:33
    |
 LL |     reexported_trait::FooStruct.trait_method();
-   |                                 ^^^^^^^^^^^^ method not found in `reexported_trait::FooStruct`
+   |                                 ^^^^^^^^^^^^ method not found in `FooStruct`
+   |
+  ::: $DIR/auxiliary/reexported-trait.rs:3:12
+   |
+LL |         fn trait_method(&self) {
+   |            ------------ the method is available for `FooStruct` here
    |
    = help: items from traits can only be used if the trait is in scope
 help: the following trait is implemented but not in scope; perhaps add a `use` for it:
@@ -10,11 +15,16 @@ help: the following trait is implemented but not in scope; perhaps add a `use` f
 LL | use reexported_trait::Trait;
    |
 
-error[E0599]: no method named `trait_method_b` found for struct `reexported_trait::FooStruct` in the current scope
+error[E0599]: no method named `trait_method_b` found for struct `FooStruct` in the current scope
   --> $DIR/issue-56175.rs:7:33
    |
 LL |     reexported_trait::FooStruct.trait_method_b();
-   |                                 ^^^^^^^^^^^^^^ method not found in `reexported_trait::FooStruct`
+   |                                 ^^^^^^^^^^^^^^ method not found in `FooStruct`
+   |
+  ::: $DIR/auxiliary/reexported-trait.rs:7:12
+   |
+LL |         fn trait_method_b(&self) {
+   |            -------------- the method is available for `FooStruct` here
    |
    = help: items from traits can only be used if the trait is in scope
 help: the following trait is implemented but not in scope; perhaps add a `use` for it:

@@ -1,9 +1,9 @@
-#![feature(optin_builtin_traits)]
+#![feature(auto_traits)]
 
 pub auto trait Banana {}
 
 // @has crate_local/struct.Peach.html
-// @has - '//code' 'impl Banana for Peach'
-// @has - '//code' 'impl Send for Peach'
-// @has - '//code' 'impl Sync for Peach'
+// @has - '//h3[@class="code-header"]' 'impl Banana for Peach'
+// @has - '//h3[@class="code-header"]' 'impl Send for Peach'
+// @has - '//h3[@class="code-header"]' 'impl Sync for Peach'
 pub struct Peach;

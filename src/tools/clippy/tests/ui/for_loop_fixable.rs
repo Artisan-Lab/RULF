@@ -1,6 +1,6 @@
 // run-rustfix
-
 #![allow(dead_code, unused)]
+#![allow(clippy::uninlined_format_args)]
 
 use std::collections::*;
 
@@ -25,11 +25,11 @@ impl Unrelated {
 )]
 #[allow(
     clippy::linkedlist,
-    clippy::shadow_unrelated,
     clippy::unnecessary_mut_passed,
-    clippy::similar_names
+    clippy::similar_names,
+    clippy::needless_borrow
 )]
-#[allow(clippy::many_single_char_names, unused_variables)]
+#[allow(unused_variables)]
 fn main() {
     let mut vec = vec![1, 2, 3, 4];
 
@@ -279,5 +279,31 @@ mod issue_4958 {
         // No suggestion for this.
         // We'd have to suggest `for _ in *rr {}` which is less clear.
         for _ in rr.into_iter() {}
+    }
+}
+
+// explicit_into_iter_loop
+#[warn(clippy::explicit_into_iter_loop)]
+mod issue_6900 {
+    struct S;
+    impl S {
+        #[allow(clippy::should_implement_trait)]
+        pub fn into_iter<T>(self) -> I<T> {
+            unimplemented!()
+        }
+    }
+
+    struct I<T>(T);
+    impl<T> Iterator for I<T> {
+        type Item = T;
+        fn next(&mut self) -> Option<Self::Item> {
+            unimplemented!()
+        }
+    }
+
+    fn f() {
+        for _ in S.into_iter::<u32>() {
+            unimplemented!()
+        }
     }
 }

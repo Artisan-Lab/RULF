@@ -2,7 +2,7 @@ use crate::clean::PrimitiveType;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use rustc_data_structures::fx::FxHashSet;
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum _AflHelpers {
+pub(crate) enum _AflHelpers {
     _NoHelper,
     _U8,
     _I8,
@@ -26,7 +26,7 @@ pub enum _AflHelpers {
 }
 
 impl _AflHelpers {
-    pub fn _new_from_fuzzable(fuzzable: &FuzzableType) -> Self {
+    pub(crate) fn _new_from_fuzzable(fuzzable: &FuzzableType) -> Self {
         match fuzzable {
             FuzzableType::NoFuzzable => _AflHelpers::_NoHelper,
             FuzzableType::RefStr => _AflHelpers::_Str,
@@ -67,7 +67,7 @@ impl _AflHelpers {
     //TODO：注意到这个函数在处理slice的时候会有些问题，不同的slice会有多个afl helpers，
     //但实际上我们只需要定义一个函数，但这个函数很难继续调整，所以我们在别的地方需要注意这里面的逻辑
     //Tuple在这一步已经全部排除掉了，所以接下来不会再有tuple的问题
-    pub fn _get_all_dependent_afl_helpers(&self) -> Vec<_AflHelpers> {
+    pub(crate) fn _get_all_dependent_afl_helpers(&self) -> Vec<_AflHelpers> {
         let mut helpers = Vec::new();
         if let _AflHelpers::_Tuple(inner_helpers) = self {
             for afl_helper in inner_helpers {
@@ -138,7 +138,7 @@ impl _AflHelpers {
         helpers
     }
 
-    pub fn _to_full_function(&self) -> &'static str {
+    pub(crate) fn _to_full_function(&self) -> &'static str {
         match self {
             _AflHelpers::_NoHelper => "afl no helper",
             _AflHelpers::_U8 => _data_to_u8(),
@@ -163,7 +163,7 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _type_name(&self) -> String {
+    pub(crate) fn _type_name(&self) -> String {
         match self {
             _AflHelpers::_NoHelper => "afl no helper".to_string(),
             _AflHelpers::_U8 => "u8".to_string(),
@@ -201,7 +201,7 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _to_function_name(&self) -> String {
+    pub(crate) fn _to_function_name(&self) -> String {
         match self {
             _AflHelpers::_Slice(inner_afl_helpers) => {
                 //不考虑内部还是slice或者str的情况,这种函数在构建graph的时候就已经作为多维动态长度被删掉了
@@ -220,7 +220,7 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _print_all() {
+    pub(crate) fn _print_all() {
         println!("afl helper functions: ");
         println!("{}", _data_to_u8());
         println!("{}", _data_to_i8());
@@ -243,7 +243,7 @@ impl _AflHelpers {
     }
 
     //may remove later
-    pub fn _feature_gate(&self) -> Option<String> {
+    pub(crate) fn _feature_gate(&self) -> Option<String> {
         match self {
             _AflHelpers::_Char => {
                 let s = "#![feature(assoc_char_funcs)]".to_string();
@@ -253,21 +253,21 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _is_slice(&self) -> bool {
+    pub(crate) fn _is_slice(&self) -> bool {
         match self {
             _AflHelpers::_Slice(..) => return true,
             _ => false,
         }
     }
 
-    pub fn _is_tuple(&self) -> bool {
+    pub(crate) fn _is_tuple(&self) -> bool {
         match self {
             _AflHelpers::_Tuple(..) => return true,
             _ => false,
         }
     }
 
-    pub fn _generate_param_initial_statement(
+    pub(crate) fn _generate_param_initial_statement(
         &self,
         param_index: usize,
         fixed_start_index: usize,
@@ -295,7 +295,7 @@ impl _AflHelpers {
         }
     }
 
-    pub fn _generate_param_initial_rhs(
+    pub(crate) fn _generate_param_initial_rhs(
         &self,
         fixed_start_index: usize,
         dynamic_start_index: usize,
@@ -388,7 +388,7 @@ impl _AflHelpers {
 }
 
 //使用FxHashset去重
-pub fn _get_all_dependent_afl_helpers_of_sequence(
+pub(crate) fn _get_all_dependent_afl_helpers_of_sequence(
     fuzzable_params: &Vec<FuzzableType>,
 ) -> FxHashSet<_AflHelpers> {
     let mut res = FxHashSet::default();
@@ -403,7 +403,7 @@ pub fn _get_all_dependent_afl_helpers_of_sequence(
 }
 
 //获得所有的函数的定义，对于slice的话，由于采用了范型，只需要加入一次
-pub fn _get_afl_helpers_functions_of_sequence(
+pub(crate) fn _get_afl_helpers_functions_of_sequence(
     fuzzable_params: &Vec<FuzzableType>,
 ) -> Option<Vec<String>> {
     let afl_helpers = _get_all_dependent_afl_helpers_of_sequence(fuzzable_params);
@@ -425,7 +425,7 @@ pub fn _get_afl_helpers_functions_of_sequence(
 }
 
 //获得可能的feature gate,
-pub fn _get_feature_gates_of_sequence(fuzzable_params: &Vec<FuzzableType>) -> Option<Vec<String>> {
+pub(crate) fn _get_feature_gates_of_sequence(fuzzable_params: &Vec<FuzzableType>) -> Option<Vec<String>> {
     let all_afl_helpers = _get_all_dependent_afl_helpers_of_sequence(fuzzable_params);
     let mut feature_gates = FxHashSet::default();
     for afl_helper in all_afl_helpers {
@@ -445,19 +445,19 @@ pub fn _get_feature_gates_of_sequence(fuzzable_params: &Vec<FuzzableType>) -> Op
     Some(features)
 }
 
-pub fn _data_to_u8() -> &'static str {
+pub(crate) fn _data_to_u8() -> &'static str {
     "fn _to_u8(data:&[u8], index:usize)->u8 {
     data[index]
 }\n"
 }
 
-pub fn _data_to_i8() -> &'static str {
+pub(crate) fn _data_to_i8() -> &'static str {
     "fn _to_i8(data:&[u8], index:usize)->i8 {    
     data[index] as i8
 }\n"
 }
 
-pub fn _data_to_u16() -> &'static str {
+pub(crate) fn _data_to_u16() -> &'static str {
     "fn _to_u16(data:&[u8], index:usize)->u16 {
     let data0 = _to_u8(data, index) as u16;
     let data1 = _to_u8(data, index+1) as u16;
@@ -465,7 +465,7 @@ pub fn _data_to_u16() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_i16() -> &'static str {
+pub(crate) fn _data_to_i16() -> &'static str {
     "fn _to_i16(data:&[u8], index:usize)->i16 {
     let data0 = _to_i8(data, index) as i16;
     let data1 = _to_i8(data, index+1) as i16;
@@ -473,7 +473,7 @@ pub fn _data_to_i16() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_u32() -> &'static str {
+pub(crate) fn _data_to_u32() -> &'static str {
     "fn _to_u32(data:&[u8], index:usize)->u32 {
     let data0 = _to_u16(data, index) as u32;
     let data1 = _to_u16(data, index+2) as u32;
@@ -481,7 +481,7 @@ pub fn _data_to_u32() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_i32() -> &'static str {
+pub(crate) fn _data_to_i32() -> &'static str {
     "fn _to_i32(data:&[u8], index:usize)->i32 {
     let data0 = _to_i16(data, index) as i32;
     let data1 = _to_i16(data, index+2) as i32;
@@ -489,7 +489,7 @@ pub fn _data_to_i32() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_f32() -> &'static str {
+pub(crate) fn _data_to_f32() -> &'static str {
     "fn _to_f32(data:&[u8], index: usize) -> f32 {
     let data_slice = &data[index..index+4];
     use std::convert::TryInto;
@@ -498,7 +498,7 @@ pub fn _data_to_f32() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_u64() -> &'static str {
+pub(crate) fn _data_to_u64() -> &'static str {
     "fn _to_u64(data:&[u8], index:usize)->u64 {
     let data0 = _to_u32(data, index) as u64;
     let data1 = _to_u32(data, index+4) as u64;
@@ -506,7 +506,7 @@ pub fn _data_to_u64() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_i64() -> &'static str {
+pub(crate) fn _data_to_i64() -> &'static str {
     "fn _to_i64(data:&[u8], index:usize)->i64 {
     let data0 = _to_i32(data, index) as i64;
     let data1 = _to_i32(data, index+4) as i64;
@@ -514,7 +514,7 @@ pub fn _data_to_i64() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_f64() -> &'static str {
+pub(crate) fn _data_to_f64() -> &'static str {
     "fn _to_f64(data:&[u8], index: usize) -> f64 {
     let data_slice = &data[index..index+8];
     use std::convert::TryInto;
@@ -523,7 +523,7 @@ pub fn _data_to_f64() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_u128() -> &'static str {
+pub(crate) fn _data_to_u128() -> &'static str {
     "fn _to_u128(data:&[u8], index:usize)->u128 {
     let data0 = _to_u64(data, index) as u128;
     let data1 = _to_u64(data, index+8) as u128;
@@ -531,7 +531,7 @@ pub fn _data_to_u128() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_i128() -> &'static str {
+pub(crate) fn _data_to_i128() -> &'static str {
     "fn _to_i128(data:&[u8], index:usize)->i128 {
     let data0 = _to_i64(data, index) as i128;
     let data1 = _to_i64(data, index+8) as i128;
@@ -539,19 +539,19 @@ pub fn _data_to_i128() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_usize() -> &'static str {
+pub(crate) fn _data_to_usize() -> &'static str {
     "fn _to_usize(data:&[u8], index:usize)->usize {
     _to_u64(data, index) as usize
 }\n"
 }
 
-pub fn _data_to_isize() -> &'static str {
+pub(crate) fn _data_to_isize() -> &'static str {
     "fn _to_isize(data:&[u8], index:usize)->isize {
     _to_i64(data, index) as isize
 }\n"
 }
 
-pub fn _data_to_char() -> &'static str {
+pub(crate) fn _data_to_char() -> &'static str {
     "fn _to_char(data:&[u8], index: usize)->char {
     let char_value = _to_u32(data,index);
     match char::from_u32(char_value) {
@@ -564,7 +564,7 @@ pub fn _data_to_char() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_bool() -> &'static str {
+pub(crate) fn _data_to_bool() -> &'static str {
     "fn _to_bool(data:&[u8], index: usize)->bool {
     let bool_value = _to_u8(data, index);
     if bool_value %2 == 0 {
@@ -575,7 +575,7 @@ pub fn _data_to_bool() -> &'static str {
 }\n"
 }
 
-pub fn _data_to_str() -> &'static str {
+pub(crate) fn _data_to_str() -> &'static str {
     "fn _to_str(data:&[u8], start_index: usize, end_index: usize)->&str {
     let data_slice = &data[start_index..end_index];
     use std::str;
@@ -590,7 +590,7 @@ pub fn _data_to_str() -> &'static str {
 }
 
 //会有big endian和 little endian的问题，不过只是去fuzz的话，应该没啥影响
-pub fn _data_to_slice() -> &'static str {
+pub(crate) fn _data_to_slice() -> &'static str {
     "fn _to_slice<T>(data:&[u8], start_index: usize, end_index: usize)->&[T] {
     let data_slice = &data[start_index..end_index];
     let (_, shorts, _) = unsafe {data_slice.align_to::<T>()};

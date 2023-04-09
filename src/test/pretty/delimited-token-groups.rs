@@ -2,14 +2,14 @@
 
 #![feature(rustc_attrs)]
 
-macro_rules! mac { ($ ($ tt : tt) *) => () }
+macro_rules! mac { ($($tt : tt) *) => () }
 
 mac! {
     struct S { field1 : u8, field2 : u16, } impl Clone for S
     {
         fn clone() -> S
         {
-            panic ! () ;
+            panic! () ;
 
         }
     }
@@ -17,9 +17,9 @@ mac! {
 
 mac! {
     a(aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-      aaaaaaaa aaaaaaaa) a
+    aaaaaaaa aaaaaaaa) a
     [aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-     aaaaaaaa aaaaaaaa] a
+    aaaaaaaa aaaaaaaa] a
     {
         aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
         aaaaaaaa aaaaaaaa aaaaaaaa
@@ -27,22 +27,22 @@ mac! {
 }
 
 mac!(aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-     aaaaaaaa aaaaaaaa);
+aaaaaaaa aaaaaaaa);
 mac![aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-     aaaaaaaa aaaaaaaa];
+aaaaaaaa aaaaaaaa];
 mac! {
     aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
     aaaaaaaa aaaaaaaa
 }
 
 #[rustc_dummy(aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-              aaaaaaaa aaaaaaaa aaaaaaaa)]
+aaaaaaaa aaaaaaaa aaaaaaaa)]
 #[rustc_dummy[aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-              aaaaaaaa aaaaaaaa aaaaaaaa]]
+aaaaaaaa aaaaaaaa aaaaaaaa]]
 #[rustc_dummy {
-      aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
-      aaaaaaaa aaaaaaaa
-  }]
+    aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa
+    aaaaaaaa aaaaaaaa
+}]
 #[rustc_dummy =
-  "aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa"]
-fn main() { }
+"aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa aaaaaaaa"]
+fn main() {}

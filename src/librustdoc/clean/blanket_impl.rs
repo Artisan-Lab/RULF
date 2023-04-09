@@ -1,130 +1,137 @@
 use crate::rustc_trait_selection::traits::query::evaluate_obligation::InferCtxtExt;
 use rustc_hir as hir;
-use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_infer::infer::{InferOk, TyCtxtInferExt};
 use rustc_infer::traits;
-use rustc_middle::ty::subst::Subst;
-use rustc_middle::ty::{ToPredicate, WithConstness};
+use rustc_middle::ty::ToPredicate;
 use rustc_span::DUMMY_SP;
 
 use super::*;
 
-pub struct BlanketImplFinder<'a, 'tcx> {
-    pub cx: &'a core::DocContext<'tcx>,
+pub(crate) struct BlanketImplFinder<'a, 'tcx> {
+    pub(crate) cx: &'a mut core::DocContext<'tcx>,
 }
 
 impl<'a, 'tcx> BlanketImplFinder<'a, 'tcx> {
-    pub fn new(cx: &'a core::DocContext<'tcx>) -> Self {
-        BlanketImplFinder { cx }
-    }
+    pub(crate) fn get_blanket_impls(&mut self, item_def_id: DefId) -> Vec<Item> {
+        let cx = &mut self.cx;
+        let param_env = cx.tcx.param_env(item_def_id);
+        let ty = cx.tcx.bound_type_of(item_def_id);
 
-    // FIXME(eddyb) figure out a better way to pass information about
-    // parametrization of `ty` than `param_env_def_id`.
-    pub fn get_blanket_impls(&self, ty: Ty<'tcx>, param_env_def_id: DefId) -> Vec<Item> {
-        let param_env = self.cx.tcx.param_env(param_env_def_id);
-
-        debug!("get_blanket_impls({:?})", ty);
+        trace!("get_blanket_impls({:?})", ty);
         let mut impls = Vec::new();
-        for &trait_def_id in self.cx.tcx.all_traits(LOCAL_CRATE).iter() {
-            if !self.cx.renderinfo.borrow().access_levels.is_public(trait_def_id)
-                || self.cx.generated_synthetics.borrow_mut().get(&(ty, trait_def_id)).is_some()
+        for trait_def_id in cx.tcx.all_traits() {
+            if !cx.cache.effective_visibilities.is_directly_public(trait_def_id)
+                || cx.generated_synthetics.get(&(ty.0, trait_def_id)).is_some()
             {
                 continue;
             }
-            self.cx.tcx.for_each_relevant_impl(trait_def_id, ty, |impl_def_id| {
-                debug!(
+            // NOTE: doesn't use `for_each_relevant_impl` to avoid looking at anything besides blanket impls
+            let trait_impls = cx.tcx.trait_impls_of(trait_def_id);
+            'blanket_impls: for &impl_def_id in trait_impls.blanket_impls() {
+                trace!(
                     "get_blanket_impls: Considering impl for trait '{:?}' {:?}",
-                    trait_def_id, impl_def_id
+                    trait_def_id,
+                    impl_def_id
                 );
-                let trait_ref = self.cx.tcx.impl_trait_ref(impl_def_id).unwrap();
-                let may_apply = self.cx.tcx.infer_ctxt().enter(|infcx| {
-                    match trait_ref.self_ty().kind {
-                        ty::Param(_) => {}
-                        _ => return false,
-                    }
-
-                    let substs = infcx.fresh_substs_for_item(DUMMY_SP, param_env_def_id);
-                    let ty = ty.subst(infcx.tcx, substs);
-                    let param_env = param_env.subst(infcx.tcx, substs);
-
-                    let impl_substs = infcx.fresh_substs_for_item(DUMMY_SP, impl_def_id);
-                    let trait_ref = trait_ref.subst(infcx.tcx, impl_substs);
-
-                    // Require the type the impl is implemented on to match
-                    // our type, and ignore the impl if there was a mismatch.
-                    let cause = traits::ObligationCause::dummy();
-                    let eq_result = infcx.at(&cause, param_env).eq(trait_ref.self_ty(), ty);
-                    if let Ok(InferOk { value: (), obligations }) = eq_result {
-                        // FIXME(eddyb) ignoring `obligations` might cause false positives.
-                        drop(obligations);
-
-                        debug!(
-                            "invoking predicate_may_hold: param_env={:?}, trait_ref={:?}, ty={:?}",
-                            param_env, trait_ref, ty
-                        );
-                        match infcx.evaluate_obligation(&traits::Obligation::new(
-                            cause,
-                            param_env,
-                            trait_ref.without_const().to_predicate(infcx.tcx),
-                        )) {
-                            Ok(eval_result) => eval_result.may_apply(),
-                            Err(traits::OverflowError) => true, // overflow doesn't mean yes *or* no
-                        }
-                    } else {
-                        false
-                    }
-                });
-                debug!(
-                    "get_blanket_impls: found applicable impl: {}\
-                        for trait_ref={:?}, ty={:?}",
-                    may_apply, trait_ref, ty
-                );
-                if !may_apply {
-                    return;
+                let trait_ref = cx.tcx.bound_impl_trait_ref(impl_def_id).unwrap();
+                if !matches!(trait_ref.0.self_ty().kind(), ty::Param(_)) {
+                    continue;
                 }
+                let infcx = cx.tcx.infer_ctxt().build();
+                let substs = infcx.fresh_substs_for_item(DUMMY_SP, item_def_id);
+                let impl_ty = ty.subst(infcx.tcx, substs);
+                let param_env = EarlyBinder(param_env).subst(infcx.tcx, substs);
 
-                self.cx.generated_synthetics.borrow_mut().insert((ty, trait_def_id));
-                let provided_trait_methods = self
-                    .cx
+                let impl_substs = infcx.fresh_substs_for_item(DUMMY_SP, impl_def_id);
+                let impl_trait_ref = trait_ref.subst(infcx.tcx, impl_substs);
+
+                // Require the type the impl is implemented on to match
+                // our type, and ignore the impl if there was a mismatch.
+                let cause = traits::ObligationCause::dummy();
+                let Ok(eq_result) = infcx.at(&cause, param_env).eq(impl_trait_ref.self_ty(), impl_ty) else {
+                        continue
+                    };
+                let InferOk { value: (), obligations } = eq_result;
+                // FIXME(eddyb) ignoring `obligations` might cause false positives.
+                drop(obligations);
+
+                trace!(
+                    "invoking predicate_may_hold: param_env={:?}, impl_trait_ref={:?}, impl_ty={:?}",
+                    param_env,
+                    impl_trait_ref,
+                    impl_ty
+                );
+                let predicates = cx
                     .tcx
-                    .provided_trait_methods(trait_def_id)
-                    .map(|meth| meth.ident.to_string())
-                    .collect();
+                    .predicates_of(impl_def_id)
+                    .instantiate(cx.tcx, impl_substs)
+                    .predicates
+                    .into_iter()
+                    .chain(Some(
+                        ty::Binder::dummy(impl_trait_ref)
+                            .to_poly_trait_predicate()
+                            .map_bound(ty::PredicateKind::Trait)
+                            .to_predicate(infcx.tcx),
+                    ));
+                for predicate in predicates {
+                    debug!("testing predicate {:?}", predicate);
+                    let obligation = traits::Obligation::new(
+                        traits::ObligationCause::dummy(),
+                        param_env,
+                        predicate,
+                    );
+                    match infcx.evaluate_obligation(&obligation) {
+                        Ok(eval_result) if eval_result.may_apply() => {}
+                        Err(traits::OverflowError::Canonical) => {}
+                        Err(traits::OverflowError::ErrorReporting) => {}
+                        _ => continue 'blanket_impls,
+                    }
+                }
+                debug!(
+                    "get_blanket_impls: found applicable impl for trait_ref={:?}, ty={:?}",
+                    trait_ref, ty
+                );
+
+                cx.generated_synthetics.insert((ty.0, trait_def_id));
 
                 impls.push(Item {
-                    source: self.cx.tcx.def_span(impl_def_id).clean(self.cx),
                     name: None,
                     attrs: Default::default(),
                     visibility: Inherited,
-                    def_id: self.cx.next_def_id(impl_def_id.krate),
-                    stability: None,
-                    deprecation: None,
-                    inner: ImplItem(Impl {
+                    item_id: ItemId::Blanket { impl_id: impl_def_id, for_: item_def_id },
+                    kind: Box::new(ImplItem(Box::new(Impl {
                         unsafety: hir::Unsafety::Normal,
-                        generics: (
-                            self.cx.tcx.generics_of(impl_def_id),
-                            self.cx.tcx.explicit_predicates_of(impl_def_id),
-                        )
-                            .clean(self.cx),
-                        provided_trait_methods,
+                        generics: clean_ty_generics(
+                            cx,
+                            cx.tcx.generics_of(impl_def_id),
+                            cx.tcx.explicit_predicates_of(impl_def_id),
+                        ),
                         // FIXME(eddyb) compute both `trait_` and `for_` from
                         // the post-inference `trait_ref`, as it's more accurate.
-                        trait_: Some(trait_ref.clean(self.cx).get_trait_type().unwrap()),
-                        for_: ty.clean(self.cx),
-                        items: self
-                            .cx
+                        trait_: Some(clean_trait_ref_with_bindings(
+                            cx,
+                            trait_ref.0,
+                            ThinVec::new(),
+                        )),
+                        for_: clean_middle_ty(ty.0, cx, None),
+                        items: cx
                             .tcx
                             .associated_items(impl_def_id)
                             .in_definition_order()
-                            .collect::<Vec<_>>()
-                            .clean(self.cx),
-                        polarity: None,
-                        synthetic: false,
-                        blanket_impl: Some(trait_ref.self_ty().clean(self.cx)),
-                    }),
+                            .map(|x| clean_middle_assoc_item(x, cx))
+                            .collect::<Vec<_>>(),
+                        polarity: ty::ImplPolarity::Positive,
+                        kind: ImplKind::Blanket(Box::new(clean_middle_ty(
+                            trait_ref.0.self_ty(),
+                            cx,
+                            None,
+                        ))),
+                    }))),
+                    cfg: None,
                 });
-            });
+            }
         }
+
         impls
     }
 }

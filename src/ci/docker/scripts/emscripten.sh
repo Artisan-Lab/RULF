@@ -1,3 +1,4 @@
+#!/bin/sh
 set -ex
 
 hide_output() {
@@ -10,7 +11,7 @@ exit 1
   trap "$on_err" ERR
   bash -c "while true; do sleep 30; echo \$(date) - building ...; done" &
   PING_LOOP_PID=$!
-  $@ &> /tmp/build.log
+  "$@" &> /tmp/build.log
   trap - ERR
   kill $PING_LOOP_PID
   rm -f /tmp/build.log
@@ -19,5 +20,5 @@ exit 1
 
 git clone https://github.com/emscripten-core/emsdk.git /emsdk-portable
 cd /emsdk-portable
-hide_output ./emsdk install 1.38.46-upstream
-./emsdk activate 1.38.46-upstream
+hide_output ./emsdk install 1.39.20
+./emsdk activate 1.39.20

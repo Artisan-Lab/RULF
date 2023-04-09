@@ -20,6 +20,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     libc6-dev \
     libc6-dev-riscv64-cross \
     make \
+    ninja-build \
     patch \
     python3 \
     qemu-system-misc \
@@ -83,9 +84,9 @@ RUN riscv64-linux-gnu-gcc addentropy.c -o rootfs/addentropy -static
 # download and build the riscv bootloader
 RUN git clone https://github.com/riscv/riscv-pk
 WORKDIR /tmp/riscv-pk
-# nothing special about this revision: it is just master at the time of writing
-# v1.0.0 doesn't build
-RUN git checkout 5d9ed238e1cabfbca3c47f50d32894ce94bfc304
+# This revision fixes a fault in recent QEMU from 64-bit accesses to the PLIC
+# commits later than this one should work too
+RUN git checkout 7d8b7c0dab72108e3ea7bb7744d3f6cc907c7ef4
 RUN mkdir build && cd build && \
     ../configure --with-payload=/tmp/vmlinux --host=riscv64-linux-gnu && \
     make -j$(nproc) && \
@@ -97,6 +98,6 @@ COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh
 
 ENV RUST_CONFIGURE_ARGS --qemu-riscv64-rootfs=/tmp/rootfs
-ENV SCRIPT python3 ../x.py test --target riscv64gc-unknown-linux-gnu
+ENV SCRIPT python3 ../x.py --stage 2 test --host='' --target riscv64gc-unknown-linux-gnu
 
 ENV NO_CHANGE_USER=1

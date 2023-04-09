@@ -1,9 +1,4 @@
-// run-pass
-
-#![allow(clippy::useless_attribute)] //issue #2910
-
-#[macro_use]
-extern crate serde_derive;
+use serde::Deserialize;
 
 /// Tests that we do not lint for unused underscores in a `MacroAttribute`
 /// expansion

@@ -2,14 +2,14 @@
 // "target-cpu" attribute in LLVM.
 
 // no-prefer-dynamic
-// ignore-tidy-linelength
+//
 // compile-flags: -C no-prepopulate-passes -C panic=abort -C linker-plugin-lto -Cpasses=name-anon-globals
 
 #![crate_type = "staticlib"]
 
 // CHECK-LABEL: define {{.*}} @exported() {{.*}} #0
 #[no_mangle]
-pub extern fn exported() {
+pub extern "C" fn exported() {
     not_exported();
 }
 

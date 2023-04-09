@@ -1,5 +1,5 @@
 // compile-flags: -C no-prepopulate-passes -Z mir-opt-level=0
-// ignore-tidy-linelength
+//
 
 #![crate_type = "lib"]
 
@@ -8,7 +8,7 @@ pub enum Align64 {
     A(u32),
     B(u32),
 }
-// CHECK: %Align64 = type { [0 x i32], i32, [15 x i32] }
+// CHECK: %Align64 = type { i32, [15 x i32] }
 
 pub struct Nested64 {
     a: u8,
@@ -20,7 +20,7 @@ pub struct Nested64 {
 #[no_mangle]
 pub fn align64(a: u32) -> Align64 {
 // CHECK: %a64 = alloca %Align64, align 64
-// CHECK: call void @llvm.memcpy.{{.*}}(i8* align 64 %{{.*}}, i8* align 64 %{{.*}}, i{{[0-9]+}} 64, i1 false)
+// CHECK: call void @llvm.memcpy.{{.*}}({{i8\*|ptr}} align 64 %{{.*}}, {{i8\*|ptr}} align 64 %{{.*}}, i{{[0-9]+}} 64, i1 false)
     let a64 = Align64::A(a);
     a64
 }

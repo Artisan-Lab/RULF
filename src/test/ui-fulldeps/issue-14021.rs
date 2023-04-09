@@ -4,21 +4,25 @@
 #![allow(unused_imports)]
 #![feature(rustc_private)]
 
+extern crate rustc_macros;
 extern crate rustc_serialize;
 
-use rustc_serialize::{Encodable, Decodable};
-use rustc_serialize::json;
+use rustc_macros::{Decodable, Encodable};
+use rustc_serialize::opaque::{MemDecoder, MemEncoder};
+use rustc_serialize::{Decodable, Encodable, Encoder};
 
-#[derive(RustcEncodable, RustcDecodable, PartialEq, Debug)]
+#[derive(Encodable, Decodable, PartialEq, Debug)]
 struct UnitLikeStruct;
 
 pub fn main() {
     let obj = UnitLikeStruct;
-    let json_str: String = json::encode(&obj).unwrap();
 
-    let json_object = json::from_str(&json_str);
-    let mut decoder = json::Decoder::new(json_object.unwrap());
-    let mut decoded_obj: UnitLikeStruct = Decodable::decode(&mut decoder).unwrap();
+    let mut encoder = MemEncoder::new();
+    obj.encode(&mut encoder);
+    let data = encoder.finish();
 
-    assert_eq!(obj, decoded_obj);
+    let mut decoder = MemDecoder::new(&data, 0);
+    let obj2 = UnitLikeStruct::decode(&mut decoder);
+
+    assert_eq!(obj, obj2);
 }

@@ -1,7 +1,6 @@
 // Crate that exports an opaque `impl Trait` type. Used for testing cross-crate.
 
-#![crate_type="rlib"]
-
+#![crate_type = "rlib"]
 #![feature(type_alias_impl_trait)]
 
 pub trait View {
@@ -16,6 +15,6 @@ impl View for X {
     type Tmp = impl Iterator<Item = u32>;
 
     fn test(&self) -> Self::Tmp {
-        vec![1,2,3].into_iter()
+        vec![1, 2, 3].into_iter()
     }
 }

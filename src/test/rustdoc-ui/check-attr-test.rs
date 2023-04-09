@@ -1,6 +1,6 @@
 // compile-flags:--test
 
-#![deny(invalid_codeblock_attributes)]
+#![deny(rustdoc::invalid_codeblock_attributes)]
 
 /// foo
 ///
@@ -22,13 +22,6 @@ pub fn bar() {}
 /// boo
 /// ```
 pub fn foobar() {}
-
-/// barfoo
-///
-/// ```allow-fail,allowfail,allOw_fail
-/// boo
-/// ```
-pub fn barfoo() {}
 
 /// b
 ///

@@ -1,7 +1,6 @@
 // force-host
 
-#![feature(plugin_registrar, rustc_private)]
-#![feature(box_syntax)]
+#![feature(rustc_private)]
 
 extern crate rustc_driver;
 extern crate rustc_hir;
@@ -14,6 +13,7 @@ extern crate rustc_ast;
 use rustc_ast::attr;
 use rustc_driver::plugin::Registry;
 use rustc_lint::{LateContext, LateLintPass, LintContext, LintPass};
+use rustc_span::def_id::CRATE_DEF_ID;
 use rustc_span::symbol::Symbol;
 
 macro_rules! fake_lint_pass {
@@ -27,12 +27,14 @@ macro_rules! fake_lint_pass {
         }
 
         impl LateLintPass<'_> for $struct {
-            fn check_crate(&mut self, cx: &LateContext, krate: &rustc_hir::Crate) {
+            fn check_crate(&mut self, cx: &LateContext) {
+                let attrs = cx.tcx.hir().attrs(rustc_hir::CRATE_HIR_ID);
+                let span = cx.tcx.def_span(CRATE_DEF_ID);
                 $(
-                    if !attr::contains_name(&krate.item.attrs, $attr) {
+                    if !cx.sess().contains_name(attrs, $attr) {
                         cx.lint(CRATE_NOT_OKAY, |lint| {
                              let msg = format!("crate is not marked with #![{}]", $attr);
-                             lint.build(&msg).set_span(krate.item.span).emit()
+                             lint.build(&msg).set_span(span).emit();
                         });
                     }
                 )*
@@ -63,8 +65,8 @@ fake_lint_pass! {
     Symbol::intern("crate_grey"), Symbol::intern("crate_green")
 }
 
-#[plugin_registrar]
-pub fn plugin_registrar(reg: &mut Registry) {
+#[no_mangle]
+fn __rustc_plugin_registrar(reg: &mut Registry) {
     reg.lint_store.register_lints(&[
         &CRATE_NOT_OKAY,
         &CRATE_NOT_RED,
@@ -72,7 +74,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
         &CRATE_NOT_GREY,
         &CRATE_NOT_GREEN,
     ]);
-    reg.lint_store.register_late_pass(|| box PassOkay);
-    reg.lint_store.register_late_pass(|| box PassRedBlue);
-    reg.lint_store.register_late_pass(|| box PassGreyGreen);
+    reg.lint_store.register_late_pass(|_| Box::new(PassOkay));
+    reg.lint_store.register_late_pass(|_| Box::new(PassRedBlue));
+    reg.lint_store.register_late_pass(|_| Box::new(PassGreyGreen));
 }

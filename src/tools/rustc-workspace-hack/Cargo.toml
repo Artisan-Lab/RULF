@@ -1,12 +1,11 @@
 [package]
 name = "rustc-workspace-hack"
 version = "1.0.0"
-authors = ["Alex Crichton <alex@alexcrichton.com>"]
 license = 'MIT OR Apache-2.0'
 description = """
 Hack for the compiler's own build system
 """
-edition = "2018"
+edition = "2021"
 
 [lib]
 path = "lib.rs"
@@ -17,12 +16,17 @@ path = "lib.rs"
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
 features = [
-  "aclapi",
   "accctrl",
+  "aclapi",
   "basetsd",
+  "cfg",
   "consoleapi",
   "errhandlingapi",
+  "evntrace",
   "fibersapi",
+  "handleapi",
+  "in6addr",
+  "inaddr",
   "ioapiset",
   "jobapi",
   "jobapi2",
@@ -32,6 +36,8 @@ features = [
   "memoryapi",
   "minschannel",
   "minwinbase",
+  "mstcpip",
+  "mswsock",
   "namedpipeapi",
   "ntdef",
   "ntsecapi",
@@ -54,26 +60,31 @@ features = [
   "winbase",
   "wincon",
   "wincrypt",
+  "windef",
+  "winioctl",
+  "winnt",
+  "winreg",
   "winsock2",
+  "winuser",
   "ws2def",
   "ws2ipdef",
   "ws2tcpip",
 ]
 
 [dependencies]
+bstr = { version = "0.2.17", features = ["default"] }
+clap = { version = "3.1.1", features = ["derive", "clap_derive"]}
 curl-sys = { version = "0.4.13", features = ["http2", "libnghttp2-sys"], optional = true }
-crossbeam-utils = { version = "0.7.2", features = ["nightly"] }
-proc-macro2 = { version = "1", features = ["default"] }
-quote = { version = "1", features = ["default"] }
-serde = { version = "1.0.82", features = ['derive'] }
-serde_json = { version = "1.0.31", features = ["raw_value"] }
-smallvec-0_6 = { package = "smallvec", version = "0.6", features = ['union', 'may_dangle'] }
-smallvec = { version = "1.0", features = ['union', 'may_dangle'] }
-syn = { version = "1", features = ['fold', 'full', 'extra-traits', 'visit'] }
+# Ensure default features of libz-sys, which are disabled in some scenarios.
+libz-sys = { version = "1.1.2" }
+# Ensure default features of regex, which are disabled in some scenarios.
+regex = { version = "1.5.6" }
+serde_json = { version = "1.0.31", features = ["raw_value", "unbounded_depth"] }
+syn = { version = "1", features = ['full', 'visit'] }
 url = { version = "2.0", features = ['serde'] }
 
 [target.'cfg(not(windows))'.dependencies]
-openssl = { version = "0.10.12", optional = true }
+openssl = { version = "0.10.35", optional = true }
 
 [features]
 all-static = ['openssl/vendored', 'curl-sys/static-curl', 'curl-sys/force-system-lib-on-osx']

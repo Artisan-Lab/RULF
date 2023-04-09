@@ -5,7 +5,7 @@ const QUERY = [
     'StructFieldItem',
     'StructMethodItem',
     'ImplTraitItem',
-    'ImplAssociatedConstItem',
+    'StructImplConstItem',
     'ImplTraitFunction',
     'EnumItem',
     'VariantItem',
@@ -27,6 +27,7 @@ const QUERY = [
 
 const EXPECTED = [
     {
+        // StructItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -38,6 +39,7 @@ const EXPECTED = [
         ],
     },
     {
+        // StructFieldItem
         'others': [
             {
                 'path': 'doc_alias::Struct',
@@ -49,6 +51,7 @@ const EXPECTED = [
         ],
     },
     {
+        // StructMethodItem
         'others': [
             {
                 'path': 'doc_alias::Struct',
@@ -64,10 +67,19 @@ const EXPECTED = [
         'others': [],
     },
     {
-        // ImplAssociatedConstItem
-        'others': [],
+        // StructImplConstItem
+        'others': [
+            {
+                'path': 'doc_alias::Struct',
+                'name': 'ImplConstItem',
+                'alias': 'StructImplConstItem',
+                'href': '../doc_alias/struct.Struct.html#associatedconstant.ImplConstItem',
+                'is_alias': true
+            },
+        ],
     },
     {
+        // ImplTraitFunction
         'others': [
             {
                 'path': 'doc_alias::Struct',
@@ -79,6 +91,7 @@ const EXPECTED = [
         ],
     },
     {
+        // EnumItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -90,6 +103,7 @@ const EXPECTED = [
         ],
     },
     {
+        // VariantItem
         'others': [
             {
                 'path': 'doc_alias::Enum',
@@ -101,6 +115,7 @@ const EXPECTED = [
         ],
     },
     {
+        // EnumMethodItem
         'others': [
             {
                 'path': 'doc_alias::Enum',
@@ -112,6 +127,7 @@ const EXPECTED = [
         ],
     },
     {
+        // TypedefItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -123,6 +139,7 @@ const EXPECTED = [
         ],
     },
     {
+        // TraitItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -134,6 +151,7 @@ const EXPECTED = [
         ],
     },
     {
+        // TraitTypeItem
         'others': [
             {
                 'path': 'doc_alias::Trait',
@@ -145,6 +163,7 @@ const EXPECTED = [
         ],
     },
     {
+        // AssociatedConstItem
         'others': [
             {
                 'path': 'doc_alias::Trait',
@@ -156,6 +175,7 @@ const EXPECTED = [
         ],
     },
     {
+        // TraitFunctionItem
         'others': [
             {
                 'path': 'doc_alias::Trait',
@@ -167,6 +187,7 @@ const EXPECTED = [
         ],
     },
     {
+        // FunctionItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -178,6 +199,7 @@ const EXPECTED = [
         ],
     },
     {
+        // ModuleItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -189,6 +211,7 @@ const EXPECTED = [
         ],
     },
     {
+        // ConstItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -197,9 +220,14 @@ const EXPECTED = [
                 'href': '../doc_alias/constant.Const.html',
                 'is_alias': true
             },
+            {
+                'path': 'doc_alias::Struct',
+                'name': 'ImplConstItem',
+            },
         ],
     },
     {
+        // StaticItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -211,6 +239,7 @@ const EXPECTED = [
         ],
     },
     {
+        // UnionItem
         'others': [
             {
                 'path': 'doc_alias',
@@ -228,6 +257,7 @@ const EXPECTED = [
         ],
     },
     {
+        // UnionFieldItem
         'others': [
             {
                 'path': 'doc_alias::Union',
@@ -239,6 +269,7 @@ const EXPECTED = [
         ],
     },
     {
+        // UnionMethodItem
         'others': [
             {
                 'path': 'doc_alias::Union',
@@ -250,6 +281,7 @@ const EXPECTED = [
         ],
     },
     {
+        // MacroItem
         'others': [
             {
                 'path': 'doc_alias',

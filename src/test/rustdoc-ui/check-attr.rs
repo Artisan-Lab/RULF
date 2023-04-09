@@ -1,4 +1,4 @@
-#![deny(invalid_codeblock_attributes)]
+#![deny(rustdoc::invalid_codeblock_attributes)]
 
 /// foo
 //~^ ERROR
@@ -29,16 +29,6 @@ pub fn bar() {}
 /// boo
 /// ```
 pub fn foobar() {}
-
-/// barfoo
-//~^ ERROR
-//~^^ ERROR
-//~^^^ ERROR
-///
-/// ```allow-fail,allowfail,alLow_fail
-/// boo
-/// ```
-pub fn barfoo() {}
 
 /// b
 //~^ ERROR

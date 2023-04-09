@@ -1,6 +1,5 @@
+// Checks that `const fn` with const params can be used.
 // run-pass
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
 
 const fn const_u32_identity<const X: u32>() -> u32 {
     X

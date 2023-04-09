@@ -1,29 +1,29 @@
-use crate::clean::{self, types::GetDefId};
+use crate::clean::{self, ItemKind};
+use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
-use crate::fuzz_target::api_util;
-use crate::html::item_type::ItemType;
-use crate::html::render::cache::Cache;
-use rustc_hir::def_id::DefId;
-use std::collections::HashMap;
-//TODO:是否需要为impl里面的method重新设计数据结构？目前沿用了ApiFunction,或者直接对ApiFunction进行扩展
-//两种函数目前相差一个defaultness
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
+use crate::fuzz_target::api_util;
 use crate::fuzz_target::prelude_type;
-
+use crate::html::format::join_with_double_colon;
+use rustc_hir::def_id::DefId;
+use rustc_data_structures::fx::{FxHashMap};
+//use rustdoc_json_types::Type::Path;
+//TODO:是否需要为impl里面的method重新设计数据结构？目前沿用了ApiFunction,或者直接对ApiFunction进行扩展
+//两种函数目前相差一个defaultness
 #[derive(Debug, Clone)]
-pub struct CrateImplCollection {
+pub(crate) struct CrateImplCollection {
     //impl type类型的impl块
-    pub impl_types: Vec<clean::Impl>,
+    pub(crate) impl_types: Vec<clean::Impl>,
     //impl type for trait类型的impl块
-    pub impl_trait_for_types: Vec<clean::Impl>,
+    pub(crate) impl_trait_for_types: Vec<clean::Impl>,
     //TODO:带泛型参数的impl块，但self是否该视为泛型？
-    pub _generic_impl: Vec<clean::Impl>,
-    pub _generic_impl_for_traits: Vec<clean::Impl>,
+    pub(crate) _generic_impl: Vec<clean::Impl>,
+    pub(crate) _generic_impl_for_traits: Vec<clean::Impl>,
 }
 
 impl CrateImplCollection {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let impl_types = Vec::new();
         let impl_trait_for_types = Vec::new();
         let _generic_impl = Vec::new();
@@ -36,7 +36,7 @@ impl CrateImplCollection {
         }
     }
 
-    pub fn add_impl(&mut self, impl_: &clean::Impl) {
+    pub(crate) fn add_impl(&mut self, impl_: &clean::Impl) {
         //println!("impl type = {:?}", impl_.for_);
         let _impl_type = &impl_.for_;
         //println!("impl type = {:?}", _impl_type);
@@ -54,60 +54,57 @@ impl CrateImplCollection {
 }
 
 #[derive(Debug, Clone)]
-pub struct FullNameMap {
-    pub map: HashMap<DefId, (String, ItemType)>,
+pub(crate) struct FullNameMap {
+    pub(crate) map: FxHashMap<DefId, (String, ItemType)>,
 }
 
 impl FullNameMap {
-    pub fn new() -> Self {
-        let map = HashMap::default();
+    pub(crate) fn new() -> Self {
+        let map = FxHashMap::default();
         FullNameMap { map }
     }
 
-    pub fn push_mapping(&mut self, def_id: &DefId, full_name: &String, item_type: ItemType) {
+    pub(crate) fn push_mapping(&mut self, def_id: DefId, full_name: &String, item_type: ItemType) {
         self.map.insert(def_id.clone(), (full_name.clone(), item_type));
     }
 
-    pub fn _get_full_name(&self, def_id: &DefId) -> Option<&String> {
-        match self.map.get(def_id) {
+    pub(crate) fn _get_full_name(&self, def_id: DefId) -> Option<&String> {
+        match self.map.get(&def_id) {
             None => None,
             Some((full_name, _)) => Some(full_name),
         }
     }
 }
 
-pub fn extract_impls_from_cache(
-    cache: &Cache,
+pub(crate) fn extract_impls_from_cache(
     full_name_map: &mut FullNameMap,
-    mut api_graph: &mut ApiGraph,
+    mut api_graph: &mut ApiGraph<'_>,
 ) {
-    let type_impl_maps = &cache.impls;
-    let _trait_impl_maps = &cache.implementors;
-    let paths = &cache.paths;
+    let _trait_impl_maps = &api_graph.cache().implementors;
+    let paths = &api_graph.cache().paths;
 
     let mut crate_impl_collection = CrateImplCollection::new();
 
     //construct the map of `did to type`
-    for (did, (strings, item_type)) in paths {
-        let full_name = full_path(&strings);
-        full_name_map.push_mapping(&did, &full_name, *item_type);
+    for (did, (syms, item_type)) in paths {
+        let full_name = join_with_double_colon(syms);
+        full_name_map.push_mapping(*did, &full_name, *item_type);
     }
 
-    let extertal_paths = &cache.external_paths;
-    for (did, (strings, item_type)) in extertal_paths {
-        let full_name = full_path(&strings);
-
+    let extertal_paths = &api_graph.cache().external_paths;
+    for (did, (syms, item_type)) in extertal_paths {
+        let full_name = join_with_double_colon(syms);
         if prelude_type::is_preluded_type(&full_name) {
-            full_name_map.push_mapping(&did, &full_name, *item_type);
+            full_name_map.push_mapping(*did, &full_name, *item_type);
         }
     }
 
     api_graph.set_full_name_map(&full_name_map);
 
     //首先提取所有type的impl
-    for (did, impls) in type_impl_maps {
+    for (did, impls) in &api_graph.cache().impls {
         //只添加可以在full_name_map中找到对应的did的type
-        if full_name_map._get_full_name(did) != None {
+        if full_name_map._get_full_name(*did) != None {
             for impl_ in impls {
                 //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
                 crate_impl_collection.add_impl(impl_.inner_impl());
@@ -141,26 +138,14 @@ pub fn extract_impls_from_cache(
 }
 
 fn full_path(paths: &Vec<String>) -> String {
-    let mut full = String::new();
-    match paths.first() {
-        None => {
-            return full;
-        }
-        Some(path) => {
-            full.push_str(path.as_str());
-        }
-    }
-    let paths_num = paths.len();
-    for i in 1..paths_num {
-        let current_path = paths[i].as_str();
-        full.push_str("::");
-        full.push_str(current_path);
-    }
-
-    return full;
+    paths.join("::")
 }
 
-pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph: &mut ApiGraph) {
+pub(crate) fn _analyse_impl(
+    impl_: &clean::Impl,
+    full_name_map: &FullNameMap,
+    api_graph: &mut ApiGraph<'_>,
+) {
     let inner_items = &impl_.items;
 
     //BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
@@ -169,33 +154,42 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
         None => None,
         Some(trait_) => {
             //println!("{:?}", trait_);
-            let trait_ty_def_id = &trait_.def_id().unwrap();
+            let trait_ty_def_id = trait_.def_id();
             let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
-            if let Some(trait_name) = trait_full_name { Some(trait_name.clone()) } else { None }
+            if let Some(trait_name) = trait_full_name {
+                Some(trait_name.clone())
+            } else {
+                None
+            }
         }
     };
 
-    let impl_ty_def_id = &impl_.for_.def_id();
+    let impl_ty_def_id = impl_.for_.def_id(api_graph.cache());
     let type_full_name = if let Some(def_id) = impl_ty_def_id {
         let type_name = full_name_map._get_full_name(def_id);
-        if let Some(real_type_name) = type_name { Some(real_type_name.clone()) } else { None }
+        if let Some(real_type_name) = type_name {
+            Some(real_type_name.clone())
+        } else {
+            None
+        }
     } else {
         None
     };
 
     for item in inner_items {
         //println!("item_name, {:?}", item.name.as_ref().unwrap());
-        match &item.inner {
+        match &*item.kind {
             //TODO:这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
-            clean::FunctionItem(_function) => {
-                let function_name = String::new();
+            ItemKind::FunctionItem(_function) => {
+                unimplemented!("function name in impl");
+                //let function_name = String::new();
                 //使用全限定名称：type::f
                 //function_name.push_str(type_full_name.as_str());
                 //function_name.push_str("::");
                 //function_name.push_str(item.name.as_ref().unwrap().as_str());
-                println!("function name in impl:{:?}", function_name);
+                //println!("function name in impl:{:?}", function_name);
             }
-            clean::MethodItem(_method) => {
+            ItemKind::MethodItem(_method, _) => {
                 let decl = _method.decl.clone();
                 let clean::FnDecl { inputs, output, .. } = decl;
                 let generics = _method.generics.clone();
@@ -255,7 +249,9 @@ pub fn _analyse_impl(impl_: &clean::Impl, full_name_map: &FullNameMap, api_graph
                 method_name.push_str(item.name.as_ref().unwrap().as_str());
                 //println!("method name in impl:{:?}", method_name);
 
-                let api_unsafety = ApiUnsafety::_get_unsafety_from_fnheader(&_method.header);
+                let api_unsafety = ApiUnsafety::_get_unsafety_from_fnheader(
+                    &item.fn_header(api_graph.tcx().clone()).unwrap(),
+                );
                 //生成api function
                 //如果是实现了trait的话，需要把trait的全路径也包括进去
                 let api_function = match &impl_.trait_ {
@@ -307,22 +303,22 @@ fn is_param_self_type(ty_: &clean::Type) -> bool {
                 return false;
             }
         }
-        clean::Type::ResolvedPath { path, .. } => {
+        clean::Type::Path { path, .. } => {
             let segments = &path.segments;
             for path_segment in segments {
                 let generic_args = &path_segment.args;
                 match generic_args {
                     clean::GenericArgs::AngleBracketed { args, .. } => {
-                        for generic_arg in args {
+                        for generic_arg in args.iter() {
                             if let clean::GenericArg::Type(generic_ty) = generic_arg {
-                                if is_param_self_type(generic_ty) {
+                                if is_param_self_type(&generic_ty) {
                                     return true;
                                 }
                             }
                         }
                     }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
-                        for input_type in inputs {
+                        for input_type in inputs.iter() {
                             if is_param_self_type(input_type) {
                                 return true;
                             }
@@ -362,21 +358,21 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                 return self_type.clone();
             }
         }
-        clean::Type::ResolvedPath { path, param_names, did, is_generic } => {
+        clean::Type::Path { path /*  param_names, did, is_generic  */ } => {
             if !is_param_self_type(self_type) {
                 return self_type.clone();
             }
-            let clean::Path { global, res, segments } = path;
+            let clean::Path { res, segments } = path;
             let mut new_segments = Vec::new();
             for path_segment in segments {
                 let clean::PathSegment { name, args: generic_args } = path_segment;
                 match generic_args {
                     clean::GenericArgs::AngleBracketed { args, bindings } => {
                         let mut new_args = Vec::new();
-                        for generic_arg in args {
+                        for generic_arg in args.iter() {
                             if let clean::GenericArg::Type(generic_type) = generic_arg {
-                                if is_param_self_type(generic_type) {
-                                    let replaced_type = replace_self_type(generic_type, impl_type);
+                                if is_param_self_type(&generic_type) {
+                                    let replaced_type = replace_self_type(&generic_type, impl_type);
                                     let new_generic_arg = clean::GenericArg::Type(replaced_type);
                                     new_args.push(new_generic_arg);
                                 } else {
@@ -387,7 +383,7 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                             }
                         }
                         let new_generic_args = clean::GenericArgs::AngleBracketed {
-                            args: new_args,
+                            args: new_args.into(),
                             bindings: bindings.clone(),
                         };
                         let new_path_segment =
@@ -396,7 +392,7 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                     }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
                         let mut new_inputs = Vec::new();
-                        for input_type in inputs {
+                        for input_type in inputs.iter() {
                             if is_param_self_type(input_type) {
                                 let replaced_type = replace_self_type(input_type, impl_type);
                                 new_inputs.push(replaced_type);
@@ -404,20 +400,17 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                                 new_inputs.push(input_type.clone());
                             }
                         }
-                        let new_output = match output {
-                            None => None,
-                            Some(output_type) => {
-                                let new_output_type = if is_param_self_type(output_type) {
-                                    let replaced_type = replace_self_type(output_type, impl_type);
-                                    replaced_type
-                                } else {
-                                    output_type.clone()
-                                };
-                                Some(new_output_type)
+                        let new_output = output.clone().map(|output_type| {
+                            if is_param_self_type(&output_type) {
+                                Box::new(replace_self_type(&output_type, impl_type))
+                            //replace type
+                            } else {
+                                output_type
                             }
-                        };
+                        });
+
                         let new_generic_args = clean::GenericArgs::Parenthesized {
-                            inputs: new_inputs,
+                            inputs: new_inputs.into(),
                             output: new_output,
                         };
                         let new_path_segment =
@@ -426,14 +419,8 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                     }
                 }
             }
-            let new_path =
-                clean::Path { global: global.clone(), res: res.clone(), segments: new_segments };
-            let new_type = clean::ResolvedPath {
-                path: new_path,
-                param_names: param_names.clone(),
-                did: did.clone(),
-                is_generic: is_generic.clone(),
-            };
+            let new_path = clean::Path { res: res.clone(), segments: new_segments };
+            let new_type = clean::Type::Path { path: new_path };
             return new_type;
         }
         _ => {

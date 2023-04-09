@@ -1,5 +1,6 @@
 // edition:2018
 // check-pass
+#![feature(generators)]
 #![warn(unused)]
 #![allow(unreachable_code)]
 
@@ -27,7 +28,7 @@ pub fn f() {
     let mut c = 0;
 
     // Captured by value, but variable is dead on entry.
-    move || {
+    let _ = move || {
         c = 1; //~ WARN value captured by `c` is never read
         println!("{}", c);
     };
@@ -37,7 +38,7 @@ pub fn f() {
     };
 
     // Read and written to, but never actually used.
-    move || {
+    let _ = move || {
         c += 1; //~ WARN unused variable: `c`
     };
     let _ = async move {
@@ -45,13 +46,13 @@ pub fn f() {
                 //~| WARN unused variable: `c`
     };
 
-    move || {
+    let _ = move || {
         println!("{}", c);
         // Value is read by closure itself on later invocations.
         c += 1;
     };
     let b = Box::new(42);
-    move || {
+    let _ = move || {
         println!("{}", c);
         // Never read because this is FnOnce closure.
         c += 1; //~  WARN value assigned to `c` is never read
@@ -67,12 +68,12 @@ pub fn f() {
 pub fn nested() {
     let mut d = None;
     let mut e = None;
-    || {
-        || {
+    let _ = || {
+        let _ = || {
             d = Some("d1"); //~ WARN value assigned to `d` is never read
             d = Some("d2");
         };
-        move || {
+        let _ = move || {
             e = Some("e1"); //~  WARN value assigned to `e` is never read
                             //~| WARN unused variable: `e`
             e = Some("e2"); //~  WARN value assigned to `e` is never read
@@ -81,7 +82,7 @@ pub fn nested() {
 }
 
 pub fn g<T: Default>(mut v: T) {
-    |r| {
+    let _ = |r| {
         if r {
             v = T::default(); //~ WARN value assigned to `v` is never read
         } else {
@@ -92,7 +93,7 @@ pub fn g<T: Default>(mut v: T) {
 
 pub fn h<T: Copy + Default + std::fmt::Debug>() {
     let mut z = T::default();
-    move |b| {
+    let _ = move |b| {
         loop {
             if b {
                 z = T::default(); //~  WARN value assigned to `z` is never read
@@ -102,6 +103,41 @@ pub fn h<T: Copy + Default + std::fmt::Debug>() {
             }
         }
         dbg!(z);
+    };
+}
+
+async fn yield_now() {
+    todo!();
+}
+
+pub fn async_generator() {
+    let mut state: u32 = 0;
+
+    let _ = async {
+        state = 1;
+        yield_now().await;
+        state = 2;
+        yield_now().await;
+        state = 3;
+    };
+
+    let _ = async move {
+        state = 4;  //~  WARN value assigned to `state` is never read
+                    //~| WARN unused variable: `state`
+        yield_now().await;
+        state = 5;  //~ WARN value assigned to `state` is never read
+    };
+}
+
+pub fn generator() {
+    let mut s: u32 = 0;
+    let _ = |_| {
+        s = 0;
+        yield ();
+        s = 1; //~ WARN value assigned to `s` is never read
+        yield (s = 2);
+        s = yield (); //~ WARN value assigned to `s` is never read
+        s = 3;
     };
 }
 

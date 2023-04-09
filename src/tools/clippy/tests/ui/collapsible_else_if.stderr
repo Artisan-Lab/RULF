@@ -1,5 +1,5 @@
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:12:12
+  --> $DIR/collapsible_else_if.rs:14:12
    |
 LL |       } else {
    |  ____________^
@@ -9,16 +9,16 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-   = note: `-D clippy::collapsible-if` implied by `-D warnings`
-help: try
+   = note: `-D clippy::collapsible-else-if` implied by `-D warnings`
+help: collapse nested if block
    |
-LL |     } else if y == "world" {
-LL |         println!("world!")
-LL |     }
+LL ~     } else if y == "world" {
+LL +         println!("world!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:20:12
+  --> $DIR/collapsible_else_if.rs:22:12
    |
 LL |       } else {
    |  ____________^
@@ -28,15 +28,15 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if let Some(42) = Some(42) {
-LL |         println!("world!")
-LL |     }
+LL ~     } else if let Some(42) = Some(42) {
+LL +         println!("world!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:28:12
+  --> $DIR/collapsible_else_if.rs:30:12
    |
 LL |       } else {
    |  ____________^
@@ -48,18 +48,18 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if y == "world" {
-LL |         println!("world")
-LL |     }
-LL |     else {
-LL |         println!("!")
-LL |     }
+LL ~     } else if y == "world" {
+LL +         println!("world")
+LL +     }
+LL +     else {
+LL +         println!("!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:39:12
+  --> $DIR/collapsible_else_if.rs:41:12
    |
 LL |       } else {
    |  ____________^
@@ -71,18 +71,18 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if let Some(42) = Some(42) {
-LL |         println!("world")
-LL |     }
-LL |     else {
-LL |         println!("!")
-LL |     }
+LL ~     } else if let Some(42) = Some(42) {
+LL +         println!("world")
+LL +     }
+LL +     else {
+LL +         println!("!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:50:12
+  --> $DIR/collapsible_else_if.rs:52:12
    |
 LL |       } else {
    |  ____________^
@@ -94,18 +94,18 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if let Some(42) = Some(42) {
-LL |         println!("world")
-LL |     }
-LL |     else {
-LL |         println!("!")
-LL |     }
+LL ~     } else if let Some(42) = Some(42) {
+LL +         println!("world")
+LL +     }
+LL +     else {
+LL +         println!("!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:61:12
+  --> $DIR/collapsible_else_if.rs:63:12
    |
 LL |       } else {
    |  ____________^
@@ -117,18 +117,18 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if x == "hello" {
-LL |         println!("world")
-LL |     }
-LL |     else {
-LL |         println!("!")
-LL |     }
+LL ~     } else if x == "hello" {
+LL +         println!("world")
+LL +     }
+LL +     else {
+LL +         println!("!")
+LL +     }
    |
 
 error: this `else { if .. }` block can be collapsed
-  --> $DIR/collapsible_else_if.rs:72:12
+  --> $DIR/collapsible_else_if.rs:74:12
    |
 LL |       } else {
    |  ____________^
@@ -140,15 +140,24 @@ LL | |         }
 LL | |     }
    | |_____^
    |
-help: try
+help: collapse nested if block
    |
-LL |     } else if let Some(42) = Some(42) {
-LL |         println!("world")
-LL |     }
-LL |     else {
-LL |         println!("!")
-LL |     }
+LL ~     } else if let Some(42) = Some(42) {
+LL +         println!("world")
+LL +     }
+LL +     else {
+LL +         println!("!")
+LL +     }
    |
 
-error: aborting due to 7 previous errors
+error: this `else { if .. }` block can be collapsed
+  --> $DIR/collapsible_else_if.rs:97:10
+   |
+LL |       }else{
+   |  __________^
+LL | |         if false {}
+LL | |     }
+   | |_____^ help: collapse nested if block: `if false {}`
+
+error: aborting due to 8 previous errors
 

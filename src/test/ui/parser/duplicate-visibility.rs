@@ -1,7 +1,9 @@
 fn main() {}
 
-extern {
+extern "C" { //~ NOTE while parsing this item list starting here
     pub pub fn foo();
-    //~^ ERROR visibility `pub` is not followed by an item
-    //~| ERROR non-item in item list
-}
+    //~^ ERROR expected one of `(`, `async`, `const`, `default`, `extern`, `fn`, `unsafe`, or `use`, found keyword `pub`
+    //~| NOTE expected one of 8 possible tokens
+    //~| HELP there is already a visibility modifier, remove one
+    //~| NOTE explicit visibility first seen here
+} //~ NOTE the item list ends here

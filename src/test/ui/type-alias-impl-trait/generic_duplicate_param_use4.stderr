@@ -1,14 +1,14 @@
-error: non-defining opaque type use in defining scope
-  --> $DIR/generic_duplicate_param_use4.rs:10:27
+error[E0277]: `U` doesn't implement `Debug`
+  --> $DIR/generic_duplicate_param_use4.rs:11:5
    |
-LL | fn one<T: Debug>(t: T) -> Two<T, T> {
-   |                           ^^^^^^^^^
+LL |     u
+   |     ^ `U` cannot be formatted using `{:?}` because it doesn't implement `Debug`
    |
-note: type used multiple times
-  --> $DIR/generic_duplicate_param_use4.rs:8:10
+help: consider restricting type parameter `U`
    |
-LL | type Two<T, U> = impl Debug;
-   |          ^  ^
+LL | type Two<T, U: std::fmt::Debug> = impl Debug;
+   |              +++++++++++++++++
 
 error: aborting due to previous error
 
+For more information about this error, try `rustc --explain E0277`.

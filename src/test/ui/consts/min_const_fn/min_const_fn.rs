@@ -34,29 +34,37 @@ const fn foo35(a: bool, b: bool) -> bool { a ^ b }
 struct Foo<T: ?Sized>(T);
 impl<T> Foo<T> {
     const fn new(t: T) -> Self { Foo(t) }
-    const fn into_inner(self) -> T { self.0 } //~ destructors cannot be evaluated
+    const fn into_inner(self) -> T { self.0 } //~ destructor of
     const fn get(&self) -> &T { &self.0 }
     const fn get_mut(&mut self) -> &mut T { &mut self.0 }
-    //~^ mutable references in const fn are unstable
+    //~^ mutable references
+    //~| mutable references
+    //~| mutable references
 }
 impl<'a, T> Foo<T> {
     const fn new_lt(t: T) -> Self { Foo(t) }
-    const fn into_inner_lt(self) -> T { self.0 } //~ destructors cannot be evaluated
+    const fn into_inner_lt(self) -> T { self.0 } //~ destructor of
     const fn get_lt(&'a self) -> &T { &self.0 }
     const fn get_mut_lt(&'a mut self) -> &mut T { &mut self.0 }
-    //~^ mutable references in const fn are unstable
+    //~^ mutable references
+    //~| mutable references
+    //~| mutable references
 }
 impl<T: Sized> Foo<T> {
     const fn new_s(t: T) -> Self { Foo(t) }
-    const fn into_inner_s(self) -> T { self.0 } //~ ERROR destructors
+    const fn into_inner_s(self) -> T { self.0 } //~ ERROR destructor
     const fn get_s(&self) -> &T { &self.0 }
     const fn get_mut_s(&mut self) -> &mut T { &mut self.0 }
-    //~^ mutable references in const fn are unstable
+    //~^ mutable references
+    //~| mutable references
+    //~| mutable references
 }
 impl<T: ?Sized> Foo<T> {
     const fn get_sq(&self) -> &T { &self.0 }
     const fn get_mut_sq(&mut self) -> &mut T { &mut self.0 }
-    //~^ mutable references in const fn are unstable
+    //~^ mutable references
+    //~| mutable references
+    //~| mutable references
 }
 
 
@@ -72,34 +80,25 @@ const unsafe fn ret_i32_no_unsafe() -> i32 { 42 }
 const unsafe fn ret_null_ptr_no_unsafe<T>() -> *const T { core::ptr::null() }
 const unsafe fn ret_null_mut_ptr_no_unsafe<T>() -> *mut T { core::ptr::null_mut() }
 
-// not ok
 const fn foo11<T: std::fmt::Display>(t: T) -> T { t }
-//~^ ERROR trait bounds other than `Sized` on const fn parameters are unstable
 const fn foo11_2<T: Send>(t: T) -> T { t }
-//~^ ERROR trait bounds other than `Sized` on const fn parameters are unstable
-const fn foo19(f: f32) -> f32 { f * 2.0 }
-//~^ ERROR only int, `bool` and `char` operations are stable in const fn
-const fn foo19_2(f: f32) -> f32 { 2.0 - f }
-//~^ ERROR only int, `bool` and `char` operations are stable in const fn
-const fn foo19_3(f: f32) -> f32 { -f }
-//~^ ERROR only int and `bool` operations are stable in const fn
-const fn foo19_4(f: f32, g: f32) -> f32 { f / g }
-//~^ ERROR only int, `bool` and `char` operations are stable in const fn
+
+// not ok
 
 static BAR: u32 = 42;
-const fn foo25() -> u32 { BAR } //~ ERROR cannot access `static` items in const fn
-const fn foo26() -> &'static u32 { &BAR } //~ ERROR cannot access `static` items
+const fn foo25() -> u32 { BAR } //~ ERROR cannot refer to statics
+const fn foo26() -> &'static u32 { &BAR } //~ ERROR cannot refer to statics
 const fn foo30(x: *const u32) -> usize { x as usize }
-//~^ ERROR casting pointers to ints is unstable
+//~^ ERROR pointers cannot be cast to integers
 const fn foo30_with_unsafe(x: *const u32) -> usize { unsafe { x as usize } }
-//~^ ERROR casting pointers to ints is unstable
+//~^ ERROR pointers cannot be cast to integers
 const fn foo30_2(x: *mut u32) -> usize { x as usize }
-//~^ ERROR casting pointers to ints is unstable
+//~^ ERROR pointers cannot be cast to integers
 const fn foo30_2_with_unsafe(x: *mut u32) -> usize { unsafe { x as usize } }
-//~^ ERROR casting pointers to ints is unstable
+//~^ ERROR pointers cannot be cast to integers
 const fn foo30_6() -> bool { let x = true; x }
 const fn inc(x: &mut i32) { *x += 1 }
-//~^ ERROR mutable references in const fn are unstable
+//~^ ERROR mutable references
 
 // ok
 const fn foo36(a: bool, b: bool) -> bool { a && b }
@@ -108,34 +107,28 @@ const fn foo37(a: bool, b: bool) -> bool { a || b }
 fn main() {}
 
 impl<T: std::fmt::Debug> Foo<T> {
-//~^ ERROR trait bounds other than `Sized` on const fn parameters are unstable
     const fn foo(&self) {}
 }
 
 impl<T: std::fmt::Debug + Sized> Foo<T> {
-//~^ ERROR trait bounds other than `Sized` on const fn parameters are unstable
     const fn foo2(&self) {}
 }
 
 impl<T: Sync + Sized> Foo<T> {
-//~^ ERROR trait bounds other than `Sized` on const fn parameters are unstable
     const fn foo3(&self) {}
 }
 
 struct AlanTuring<T>(T);
 const fn no_apit2(_x: AlanTuring<impl std::fmt::Debug>) {}
-//~^ ERROR trait bounds other than `Sized`
-const fn no_apit(_x: impl std::fmt::Debug) {} //~ ERROR trait bounds other than `Sized`
-const fn no_dyn_trait(_x: &dyn std::fmt::Debug) {} //~ ERROR trait bounds other than `Sized`
+//~^ ERROR destructor
+const fn no_apit(_x: impl std::fmt::Debug) {}
+//~^ ERROR destructor
+const fn no_dyn_trait(_x: &dyn std::fmt::Debug) {}
 const fn no_dyn_trait_ret() -> &'static dyn std::fmt::Debug { &() }
-//~^ ERROR trait bounds other than `Sized`
 
 const fn no_unsafe() { unsafe {} }
 
-const fn really_no_traits_i_mean_it() { (&() as &dyn std::fmt::Debug, ()).1 }
-//~^ ERROR trait bounds other than `Sized`
+const fn traits_are_ok_i_mean_it() { (&() as &dyn std::fmt::Debug, ()).1 }
 
-const fn no_fn_ptrs(_x: fn()) {}
-//~^ ERROR function pointers in const fn are unstable
-const fn no_fn_ptrs2() -> fn() { fn foo() {} foo }
-//~^ ERROR function pointers in const fn are unstable
+const fn fn_ptrs(_x: fn()) {}
+const fn fn_ptrs2() -> fn() { fn foo() {} foo }

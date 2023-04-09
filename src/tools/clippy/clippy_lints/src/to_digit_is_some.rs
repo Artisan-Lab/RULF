@@ -1,4 +1,6 @@
-use crate::utils::{match_def_path, snippet_with_applicability, span_lint_and_sugg};
+use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::match_def_path;
+use clippy_utils::source::snippet_with_applicability;
 use if_chain::if_chain;
 use rustc_errors::Applicability;
 use rustc_hir as hir;
@@ -7,12 +9,14 @@ use rustc_middle::ty;
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for `.to_digit(..).is_some()` on `char`s.
+    /// ### What it does
+    /// Checks for `.to_digit(..).is_some()` on `char`s.
     ///
-    /// **Why is this bad?** This is a convoluted way of checking if a `char` is a digit. It's
+    /// ### Why is this bad?
+    /// This is a convoluted way of checking if a `char` is a digit. It's
     /// more straight forward to use the dedicated `is_digit` method.
     ///
-    /// **Example:**
+    /// ### Example
     /// ```rust
     /// # let c = 'c';
     /// # let radix = 10;
@@ -24,6 +28,7 @@ declare_clippy_lint! {
     /// # let radix = 10;
     /// let is_digit = c.is_digit(radix);
     /// ```
+    #[clippy::version = "1.41.0"]
     pub TO_DIGIT_IS_SOME,
     style,
     "`char.is_digit()` is clearer"
@@ -34,19 +39,17 @@ declare_lint_pass!(ToDigitIsSome => [TO_DIGIT_IS_SOME]);
 impl<'tcx> LateLintPass<'tcx> for ToDigitIsSome {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx hir::Expr<'_>) {
         if_chain! {
-            if let hir::ExprKind::MethodCall(is_some_path, _, is_some_args, _) = &expr.kind;
+            if let hir::ExprKind::MethodCall(is_some_path, to_digit_expr, [], _) = &expr.kind;
             if is_some_path.ident.name.as_str() == "is_some";
-            if let [to_digit_expr] = &**is_some_args;
             then {
                 let match_result = match &to_digit_expr.kind {
-                    hir::ExprKind::MethodCall(to_digits_path, _, to_digit_args, _) => {
+                    hir::ExprKind::MethodCall(to_digits_path, char_arg, [radix_arg], _) => {
                         if_chain! {
-                            if let [char_arg, radix_arg] = &**to_digit_args;
                             if to_digits_path.ident.name.as_str() == "to_digit";
-                            let char_arg_ty = cx.tables().expr_ty_adjusted(char_arg);
-                            if char_arg_ty.kind == ty::Char;
+                            let char_arg_ty = cx.typeck_results().expr_ty_adjusted(char_arg);
+                            if *char_arg_ty.kind() == ty::Char;
                             then {
-                                Some((true, char_arg, radix_arg))
+                                Some((true, *char_arg, radix_arg))
                             } else {
                                 None
                             }
@@ -54,7 +57,7 @@ impl<'tcx> LateLintPass<'tcx> for ToDigitIsSome {
                     }
                     hir::ExprKind::Call(to_digits_call, to_digit_args) => {
                         if_chain! {
-                            if let [char_arg, radix_arg] = &**to_digit_args;
+                            if let [char_arg, radix_arg] = *to_digit_args;
                             if let hir::ExprKind::Path(to_digits_path) = &to_digits_call.kind;
                             if let to_digits_call_res = cx.qpath_res(to_digits_path, to_digits_call.hir_id);
                             if let Some(to_digits_def_id) = to_digits_call_res.opt_def_id();
@@ -81,9 +84,9 @@ impl<'tcx> LateLintPass<'tcx> for ToDigitIsSome {
                         "use of `.to_digit(..).is_some()`",
                         "try this",
                         if is_method_call {
-                            format!("{}.is_digit({})", char_arg_snip, radix_snip)
+                            format!("{char_arg_snip}.is_digit({radix_snip})")
                         } else {
-                            format!("char::is_digit({}, {})", char_arg_snip, radix_snip)
+                            format!("char::is_digit({char_arg_snip}, {radix_snip})")
                         },
                         applicability,
                     );

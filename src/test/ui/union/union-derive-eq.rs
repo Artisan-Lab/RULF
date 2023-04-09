@@ -1,4 +1,5 @@
-#![feature(untagged_unions)]
+// revisions: mirunsafeck thirunsafeck
+// [thirunsafeck]compile-flags: -Z thir-unsafeck
 
 #[derive(Eq)] // OK
 union U1 {
@@ -7,12 +8,12 @@ union U1 {
 
 impl PartialEq for U1 { fn eq(&self, rhs: &Self) -> bool { true } }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 struct PartialEqNotEq;
 
 #[derive(Eq)]
 union U2 {
-    a: PartialEqNotEq, //~ ERROR the trait bound `PartialEqNotEq: std::cmp::Eq` is not satisfied
+    a: PartialEqNotEq, //~ ERROR the trait bound `PartialEqNotEq: Eq` is not satisfied
 }
 
 impl PartialEq for U2 { fn eq(&self, rhs: &Self) -> bool { true } }

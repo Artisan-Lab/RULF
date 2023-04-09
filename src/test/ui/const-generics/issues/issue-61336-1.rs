@@ -1,8 +1,4 @@
-#![feature(const_generics)]
-//~^ WARN the feature `const_generics` is incomplete
-
 // build-pass
-
 fn f<T: Copy, const N: usize>(x: T) -> [T; N] {
     [x; N]
 }

@@ -1,4 +1,5 @@
-use crate::utils::{in_macro, snippet, span_lint_and_sugg};
+use clippy_utils::diagnostics::span_lint_hir_and_then;
+use clippy_utils::source::snippet;
 use hir::def::{DefKind, Res};
 use if_chain::if_chain;
 use rustc_ast::ast;
@@ -7,27 +8,26 @@ use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_session::{declare_tool_lint, impl_lint_pass};
-use rustc_span::{edition::Edition, Span};
+use rustc_span::{edition::Edition, sym, Span};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for `#[macro_use] use...`.
+    /// ### What it does
+    /// Checks for `#[macro_use] use...`.
     ///
-    /// **Why is this bad?** Since the Rust 2018 edition you can import
+    /// ### Why is this bad?
+    /// Since the Rust 2018 edition you can import
     /// macro's directly, this is considered idiomatic.
     ///
-    /// **Known problems:** None.
-    ///
-    /// **Example:**
-    /// ```rust
+    /// ### Example
+    /// ```rust,ignore
     /// #[macro_use]
-    /// use lazy_static;
+    /// use some_macro;
     /// ```
+    #[clippy::version = "1.44.0"]
     pub MACRO_USE_IMPORTS,
     pedantic,
     "#[macro_use] is no longer needed"
 }
-
-const BRACKETS: &[char] = &['<', '>'];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PathAndSpan {
@@ -35,35 +35,24 @@ struct PathAndSpan {
     span: Span,
 }
 
-/// `MacroRefData` includes the name of the macro
-/// and the path from `SourceMap::span_to_filename`.
+/// `MacroRefData` includes the name of the macro.
 #[derive(Debug, Clone)]
 pub struct MacroRefData {
     name: String,
-    path: String,
 }
 
 impl MacroRefData {
-    pub fn new(name: String, callee: Span, cx: &LateContext<'_>) -> Self {
-        let mut path = cx.sess().source_map().span_to_filename(callee).to_string();
-
-        // std lib paths are <::std::module::file type>
-        // so remove brackets, space and type.
-        if path.contains('<') {
-            path = path.replace(BRACKETS, "");
-        }
-        if path.contains(' ') {
-            path = path.split(' ').next().unwrap().to_string();
-        }
-        Self { name, path }
+    pub fn new(name: String) -> Self {
+        Self { name }
     }
 }
 
 #[derive(Default)]
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 pub struct MacroUseImports {
-    /// the actual import path used and the span of the attribute above it.
-    imports: Vec<(String, Span)>,
+    /// the actual import path used and the span of the attribute above it. The value is
+    /// the location, where the lint should be emitted.
+    imports: Vec<(String, Span, hir::HirId)>,
     /// the span of the macro reference, kept to ensure only one reference is used per macro call.
     collected: FxHashSet<Span>,
     mac_refs: Vec<MacroRefData>,
@@ -75,29 +64,24 @@ impl MacroUseImports {
     fn push_unique_macro(&mut self, cx: &LateContext<'_>, span: Span) {
         let call_site = span.source_callsite();
         let name = snippet(cx, cx.sess().source_map().span_until_char(call_site, '!'), "_");
-        if let Some(callee) = span.source_callee() {
-            if !self.collected.contains(&call_site) {
-                let name = if name.contains("::") {
-                    name.split("::").last().unwrap().to_string()
-                } else {
-                    name.to_string()
-                };
+        if span.source_callee().is_some() && !self.collected.contains(&call_site) {
+            let name = if name.contains("::") {
+                name.split("::").last().unwrap().to_string()
+            } else {
+                name.to_string()
+            };
 
-                self.mac_refs.push(MacroRefData::new(name, callee.def_site, cx));
-                self.collected.insert(call_site);
-            }
+            self.mac_refs.push(MacroRefData::new(name));
+            self.collected.insert(call_site);
         }
     }
 
     fn push_unique_macro_pat_ty(&mut self, cx: &LateContext<'_>, span: Span) {
         let call_site = span.source_callsite();
         let name = snippet(cx, cx.sess().source_map().span_until_char(call_site, '!'), "_");
-        if let Some(callee) = span.source_callee() {
-            if !self.collected.contains(&call_site) {
-                self.mac_refs
-                    .push(MacroRefData::new(name.to_string(), callee.def_site, cx));
-                self.collected.insert(call_site);
-            }
+        if span.source_callee().is_some() && !self.collected.contains(&call_site) {
+            self.mac_refs.push(MacroRefData::new(name.to_string()));
+            self.collected.insert(call_site);
         }
     }
 }
@@ -105,62 +89,61 @@ impl MacroUseImports {
 impl<'tcx> LateLintPass<'tcx> for MacroUseImports {
     fn check_item(&mut self, cx: &LateContext<'_>, item: &hir::Item<'_>) {
         if_chain! {
-            if cx.sess().opts.edition == Edition::Edition2018;
+            if cx.sess().opts.edition >= Edition::Edition2018;
             if let hir::ItemKind::Use(path, _kind) = &item.kind;
-            if let Some(mac_attr) = item
-                .attrs
-                .iter()
-                .find(|attr| attr.ident().map(|s| s.to_string()) == Some("macro_use".to_string()));
+            let hir_id = item.hir_id();
+            let attrs = cx.tcx.hir().attrs(hir_id);
+            if let Some(mac_attr) = attrs.iter().find(|attr| attr.has_name(sym::macro_use));
             if let Res::Def(DefKind::Mod, id) = path.res;
+            if !id.is_local();
             then {
-                for kid in cx.tcx.item_children(id).iter() {
+                for kid in cx.tcx.module_children(id).iter() {
                     if let Res::Def(DefKind::Macro(_mac_type), mac_id) = kid.res {
                         let span = mac_attr.span;
                         let def_path = cx.tcx.def_path_str(mac_id);
-                        self.imports.push((def_path, span));
+                        self.imports.push((def_path, span, hir_id));
                     }
                 }
             } else {
-                if in_macro(item.span) {
+                if item.span.from_expansion() {
                     self.push_unique_macro_pat_ty(cx, item.span);
                 }
             }
         }
     }
     fn check_attribute(&mut self, cx: &LateContext<'_>, attr: &ast::Attribute) {
-        if in_macro(attr.span) {
+        if attr.span.from_expansion() {
             self.push_unique_macro(cx, attr.span);
         }
     }
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &hir::Expr<'_>) {
-        if in_macro(expr.span) {
+        if expr.span.from_expansion() {
             self.push_unique_macro(cx, expr.span);
         }
     }
     fn check_stmt(&mut self, cx: &LateContext<'_>, stmt: &hir::Stmt<'_>) {
-        if in_macro(stmt.span) {
+        if stmt.span.from_expansion() {
             self.push_unique_macro(cx, stmt.span);
         }
     }
     fn check_pat(&mut self, cx: &LateContext<'_>, pat: &hir::Pat<'_>) {
-        if in_macro(pat.span) {
+        if pat.span.from_expansion() {
             self.push_unique_macro_pat_ty(cx, pat.span);
         }
     }
     fn check_ty(&mut self, cx: &LateContext<'_>, ty: &hir::Ty<'_>) {
-        if in_macro(ty.span) {
+        if ty.span.from_expansion() {
             self.push_unique_macro_pat_ty(cx, ty.span);
         }
     }
-    #[allow(clippy::too_many_lines)]
-    fn check_crate_post(&mut self, cx: &LateContext<'_>, _krate: &hir::Crate<'_>) {
+    fn check_crate_post(&mut self, cx: &LateContext<'_>) {
         let mut used = FxHashMap::default();
         let mut check_dup = vec![];
-        for (import, span) in &self.imports {
+        for (import, span, hir_id) in &self.imports {
             let found_idx = self.mac_refs.iter().position(|mac| import.ends_with(&mac.name));
 
             if let Some(idx) = found_idx {
-                let _ = self.mac_refs.remove(idx);
+                self.mac_refs.remove(idx);
                 let seg = import.split("::").collect::<Vec<_>>();
 
                 match seg.as_slice() {
@@ -169,7 +152,7 @@ impl<'tcx> LateLintPass<'tcx> for MacroUseImports {
                     [] | [_] => return,
                     [root, item] => {
                         if !check_dup.contains(&(*item).to_string()) {
-                            used.entry(((*root).to_string(), span))
+                            used.entry(((*root).to_string(), span, hir_id))
                                 .or_insert_with(Vec::new)
                                 .push((*item).to_string());
                             check_dup.push((*item).to_string());
@@ -187,13 +170,13 @@ impl<'tcx> LateLintPass<'tcx> for MacroUseImports {
                                     }
                                 })
                                 .collect::<Vec<_>>();
-                            used.entry(((*root).to_string(), span))
+                            used.entry(((*root).to_string(), span, hir_id))
                                 .or_insert_with(Vec::new)
                                 .push(filtered.join("::"));
                             check_dup.extend(filtered);
                         } else {
                             let rest = rest.to_vec();
-                            used.entry(((*root).to_string(), span))
+                            used.entry(((*root).to_string(), span, hir_id))
                                 .or_insert_with(Vec::new)
                                 .push(rest.join("::"));
                             check_dup.extend(rest.iter().map(ToString::to_string));
@@ -204,28 +187,34 @@ impl<'tcx> LateLintPass<'tcx> for MacroUseImports {
         }
 
         let mut suggestions = vec![];
-        for ((root, span), path) in used {
+        for ((root, span, hir_id), path) in used {
             if path.len() == 1 {
-                suggestions.push((span, format!("{}::{}", root, path[0])))
+                suggestions.push((span, format!("{root}::{}", path[0]), hir_id));
             } else {
-                suggestions.push((span, format!("{}::{{{}}}", root, path.join(", "))))
+                suggestions.push((span, format!("{root}::{{{}}}", path.join(", ")), hir_id));
             }
         }
 
         // If mac_refs is not empty we have encountered an import we could not handle
         // such as `std::prelude::v1::foo` or some other macro that expands to an import.
         if self.mac_refs.is_empty() {
-            for (span, import) in suggestions {
-                let help = format!("use {};", import);
-                span_lint_and_sugg(
+            for (span, import, hir_id) in suggestions {
+                let help = format!("use {import};");
+                span_lint_hir_and_then(
                     cx,
                     MACRO_USE_IMPORTS,
+                    *hir_id,
                     *span,
                     "`macro_use` attributes are no longer needed in the Rust 2018 edition",
-                    "remove the attribute and import the macro directly, try",
-                    help,
-                    Applicability::MaybeIncorrect,
-                )
+                    |diag| {
+                        diag.span_suggestion(
+                            *span,
+                            "remove the attribute and import the macro directly, try",
+                            help,
+                            Applicability::MaybeIncorrect,
+                        );
+                    },
+                );
             }
         }
     }

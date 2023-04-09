@@ -5,7 +5,7 @@
 const ONE: usize = 1;
 const TWO: usize = 2;
 const LEN: usize = ONE - TWO;
-//~^ ERROR any use of this value will cause an error
+//~^ ERROR constant
 
 fn main() {
     let a: [i8; LEN] = unimplemented!();

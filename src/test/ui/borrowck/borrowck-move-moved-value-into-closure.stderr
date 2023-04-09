@@ -1,15 +1,15 @@
 error[E0382]: use of moved value: `t`
   --> $DIR/borrowck-move-moved-value-into-closure.rs:11:12
    |
-LL |     let t: Box<_> = box 3;
-   |         - move occurs because `t` has type `std::boxed::Box<isize>`, which does not implement the `Copy` trait
-LL | 
+LL |     let t: Box<_> = Box::new(3);
+   |         - move occurs because `t` has type `Box<isize>`, which does not implement the `Copy` trait
+LL |
 LL |     call_f(move|| { *t + 1 });
-   |            ------    - variable moved due to use in closure
+   |            ------   -- variable moved due to use in closure
    |            |
    |            value moved into closure here
 LL |     call_f(move|| { *t + 1 });
-   |            ^^^^^^    - use occurs due to use in closure
+   |            ^^^^^^   -- use occurs due to use in closure
    |            |
    |            value used here after move
 

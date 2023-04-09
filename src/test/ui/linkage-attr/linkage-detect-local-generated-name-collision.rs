@@ -1,10 +1,11 @@
 // build-fail
-
+// FIXME(#83838) codegen-units=1 triggers llvm asserts
+// compile-flags: -Ccodegen-units=16
 #![feature(linkage)]
 
 mod dep1 {
-    extern {
-        #[linkage="external"]
+    extern "C" {
+        #[linkage = "external"]
         #[no_mangle]
         pub static collision: *const i32; //~ ERROR symbol `collision` is already defined
     }
@@ -20,6 +21,6 @@ mod dep2 {
 
 fn main() {
     unsafe {
-       println!("{:p}", &dep1::collision);
+        println!("{:p}", &dep1::collision);
     }
 }

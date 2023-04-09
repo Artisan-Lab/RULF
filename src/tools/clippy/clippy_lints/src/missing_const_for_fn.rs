@@ -1,25 +1,28 @@
-use crate::utils::{fn_has_unsatisfiable_preds, has_drop, is_entrypoint_fn, span_lint, trait_ref_of_method};
+use clippy_utils::diagnostics::span_lint;
+use clippy_utils::qualify_min_const_fn::is_min_const_fn;
+use clippy_utils::ty::has_drop;
+use clippy_utils::{
+    fn_has_unsatisfiable_preds, is_entrypoint_fn, is_from_proc_macro, meets_msrv, msrvs, trait_ref_of_method,
+};
 use rustc_hir as hir;
+use rustc_hir::def_id::CRATE_DEF_ID;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{Body, Constness, FnDecl, GenericParamKind, HirId};
+use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::lint::in_external_macro;
-use rustc_mir::transform::qualify_min_const_fn::is_min_const_fn;
-use rustc_session::{declare_lint_pass, declare_tool_lint};
+use rustc_semver::RustcVersion;
+use rustc_session::{declare_tool_lint, impl_lint_pass};
 use rustc_span::Span;
-use rustc_typeck::hir_ty_to_ty;
 
 declare_clippy_lint! {
-    /// **What it does:**
-    ///
+    /// ### What it does
     /// Suggests the use of `const` in functions and methods where possible.
     ///
-    /// **Why is this bad?**
-    ///
+    /// ### Why is this bad?
     /// Not having the function const prevents callers of the function from being const as well.
     ///
-    /// **Known problems:**
-    ///
+    /// ### Known problems
     /// Const functions are currently still being worked on, with some features only being available
     /// on nightly. This lint does not consider all edge cases currently and the suggestions may be
     /// incorrect if you are using this lint on stable.
@@ -39,8 +42,7 @@ declare_clippy_lint! {
     /// can't be const as it calls a non-const function. Making `a` const and running Clippy again,
     /// will suggest to make `b` const, too.
     ///
-    /// **Example:**
-    ///
+    /// ### Example
     /// ```rust
     /// # struct Foo {
     /// #     random_number: usize,
@@ -64,23 +66,39 @@ declare_clippy_lint! {
     /// }
     /// # }
     /// ```
+    #[clippy::version = "1.34.0"]
     pub MISSING_CONST_FOR_FN,
     nursery,
     "Lint functions definitions that could be made `const fn`"
 }
 
-declare_lint_pass!(MissingConstForFn => [MISSING_CONST_FOR_FN]);
+impl_lint_pass!(MissingConstForFn => [MISSING_CONST_FOR_FN]);
+
+pub struct MissingConstForFn {
+    msrv: Option<RustcVersion>,
+}
+
+impl MissingConstForFn {
+    #[must_use]
+    pub fn new(msrv: Option<RustcVersion>) -> Self {
+        Self { msrv }
+    }
+}
 
 impl<'tcx> LateLintPass<'tcx> for MissingConstForFn {
     fn check_fn(
         &mut self,
-        cx: &LateContext<'_>,
-        kind: FnKind<'_>,
+        cx: &LateContext<'tcx>,
+        kind: FnKind<'tcx>,
         _: &FnDecl<'_>,
-        _: &Body<'_>,
+        body: &Body<'tcx>,
         span: Span,
         hir_id: HirId,
     ) {
+        if !meets_msrv(self.msrv, msrvs::CONST_IF_MATCH) {
+            return;
+        }
+
         let def_id = cx.tcx.hir().local_def_id(hir_id);
 
         if in_external_macro(cx.tcx.sess, span) || is_entrypoint_fn(cx, def_id.to_def_id()) {
@@ -106,32 +124,49 @@ impl<'tcx> LateLintPass<'tcx> for MissingConstForFn {
                 }
             },
             FnKind::Method(_, sig, ..) => {
-                if trait_ref_of_method(cx, hir_id).is_some()
+                if trait_ref_of_method(cx, def_id).is_some()
                     || already_const(sig.header)
-                    || method_accepts_dropable(cx, sig.decl.inputs)
+                    || method_accepts_droppable(cx, sig.decl.inputs)
                 {
                     return;
                 }
             },
-            FnKind::Closure(..) => return,
+            FnKind::Closure => return,
+        }
+
+        // Const fns are not allowed as methods in a trait.
+        {
+            let parent = cx.tcx.hir().get_parent_item(hir_id).def_id;
+            if parent != CRATE_DEF_ID {
+                if let hir::Node::Item(item) = cx.tcx.hir().get_by_def_id(parent) {
+                    if let hir::ItemKind::Trait(..) = &item.kind {
+                        return;
+                    }
+                }
+            }
+        }
+
+        if is_from_proc_macro(cx, &(&kind, body, hir_id, span)) {
+            return;
         }
 
         let mir = cx.tcx.optimized_mir(def_id);
 
-        if let Err((span, err)) = is_min_const_fn(cx.tcx, def_id.to_def_id(), &mir) {
-            if rustc_mir::const_eval::is_min_const_fn(cx.tcx, def_id.to_def_id()) {
-                cx.tcx.sess.span_err(span, &err);
+        if let Err((span, err)) = is_min_const_fn(cx.tcx, mir, self.msrv) {
+            if cx.tcx.is_const_fn_raw(def_id.to_def_id()) {
+                cx.tcx.sess.span_err(span, err.as_ref());
             }
         } else {
             span_lint(cx, MISSING_CONST_FOR_FN, span, "this could be a `const fn`");
         }
     }
+    extract_msrv_attr!(LateContext);
 }
 
 /// Returns true if any of the method parameters is a type that implements `Drop`. The method
 /// can't be made const then, because `drop` can't be const-evaluated.
-fn method_accepts_dropable(cx: &LateContext<'_>, param_tys: &[hir::Ty<'_>]) -> bool {
-    // If any of the params are dropable, return true
+fn method_accepts_droppable(cx: &LateContext<'_>, param_tys: &[hir::Ty<'_>]) -> bool {
+    // If any of the params are droppable, return true
     param_tys.iter().any(|hir_ty| {
         let ty_ty = hir_ty_to_ty(cx.tcx, hir_ty);
         has_drop(cx, ty_ty)

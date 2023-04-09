@@ -1,8 +1,6 @@
--include ../tools.mk
+include ../tools.mk
 
-ifdef IS_WINDOWS
-all:
-else
+# ignore-windows-msvc
 
 # rustc will remove one of the two redundant references to foo below.  Depending
 # on which one gets removed, we'll get a linker error on SOME platforms (like
@@ -18,10 +16,8 @@ RUSTC_FLAGS = \
     -l foo \
     -l static=baz \
     -l foo \
-    -Z print-link-args
+    --print link-args
 
 all: $(call DYLIB,foo) $(call STATICLIB,bar) $(call STATICLIB,baz)
 	$(RUSTC) $(RUSTC_FLAGS) main.rs
 	$(call RUN,main)
-
-endif

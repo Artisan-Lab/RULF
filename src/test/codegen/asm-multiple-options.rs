@@ -2,7 +2,8 @@
 // only-x86_64
 
 #![crate_type = "rlib"]
-#![feature(asm)]
+
+use std::arch::asm;
 
 // CHECK-LABEL: @pure
 // CHECK-NOT: asm
@@ -10,7 +11,7 @@
 #[no_mangle]
 pub unsafe fn pure(x: i32) {
     let y: i32;
-    asm!("", out("ax") y, in("bx") x, options(pure), options(nomem));
+    asm!("", out("ax") y, in("cx") x, options(pure), options(nomem));
 }
 
 pub static mut VAR: i32 = 0;

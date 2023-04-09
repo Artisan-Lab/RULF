@@ -1,7 +1,5 @@
 // check-pass
 
-#![allow(incomplete_features)]
-#![feature(generic_associated_types)]
 #![feature(associated_type_defaults)]
 
 trait Foo {
@@ -10,11 +8,12 @@ trait Foo {
     type C where Self: Clone;
 }
 
+#[derive(Clone)]
 struct Fooy;
 
 impl Foo for Fooy {
     type A<'a> = (&'a ());
-    type B<'a, 'b> = (&'a(), &'b ());
+    type B<'a: 'b, 'b> = (&'a(), &'b ());
     type C = String;
 }
 
@@ -22,9 +21,9 @@ impl Foo for Fooy {
 struct Fooer<T>(T);
 
 impl<T> Foo for Fooer<T> {
-    type A<'x> where T: 'x = (&'x ());
-    type B<'u, 'v> where 'u: 'v = (&'v &'u ());
-    type C where Self: ToOwned = String;
+    type A<'x> = (&'x ()) where T: 'x;
+    type B<'u, 'v> = (&'v &'u ()) where 'u: 'v;
+    type C = String where Self: Clone + ToOwned;
 }
 
 fn main() {}

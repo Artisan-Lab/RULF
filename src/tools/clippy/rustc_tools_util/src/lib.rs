@@ -48,8 +48,8 @@ impl std::fmt::Display for VersionInfo {
         if (hash_trimmed.len() + date_trimmed.len()) > 0 {
             write!(
                 f,
-                "{} {}.{}.{} ({} {})",
-                self.crate_name, self.major, self.minor, self.patch, hash_trimmed, date_trimmed,
+                "{} {}.{}.{} ({hash_trimmed} {date_trimmed})",
+                self.crate_name, self.major, self.minor, self.patch,
             )?;
         } else {
             write!(f, "{} {}.{}.{}", self.crate_name, self.major, self.minor, self.patch)?;
@@ -84,7 +84,7 @@ impl std::fmt::Debug for VersionInfo {
 #[must_use]
 pub fn get_commit_hash() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok())
@@ -93,16 +93,16 @@ pub fn get_commit_hash() -> Option<String> {
 #[must_use]
 pub fn get_commit_date() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["log", "-1", "--date=short", "--pretty=format:%cd"])
+        .args(["log", "-1", "--date=short", "--pretty=format:%cd"])
         .output()
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok())
 }
 
 #[must_use]
-pub fn get_channel() -> Option<String> {
+pub fn get_channel() -> String {
     match env::var("CFG_RELEASE_CHANNEL") {
-        Ok(channel) => Some(channel),
+        Ok(channel) => channel,
         Err(_) => {
             // if that failed, try to ask rustc -V, do some parsing and find out
             match std::process::Command::new("rustc")
@@ -113,16 +113,16 @@ pub fn get_channel() -> Option<String> {
             {
                 Some(rustc_output) => {
                     if rustc_output.contains("beta") {
-                        Some(String::from("beta"))
+                        String::from("beta")
                     } else if rustc_output.contains("stable") {
-                        Some(String::from("stable"))
+                        String::from("stable")
                     } else {
                         // default to nightly if we fail to parse
-                        Some(String::from("nightly"))
+                        String::from("nightly")
                     }
                 },
                 // default to nightly
-                None => Some(String::from("nightly")),
+                None => String::from("nightly"),
             }
         },
     }
@@ -137,7 +137,7 @@ mod test {
         let vi = get_version_info!();
         assert_eq!(vi.major, 0);
         assert_eq!(vi.minor, 2);
-        assert_eq!(vi.patch, 0);
+        assert_eq!(vi.patch, 1);
         assert_eq!(vi.crate_name, "rustc_tools_util");
         // hard to make positive tests for these since they will always change
         assert!(vi.commit_hash.is_none());
@@ -147,16 +147,16 @@ mod test {
     #[test]
     fn test_display_local() {
         let vi = get_version_info!();
-        assert_eq!(vi.to_string(), "rustc_tools_util 0.2.0");
+        assert_eq!(vi.to_string(), "rustc_tools_util 0.2.1");
     }
 
     #[test]
     fn test_debug_local() {
         let vi = get_version_info!();
-        let s = format!("{:?}", vi);
+        let s = format!("{vi:?}");
         assert_eq!(
             s,
-            "VersionInfo { crate_name: \"rustc_tools_util\", major: 0, minor: 2, patch: 0 }"
+            "VersionInfo { crate_name: \"rustc_tools_util\", major: 0, minor: 2, patch: 1 }"
         );
     }
 }

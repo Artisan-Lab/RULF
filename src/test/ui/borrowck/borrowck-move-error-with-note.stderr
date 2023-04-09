@@ -1,4 +1,4 @@
-error[E0507]: cannot move out of `f.0` which is behind a shared reference
+error[E0507]: cannot move out of `f` as enum variant `Foo1` which is behind a shared reference
   --> $DIR/borrowck-move-error-with-note.rs:11:11
    |
 LL |     match *f {
@@ -34,7 +34,7 @@ LL |         n => {
    |         -
    |         |
    |         data moved here
-   |         move occurs because `n` has type `std::boxed::Box<isize>`, which does not implement the `Copy` trait
+   |         move occurs because `n` has type `Box<isize>`, which does not implement the `Copy` trait
 
 error: aborting due to 3 previous errors
 

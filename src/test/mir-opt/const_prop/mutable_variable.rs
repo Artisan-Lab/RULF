@@ -1,6 +1,7 @@
+// unit-test
 // compile-flags: -O
 
-// EMIT_MIR rustc.main.ConstProp.diff
+// EMIT_MIR mutable_variable.main.ConstProp.diff
 fn main() {
     let mut x = 42;
     x = 99;

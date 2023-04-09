@@ -1,6 +1,3 @@
-#![feature(generic_associated_types)]
-//~^ WARN the feature `generic_associated_types` is incomplete
-
 fn main() {}
 
 struct X;
@@ -8,16 +5,16 @@ struct X;
 impl X {
     type Y;
     //~^ ERROR associated type in `impl` without body
-    //~| ERROR associated types are not yet supported in inherent impls
+    //~| ERROR inherent associated types are unstable
     type Z: Ord;
     //~^ ERROR associated type in `impl` without body
     //~| ERROR bounds on `type`s in `impl`s have no effect
-    //~| ERROR associated types are not yet supported in inherent impls
+    //~| ERROR inherent associated types are unstable
     type W: Ord where Self: Eq;
     //~^ ERROR associated type in `impl` without body
     //~| ERROR bounds on `type`s in `impl`s have no effect
-    //~| ERROR associated types are not yet supported in inherent impls
+    //~| ERROR inherent associated types are unstable
     type W where Self: Eq;
     //~^ ERROR associated type in `impl` without body
-    //~| ERROR associated types are not yet supported in inherent impls
+    //~| ERROR inherent associated types are unstable
 }

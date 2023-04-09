@@ -1,11 +1,18 @@
-error[E0277]: the trait bound `NoClone: std::clone::Clone` is not satisfied
+error[E0277]: the trait bound `NoClone: Clone` is not satisfied
   --> $DIR/struct-path-alias-bounds.rs:9:13
    |
-LL | struct S<T: Clone> { a: T }
-   | ------------------ required by `S`
-...
 LL |     let s = A { a: NoClone };
-   |             ^ the trait `std::clone::Clone` is not implemented for `NoClone`
+   |             ^ the trait `Clone` is not implemented for `NoClone`
+   |
+note: required by a bound in `S`
+  --> $DIR/struct-path-alias-bounds.rs:3:13
+   |
+LL | struct S<T: Clone> { a: T }
+   |             ^^^^^ required by this bound in `S`
+help: consider annotating `NoClone` with `#[derive(Clone)]`
+   |
+LL | #[derive(Clone)]
+   |
 
 error: aborting due to previous error
 

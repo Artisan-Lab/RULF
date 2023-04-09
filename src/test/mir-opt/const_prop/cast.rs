@@ -1,4 +1,5 @@
-// EMIT_MIR rustc.main.ConstProp.diff
+// unit-test: ConstProp
+// EMIT_MIR cast.main.ConstProp.diff
 
 fn main() {
     let x = 42u8 as u32;

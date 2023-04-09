@@ -1,5 +1,12 @@
 #![warn(clippy::needless_lifetimes)]
-#![allow(dead_code, clippy::needless_pass_by_value)]
+#![allow(
+    dead_code,
+    clippy::boxed_local,
+    clippy::needless_pass_by_value,
+    clippy::unnecessary_wraps,
+    dyn_drop,
+    clippy::get_first
+)]
 
 fn distinct_lifetimes<'a, 'b>(_x: &'a u8, _y: &'b u8, _z: u8) {}
 
@@ -25,6 +32,11 @@ fn multiple_in_and_out_1<'a>(x: &'a u8, _y: &'a u8) -> &'a u8 {
 // No error; multiple input refs.
 fn multiple_in_and_out_2<'a, 'b>(x: &'a u8, _y: &'b u8) -> &'a u8 {
     x
+}
+
+// No error; multiple input refs
+async fn func<'a>(args: &[&'a str]) -> Option<&'a str> {
+    args.get(0).cloned()
 }
 
 // No error; static involved.
@@ -105,11 +117,7 @@ fn fn_bound_3_cannot_elide() {
 
 // No error; multiple input refs.
 fn fn_bound_4<'a, F: FnOnce() -> &'a ()>(cond: bool, x: &'a (), f: F) -> &'a () {
-    if cond {
-        x
-    } else {
-        f()
-    }
+    if cond { x } else { f() }
 }
 
 struct X {
@@ -256,6 +264,158 @@ mod issue4291 {
 
     impl BadTrait for () {
         fn needless_lt<'a>(_x: &'a u8) {}
+    }
+}
+
+mod issue2944 {
+    trait Foo {}
+    struct Bar;
+    struct Baz<'a> {
+        bar: &'a Bar,
+    }
+
+    impl<'a> Foo for Baz<'a> {}
+    impl Bar {
+        fn baz<'a>(&'a self) -> impl Foo + 'a {
+            Baz { bar: self }
+        }
+    }
+}
+
+mod nested_elision_sites {
+    // issue #issue2944
+
+    // closure trait bounds subject to nested elision
+    // don't lint because they refer to outer lifetimes
+    fn trait_fn<'a>(i: &'a i32) -> impl Fn() -> &'a i32 {
+        move || i
+    }
+    fn trait_fn_mut<'a>(i: &'a i32) -> impl FnMut() -> &'a i32 {
+        move || i
+    }
+    fn trait_fn_once<'a>(i: &'a i32) -> impl FnOnce() -> &'a i32 {
+        move || i
+    }
+
+    // don't lint
+    fn impl_trait_in_input_position<'a>(f: impl Fn() -> &'a i32) -> &'a i32 {
+        f()
+    }
+    fn impl_trait_in_output_position<'a>(i: &'a i32) -> impl Fn() -> &'a i32 {
+        move || i
+    }
+    // lint
+    fn impl_trait_elidable_nested_named_lifetimes<'a>(i: &'a i32, f: impl for<'b> Fn(&'b i32) -> &'b i32) -> &'a i32 {
+        f(i)
+    }
+    fn impl_trait_elidable_nested_anonymous_lifetimes<'a>(i: &'a i32, f: impl Fn(&i32) -> &i32) -> &'a i32 {
+        f(i)
+    }
+
+    // don't lint
+    fn generics_not_elidable<'a, T: Fn() -> &'a i32>(f: T) -> &'a i32 {
+        f()
+    }
+    // lint
+    fn generics_elidable<'a, T: Fn(&i32) -> &i32>(i: &'a i32, f: T) -> &'a i32 {
+        f(i)
+    }
+
+    // don't lint
+    fn where_clause_not_elidable<'a, T>(f: T) -> &'a i32
+    where
+        T: Fn() -> &'a i32,
+    {
+        f()
+    }
+    // lint
+    fn where_clause_elidadable<'a, T>(i: &'a i32, f: T) -> &'a i32
+    where
+        T: Fn(&i32) -> &i32,
+    {
+        f(i)
+    }
+
+    // don't lint
+    fn pointer_fn_in_input_position<'a>(f: fn(&'a i32) -> &'a i32, i: &'a i32) -> &'a i32 {
+        f(i)
+    }
+    fn pointer_fn_in_output_position<'a>(_: &'a i32) -> fn(&'a i32) -> &'a i32 {
+        |i| i
+    }
+    // lint
+    fn pointer_fn_elidable<'a>(i: &'a i32, f: fn(&i32) -> &i32) -> &'a i32 {
+        f(i)
+    }
+
+    // don't lint
+    fn nested_fn_pointer_1<'a>(_: &'a i32) -> fn(fn(&'a i32) -> &'a i32) -> i32 {
+        |f| 42
+    }
+    fn nested_fn_pointer_2<'a>(_: &'a i32) -> impl Fn(fn(&'a i32)) {
+        |f| ()
+    }
+
+    // lint
+    fn nested_fn_pointer_3<'a>(_: &'a i32) -> fn(fn(&i32) -> &i32) -> i32 {
+        |f| 42
+    }
+    fn nested_fn_pointer_4<'a>(_: &'a i32) -> impl Fn(fn(&i32)) {
+        |f| ()
+    }
+}
+
+mod issue6159 {
+    use std::ops::Deref;
+    pub fn apply_deref<'a, T, F, R>(x: &'a T, f: F) -> R
+    where
+        T: Deref,
+        F: FnOnce(&'a T::Target) -> R,
+    {
+        f(x.deref())
+    }
+}
+
+mod issue7296 {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct Foo;
+    impl Foo {
+        fn implicit<'a>(&'a self) -> &'a () {
+            &()
+        }
+        fn implicit_mut<'a>(&'a mut self) -> &'a () {
+            &()
+        }
+
+        fn explicit<'a>(self: &'a Arc<Self>) -> &'a () {
+            &()
+        }
+        fn explicit_mut<'a>(self: &'a mut Rc<Self>) -> &'a () {
+            &()
+        }
+
+        fn lifetime_elsewhere<'a>(self: Box<Self>, here: &'a ()) -> &'a () {
+            &()
+        }
+    }
+
+    trait Bar {
+        fn implicit<'a>(&'a self) -> &'a ();
+        fn implicit_provided<'a>(&'a self) -> &'a () {
+            &()
+        }
+
+        fn explicit<'a>(self: &'a Arc<Self>) -> &'a ();
+        fn explicit_provided<'a>(self: &'a Arc<Self>) -> &'a () {
+            &()
+        }
+
+        fn lifetime_elsewhere<'a>(self: Box<Self>, here: &'a ()) -> &'a ();
+        fn lifetime_elsewhere_provided<'a>(self: Box<Self>, here: &'a ()) -> &'a () {
+            &()
+        }
     }
 }
 

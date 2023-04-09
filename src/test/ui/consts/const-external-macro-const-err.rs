@@ -9,5 +9,5 @@ extern crate external_macro;
 use external_macro::static_assert;
 
 fn main() {
-    static_assert!(2 + 2 == 5); //~ ERROR
+    static_assert!(2 + 2 == 5); //~ ERROR constant
 }

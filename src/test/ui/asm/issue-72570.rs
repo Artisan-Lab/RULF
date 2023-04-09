@@ -1,8 +1,8 @@
 // compile-flags: -Zsave-analysis
-// only-x86_64
+// needs-asm-support
 // Also test for #72960
 
-#![feature(asm)]
+use std::arch::asm;
 
 fn main() {
     unsafe {

@@ -1,5 +1,11 @@
 #![warn(clippy::similar_names)]
-#![allow(unused, clippy::println_empty_string)]
+#![allow(
+    unused,
+    clippy::println_empty_string,
+    clippy::empty_loop,
+    clippy::diverging_sub_expression,
+    clippy::let_unit_value
+)]
 
 struct Foo {
     apple: i32,
@@ -72,6 +78,13 @@ fn main() {
     let rx1: i32;
     let tx_cake: i32;
     let rx_cake: i32;
+
+    // names often used in win32 code (for example WindowProc)
+    let wparam: i32;
+    let lparam: i32;
+
+    let iter: i32;
+    let item: i32;
 }
 
 fn foo() {
@@ -100,4 +113,9 @@ pub(crate) struct DirSizes {
     pub(crate) total_reg_src_size: u64,
     pub(crate) numb_reg_cache_entries: u64,
     pub(crate) numb_reg_src_checkouts: u64,
+}
+
+fn ignore_underscore_prefix() {
+    let hello: ();
+    let _hello: ();
 }

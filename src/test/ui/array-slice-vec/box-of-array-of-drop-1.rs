@@ -1,4 +1,5 @@
 // run-pass
+// needs-unwind
 #![allow(overflowing_literals)]
 
 // Test that we cleanup a fixed size Box<[D; k]> properly when D has a
@@ -17,7 +18,12 @@ impl Drop for D {
     fn drop(&mut self) {
         println!("Dropping {}", self.0);
         let old = LOG.load(Ordering::SeqCst);
-        LOG.compare_and_swap(old, old << 4 | self.0 as usize, Ordering::SeqCst);
+        let _ = LOG.compare_exchange(
+            old,
+            old << 4 | self.0 as usize,
+            Ordering::SeqCst,
+            Ordering::SeqCst
+        );
     }
 }
 

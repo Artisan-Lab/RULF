@@ -1,9 +1,5 @@
 // run-pass
 
-#![deny(const_err)]
-
-use std::{f32, f64};
-
 // Forces evaluation of constants, triggering hard error
 fn force<T>(_: T) {}
 

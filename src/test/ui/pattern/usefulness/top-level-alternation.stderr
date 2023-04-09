@@ -64,5 +64,11 @@ error: unreachable pattern
 LL |         1..=2 => {},
    |         ^^^^^
 
-error: aborting due to 10 previous errors
+error: unreachable pattern
+  --> $DIR/top-level-alternation.rs:56:14
+   |
+LL |     let (0 | 0) = 0 else { return };
+   |              ^
+
+error: aborting due to 11 previous errors
 

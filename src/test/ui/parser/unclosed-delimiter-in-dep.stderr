@@ -1,10 +1,10 @@
 error: mismatched closing delimiter: `}`
-  --> $DIR/unclosed_delim_mod.rs:7:1
+  --> $DIR/unclosed_delim_mod.rs:5:7
    |
 LL | pub fn new() -> Result<Value, ()> {
    |                                   - closing delimiter possibly meant for this
 LL |     Ok(Value {
-   |       - unclosed delimiter
+   |       ^ unclosed delimiter
 LL |     }
 LL | }
    | ^ mismatched closing delimiter
@@ -13,12 +13,12 @@ error[E0308]: mismatched types
   --> $DIR/unclosed-delimiter-in-dep.rs:4:20
    |
 LL |     let _: usize = unclosed_delim_mod::new();
-   |            -----   ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `usize`, found enum `std::result::Result`
+   |            -----   ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `usize`, found enum `Result`
    |            |
    |            expected due to this
    |
    = note: expected type `usize`
-              found enum `std::result::Result<unclosed_delim_mod::Value, ()>`
+              found enum `Result<Value, ()>`
 
 error: aborting due to 2 previous errors
 

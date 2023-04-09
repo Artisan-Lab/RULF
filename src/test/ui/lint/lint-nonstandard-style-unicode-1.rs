@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 #![forbid(non_camel_case_types)]
-#![feature(non_ascii_idents)]
 
 // Some scripts (e.g., hiragana) don't have a concept of
 // upper/lowercase
@@ -23,7 +22,7 @@ struct _ヒb;
 struct __χa;
 //~^ ERROR type `__χa` should have an upper camel case name
 
-// Besides this, we cannot have two continous underscores in the middle.
+// Besides this, we cannot have two continuous underscores in the middle.
 
 struct 对__否;
 //~^ ERROR type `对__否` should have an upper camel case name
@@ -31,7 +30,7 @@ struct 对__否;
 struct ヒ__χ;
 //~^ ERROR type `ヒ__χ` should have an upper camel case name
 
-// also cannot have lowercase letter next to a underscore.
+// also cannot have lowercase letter next to an underscore.
 // so this triggers the lint:
 
 struct Hello_你好;

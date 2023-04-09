@@ -32,7 +32,7 @@ fn main() {
     let _ = -(1i32.abs());
     let _ = -(1f32.abs());
 
-    // Odd functions shoud not trigger an error
+    // Odd functions should not trigger an error
     let _ = -1f64.asin();
     let _ = -1f64.asinh();
     let _ = -1f64.atan();
@@ -47,6 +47,14 @@ fn main() {
     let _ = -1f64.tanh();
     let _ = -1f64.to_degrees();
     let _ = -1f64.to_radians();
+
+    // Chains containing any non-odd function should trigger (issue #5924)
+    let _ = -(1.0_f64.cos().cos());
+    let _ = -(1.0_f64.cos().sin());
+    let _ = -(1.0_f64.sin().cos());
+
+    // Chains of odd functions shouldn't trigger
+    let _ = -1f64.sin().sin();
 
     let b = 3;
     trip!(b * 8);

@@ -16,6 +16,11 @@ for example:
 
 Images will output artifacts in an `obj` dir at the root of a repository.
 
+To match conditions in rusts CI, also set the environment variable `DEPLOY=1`, e.g.:
+```
+DEPLOY=1 ./src/ci/docker/run.sh x86_64-gnu
+```
+
 **NOTE**: Re-using the same `obj` dir with different docker images with
 the same target triple (e.g. `dist-x86_64-linux` and `dist-various-1`)
 may result in strange linker errors, due shared library versions differing between platforms.
@@ -85,27 +90,44 @@ how to generate them, and how the existing ones were generated.
 
 ### Generating a `.config` file
 
+**NOTE:** Existing Dockerfiles can also be a good guide for the process and order
+of script execution.
+
 If you have a `linux-cross` image lying around you can use that and skip the
 next two steps.
 
-- First we spin up a container and copy `build_toolchain_root.sh` into it. All
+- First we spin up a container and copy all scripts into it. All
   these steps are outside the container:
 
 ```
-# Note: We use ubuntu:15.10 because that's the "base" of linux-cross Docker
-# image
-$ docker run -it ubuntu:15.10 bash
+# Note: We use ubuntu:16.04 because that's the "base" of linux-cross Docker
+# image, or simply run ./src/ci/docker/run.sh once, which will download the correct
+# one and you can check it out with `docker images`
+$ docker run -it ubuntu:16.04 bash
+# in another terminal:
 $ docker ps
 CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
-cfbec05ed730        ubuntu:15.10        "bash"              16 seconds ago      Up 15 seconds                           drunk_murdock
-$ docker cp build_toolchain_root.sh drunk_murdock:/
+cfbec05ed730        ubuntu:16.04        "bash"              16 seconds ago      Up 15 seconds                           drunk_murdock
+$ docker cp src/ci/docker/scripts drunk_murdock:/tmp/
 ```
 
 - Then inside the container we build crosstool-ng by simply calling the bash
   script we copied in the previous step:
 
 ```
-$ bash build_toolchain_root.sh
+$ cd /tmp/scripts
+# Download packages necessary for building
+$ bash ./cross-apt-packages.sh
+# Download and build crosstool-ng
+$ bash ./crosstool-ng.sh
+```
+
+- In case you want to adjust or start from an existing config, copy that
+  to the container. `crosstool-ng` will automatically load `./.config` if
+  present. Otherwise one can use the TUI to load any config-file.
+
+```
+$ docker cp arm-linux-gnueabi.config drunk_murdock:/tmp/.config
 ```
 
 - Now, inside the container run the following command to configure the
@@ -113,6 +135,7 @@ $ bash build_toolchain_root.sh
   section and come back.
 
 ```
+$ cd /tmp/
 $ ct-ng menuconfig
 ```
 
@@ -120,7 +143,7 @@ $ ct-ng menuconfig
   meaningful name. This is done outside the container.
 
 ```
-$ docker drunk_murdock:/.config arm-linux-gnueabi.config
+$ docker cp drunk_murdock:/tmp/.config arm-linux-gnueabi.config
 ```
 
 - Now you can shutdown the container or repeat the two last steps to generate a
@@ -196,12 +219,121 @@ For targets: `armv7-unknown-linux-gnueabihf`
 For targets: `aarch64-unknown-linux-gnu`
 
 - Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
 - Target options > Target Architecture = arm
 - Target options > Bitness = 64-bit
 - Operating System > Target OS = linux
-- Operating System > Linux kernel version = 4.2.6
+- Operating System > Linux kernel version = 4.1.49
+- Binary utilities > Version of binutils = 2.32
 - C-library > glibc version = 2.17 -- aarch64 support was introduced in this version
-- C compiler > gcc version = 5.2.0
+- C compiler > gcc version = 8.3.0
+- C compiler > C++ = ENABLE -- to cross compile LLVM
+
+### `i586-linux-gnu.config`
+
+For targets: `i586-unknown-linux-gnu`
+
+- Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Patches origin = Bundled only
+- Target options > Target Architecture = x86
+- Target options > Architecture level = i586
+- Target options > Target CFLAGS = -Wa,-mrelax-relocations=no
+- Operating System > Target OS = linux
+- Operating System > Linux kernel version = 3.2.101
+- Binary utilities > Version of binutils = 2.32
+- Binary utilities > binutils extra config = --enable-compressed-debug-sections=none -- (\*)
+- C-library > glibc version = 2.17.0
+- C compiler > gcc version = 8.3.0
+- C compiler > C++ = ENABLE
+
+(\*) Compressed debug is enabled by default for gas (assembly) on Linux/x86 targets,
+     but that makes our `compiler_builtins` incompatible with binutils < 2.32.
+
+### `mips-linux-gnu.config`
+
+For targets: `mips-unknown-linux-gnu`
+
+- Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
+- Path and misc options > Patches origin = Bundled, then local
+- Path and misc options > Local patch directory = /tmp/patches
+- Target options > Target Architecture = mips
+- Target options > ABI = o32
+- Target options > Endianness = Big endian
+- Target options > Bitness = 32-bit
+- Target options > Architecture level = mips32r2
+- Operating System > Target OS = linux
+- Operating System > Linux kernel version = 4.4.174
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.23
+- C compiler > gcc version = 8.3.0
+- C compiler > gcc extra config = --with-fp-32=xx --with-odd-spreg-32=no
+- C compiler > C++ = ENABLE -- to cross compile LLVM
+
+### `mipsel-linux-gnu.config`
+
+For targets: `mipsel-unknown-linux-gnu`
+
+- Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
+- Path and misc options > Patches origin = Bundled, then local
+- Path and misc options > Local patch directory = /tmp/patches
+- Target options > Target Architecture = mips
+- Target options > ABI = o32
+- Target options > Endianness = Little endian
+- Target options > Bitness = 32-bit
+- Target options > Architecture level = mips32r2
+- Operating System > Target OS = linux
+- Operating System > Linux kernel version = 4.4.174
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.23
+- C compiler > gcc version = 8.3.0
+- C compiler > gcc extra config = --with-fp-32=xx --with-odd-spreg-32=no
+- C compiler > C++ = ENABLE -- to cross compile LLVM
+
+### `mips64-linux-gnu.config`
+
+For targets: `mips64-unknown-linux-gnuabi64`
+
+- Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
+- Path and misc options > Patches origin = Bundled, then local
+- Path and misc options > Local patch directory = /tmp/patches
+- Target options > Target Architecture = mips
+- Target options > ABI = n64
+- Target options > Endianness = Big endian
+- Target options > Bitness = 64-bit
+- Target options > Architecture level = mips64r2
+- Operating System > Target OS = linux
+- Operating System > Linux kernel version = 4.4.174
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.23
+- C compiler > gcc version = 8.3.0
+- C compiler > C++ = ENABLE -- to cross compile LLVM
+
+### `mips64el-linux-gnu.config`
+
+For targets: `mips64el-unknown-linux-gnuabi64`
+
+- Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
+- Path and misc options > Patches origin = Bundled, then local
+- Path and misc options > Local patch directory = /tmp/patches
+- Target options > Target Architecture = mips
+- Target options > ABI = n64
+- Target options > Endianness = Little endian
+- Target options > Bitness = 64-bit
+- Target options > Architecture level = mips64r2
+- Operating System > Target OS = linux
+- Operating System > Linux kernel version = 4.4.174
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.23
+- C compiler > gcc version = 8.3.0
 - C compiler > C++ = ENABLE -- to cross compile LLVM
 
 ### `powerpc-linux-gnu.config`
@@ -209,14 +341,15 @@ For targets: `aarch64-unknown-linux-gnu`
 For targets: `powerpc-unknown-linux-gnu`
 
 - Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
-- Path and misc options > Patches origin = Bundled, then local
-- Path and misc options > Local patch directory = /tmp/patches
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
 - Target options > Target Architecture = powerpc
 - Target options > Emit assembly for CPU = powerpc -- pure 32-bit PowerPC
 - Operating System > Target OS = linux
-- Operating System > Linux kernel version = 2.6.32.68 -- ~RHEL6 kernel
-- C-library > glibc version = 2.12.2 -- ~RHEL6 glibc
-- C compiler > gcc version = 5.2.0
+- Operating System > Linux kernel version = 3.2.101
+- Binary utilities > Version of binutils = 2.30
+- C-library > glibc version = 2.17 -- ~RHEL7 glibc
+- C compiler > gcc version = 8.3.0
 - C compiler > C++ = ENABLE -- to cross compile LLVM
 
 ### `powerpc64-linux-gnu.config`
@@ -224,16 +357,17 @@ For targets: `powerpc-unknown-linux-gnu`
 For targets: `powerpc64-unknown-linux-gnu`
 
 - Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
-- Path and misc options > Patches origin = Bundled, then local
-- Path and misc options > Local patch directory = /tmp/patches
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
 - Target options > Target Architecture = powerpc
 - Target options > Bitness = 64-bit
 - Target options > Emit assembly for CPU = power4 -- (+)
 - Target options > Tune for CPU = power6 -- (+)
 - Operating System > Target OS = linux
-- Operating System > Linux kernel version = 2.6.32.68 -- ~RHEL6 kernel
-- C-library > glibc version = 2.12.2 -- ~RHEL6 glibc
-- C compiler > gcc version = 5.2.0
+- Operating System > Linux kernel version = 3.2.101
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.17 -- ~RHEL7 glibc
+- C compiler > gcc version = 8.3.0
 - C compiler > C++ = ENABLE -- to cross compile LLVM
 
 (+) These CPU options match the configuration of the toolchains in RHEL6.
@@ -243,13 +377,14 @@ For targets: `powerpc64-unknown-linux-gnu`
 For targets: `s390x-unknown-linux-gnu`
 
 - Path and misc options > Prefix directory = /x-tools/${CT\_TARGET}
-- Path and misc options > Patches origin = Bundled, then local
-- Path and misc options > Local patch directory = /tmp/patches
+- Path and misc options > Use a mirror = ENABLE
+- Path and misc options > Base URL = https://ci-mirrors.rust-lang.org/rustc
 - Target options > Target Architecture = s390
 - Target options > Bitness = 64-bit
 - Operating System > Target OS = linux
-- Operating System > Linux kernel version = 2.6.32.68 -- ~RHEL6 kernel
-- C-library > glibc version = 2.12.2 -- ~RHEL6 glibc
-- C compiler > gcc version = 5.2.0
+- Operating System > Linux kernel version = 3.2.101
+- Binary utilities > Version of binutils = 2.32
+- C-library > glibc version = 2.17 -- ~RHEL7 glibc
+- C compiler > gcc version = 8.3.0
 - C compiler > gcc extra config = --with-arch=z10 -- LLVM's minimum support
 - C compiler > C++ = ENABLE -- to cross compile LLVM

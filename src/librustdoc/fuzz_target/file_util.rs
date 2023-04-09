@@ -1,12 +1,13 @@
 use crate::fuzz_target::api_graph::ApiGraph;
-use std::collections::HashMap;
+use lazy_static::lazy_static;
+use rustc_data_structures::fx::{FxHashMap};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
 lazy_static! {
-    static ref CRATE_TEST_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref CRATE_TEST_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("url", "/home/jjf/afl_fast_work/url_afl_work");
         m.insert("regex_syntax", "/home/jjf/afl_fast_work/regex-syntax-afl-work");
         m.insert("semver_parser", "/home/jjf/afl_fast_work/semver-parser-afl-work");
@@ -36,8 +37,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RANDOM_TEST_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref RANDOM_TEST_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("regex", "/home/jjf/random_work/regex-work");
         m.insert("url", "/home/jjf/random_work/url-work");
         m.insert("time", "/home/jjf/random_work/time-work");
@@ -46,8 +47,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref LIBFUZZER_FUZZ_TARGET_DIR: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
+    static ref LIBFUZZER_FUZZ_TARGET_DIR: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
         m.insert("url", "/home/jjf/libfuzzer_work/url-libfuzzer-targets");
         m.insert("regex_syntax", "/home/jjf/libfuzzer_work/regex-syntax-libfuzzer-targets");
         m.insert("syn", "/home/jjf/libfuzzer_work/syn-libfuzzer-targets");
@@ -57,8 +58,8 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref RANDOM_TEST_FILE_NUMBERS: HashMap<&'static str, usize> = {
-        let mut m = HashMap::new();
+    static ref RANDOM_TEST_FILE_NUMBERS: FxHashMap<&'static str, usize> = {
+        let mut m = FxHashMap::default();
         m.insert("url", 61);
         m.insert("regex", 67);
         m.insert("time", 118);
@@ -72,7 +73,7 @@ static _LIBFUZZER_DIR_NAME: &'static str = "libfuzzer_files";
 static MAX_TEST_FILE_NUMBER: usize = 300;
 static DEFAULT_RANDOM_FILE_NUMBER: usize = 100;
 
-pub fn can_write_to_file(crate_name: &String, random_strategy: bool) -> bool {
+pub(crate) fn can_write_to_file(crate_name: &String, random_strategy: bool) -> bool {
     if !random_strategy && CRATE_TEST_DIR.contains_key(crate_name.as_str()) {
         return true;
     }
@@ -84,7 +85,7 @@ pub fn can_write_to_file(crate_name: &String, random_strategy: bool) -> bool {
     return false;
 }
 
-pub fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
+pub(crate) fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
     if LIBFUZZER_FUZZ_TARGET_DIR.contains_key(crate_name.as_str()) {
         return true;
     } else {
@@ -93,16 +94,16 @@ pub fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
 }
 
 #[derive(Debug, Clone)]
-pub struct FileHelper {
-    pub crate_name: String,
-    pub test_dir: String,
-    pub test_files: Vec<String>,
-    pub reproduce_files: Vec<String>,
-    pub libfuzzer_files: Vec<String>,
+pub(crate) struct FileHelper {
+    pub(crate) crate_name: String,
+    pub(crate) test_dir: String,
+    pub(crate) test_files: Vec<String>,
+    pub(crate) reproduce_files: Vec<String>,
+    pub(crate) libfuzzer_files: Vec<String>,
 }
 
 impl FileHelper {
-    pub fn new(api_graph: &ApiGraph, random_strategy: bool) -> Self {
+    pub(crate) fn new(api_graph: &ApiGraph<'_>, random_strategy: bool) -> Self {
         let crate_name = api_graph._crate_name.clone();
         let test_dir = if !random_strategy {
             CRATE_TEST_DIR.get(crate_name.as_str()).unwrap().to_string()
@@ -141,7 +142,7 @@ impl FileHelper {
         FileHelper { crate_name, test_dir, test_files, reproduce_files, libfuzzer_files }
     }
 
-    pub fn write_files(&self) {
+    pub(crate) fn write_files(&self) {
         let test_path = PathBuf::from(&self.test_dir);
         if test_path.is_file() {
             fs::remove_file(&test_path).unwrap();
@@ -156,7 +157,7 @@ impl FileHelper {
         write_to_files(&self.crate_name, &reproduce_file_path, &self.reproduce_files, "replay");
     }
 
-    pub fn write_libfuzzer_files(&self) {
+    pub(crate) fn write_libfuzzer_files(&self) {
         let libfuzzer_dir = LIBFUZZER_FUZZ_TARGET_DIR.get(self.crate_name.as_str()).unwrap();
         let libfuzzer_path = PathBuf::from(libfuzzer_dir);
         if libfuzzer_path.is_file() {

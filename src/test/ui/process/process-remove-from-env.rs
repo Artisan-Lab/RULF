@@ -1,8 +1,8 @@
 // run-pass
-// ignore-cloudabi no processes
 // ignore-emscripten no processes
 // ignore-sgx no processes
 // ignore-vxworks no 'env'
+// ignore-fuchsia no 'env'
 
 use std::process::Command;
 use std::env;

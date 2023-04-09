@@ -3,20 +3,21 @@ pub use self::Mode::*;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
 
 use crate::util::PathBufExt;
+use lazycell::LazyCell;
 use test::ColorConfig;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Mode {
-    CompileFail,
-    RunFail,
     RunPassValgrind,
     Pretty,
     DebugInfo,
     Codegen,
     Rustdoc,
+    RustdocJson,
     CodegenUnits,
     Incremental,
     RunMake,
@@ -41,13 +42,12 @@ impl FromStr for Mode {
     type Err = ();
     fn from_str(s: &str) -> Result<Mode, ()> {
         match s {
-            "compile-fail" => Ok(CompileFail),
-            "run-fail" => Ok(RunFail),
             "run-pass-valgrind" => Ok(RunPassValgrind),
             "pretty" => Ok(Pretty),
             "debuginfo" => Ok(DebugInfo),
             "codegen" => Ok(Codegen),
             "rustdoc" => Ok(Rustdoc),
+            "rustdoc-json" => Ok(RustdocJson),
             "codegen-units" => Ok(CodegenUnits),
             "incremental" => Ok(Incremental),
             "run-make" => Ok(RunMake),
@@ -63,13 +63,12 @@ impl FromStr for Mode {
 impl fmt::Display for Mode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match *self {
-            CompileFail => "compile-fail",
-            RunFail => "run-fail",
             RunPassValgrind => "run-pass-valgrind",
             Pretty => "pretty",
             DebugInfo => "debuginfo",
             Codegen => "codegen",
             Rustdoc => "rustdoc",
+            RustdocJson => "rustdoc-json",
             CodegenUnits => "codegen-units",
             Incremental => "incremental",
             RunMake => "run-make",
@@ -121,25 +120,28 @@ pub enum FailMode {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompareMode {
-    Nll,
     Polonius,
     Chalk,
+    SplitDwarf,
+    SplitDwarfSingle,
 }
 
 impl CompareMode {
     pub(crate) fn to_str(&self) -> &'static str {
         match *self {
-            CompareMode::Nll => "nll",
             CompareMode::Polonius => "polonius",
             CompareMode::Chalk => "chalk",
+            CompareMode::SplitDwarf => "split-dwarf",
+            CompareMode::SplitDwarfSingle => "split-dwarf-single",
         }
     }
 
     pub fn parse(s: String) -> CompareMode {
         match s.as_str() {
-            "nll" => CompareMode::Nll,
             "polonius" => CompareMode::Polonius,
             "chalk" => CompareMode::Chalk,
+            "split-dwarf" => CompareMode::SplitDwarf,
+            "split-dwarf-single" => CompareMode::SplitDwarfSingle,
             x => panic!("unknown --compare-mode option: {}", x),
         }
     }
@@ -168,10 +170,16 @@ impl fmt::Display for Debugger {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PanicStrategy {
+    Unwind,
+    Abort,
+}
+
 /// Configuration for compiletest
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
-    /// `true` to to overwrite stderr/stdout files instead of complaining about changes in output.
+    /// `true` to overwrite stderr/stdout files instead of complaining about changes in output.
     pub bless: bool,
 
     /// The library paths required for running the compiler.
@@ -186,11 +194,17 @@ pub struct Config {
     /// The rustdoc executable.
     pub rustdoc_path: Option<PathBuf>,
 
-    /// The Python executable to use for LLDB.
-    pub lldb_python: String,
+    /// The rust-demangler executable.
+    pub rust_demangler_path: Option<PathBuf>,
 
-    /// The Python executable to use for htmldocck.
-    pub docck_python: String,
+    /// The Python executable to use for LLDB and htmldocck.
+    pub python: String,
+
+    /// The jsondocck executable.
+    pub jsondocck_path: Option<String>,
+
+    /// The jsondoclint executable.
+    pub jsondoclint_path: Option<String>,
 
     /// The LLVM `FileCheck` binary path.
     pub llvm_filecheck: Option<PathBuf>,
@@ -218,8 +232,12 @@ pub struct Config {
     /// The name of the stage being built (stage1, etc)
     pub stage_id: String,
 
-    /// The test mode, compile-fail, run-fail, ui
+    /// The test mode, e.g. ui or debuginfo.
     pub mode: Mode,
+
+    /// The test suite (essentially which directory is running, but without the
+    /// directory prefix such as src/test)
+    pub suite: String,
 
     /// The debugger to use in debuginfo mode. Unset otherwise.
     pub debugger: Option<Debugger>,
@@ -227,14 +245,21 @@ pub struct Config {
     /// Run ignored tests
     pub run_ignored: bool,
 
-    /// Only run tests that match this filter
-    pub filter: Option<String>,
+    /// Only run tests that match these filters
+    pub filters: Vec<String>,
+
+    /// Skip tests tests matching these substrings. Corresponds to
+    /// `test::TestOpts::skip`. `filter_exact` does not apply to these flags.
+    pub skip: Vec<String>,
 
     /// Exactly match the filter, rather than a substring
     pub filter_exact: bool,
 
     /// Force the pass mode of a check/build/run-pass test to this mode.
     pub force_pass_mode: Option<PassMode>,
+
+    /// Explicitly enable or disable running.
+    pub run: Option<bool>,
 
     /// Write out a parseable log of tests that were run
     pub logfile: Option<PathBuf>,
@@ -244,10 +269,14 @@ pub struct Config {
     pub runtool: Option<String>,
 
     /// Flags to pass to the compiler when building for the host
-    pub host_rustcflags: Option<String>,
+    pub host_rustcflags: Vec<String>,
 
     /// Flags to pass to the compiler when building for the target
-    pub target_rustcflags: Option<String>,
+    pub target_rustcflags: Vec<String>,
+
+    /// Whether tests should be optimized by default. Individual test-suites and test files may
+    /// override this setting.
+    pub optimize_tests: bool,
 
     /// Target system to be tested
     pub target: String,
@@ -257,6 +286,9 @@ pub struct Config {
 
     /// Path to / name of the Microsoft Console Debugger (CDB) executable
     pub cdb: Option<OsString>,
+
+    /// Version of CDB
+    pub cdb_version: Option<[u16; 4]>,
 
     /// Path to / name of the GDB executable
     pub gdb: Option<String>,
@@ -268,13 +300,13 @@ pub struct Config {
     pub gdb_native_rust: bool,
 
     /// Version of LLDB
-    pub lldb_version: Option<String>,
+    pub lldb_version: Option<u32>,
 
     /// Whether LLDB has native rust support
     pub lldb_native_rust: bool,
 
     /// Version of LLVM
-    pub llvm_version: Option<String>,
+    pub llvm_version: Option<u32>,
 
     /// Is LLVM a system LLVM
     pub system_llvm: bool,
@@ -314,17 +346,184 @@ pub struct Config {
     /// created in `/<build_base>/rustfix_missing_coverage.txt`
     pub rustfix_coverage: bool,
 
+    /// whether to run `tidy` when a rustdoc test fails
+    pub has_tidy: bool,
+
+    /// The current Rust channel
+    pub channel: String,
+
+    /// The default Rust edition
+    pub edition: Option<String>,
+
     // Configuration for various run-make tests frobbing things like C compilers
     // or querying about various LLVM component information.
     pub cc: String,
     pub cxx: String,
     pub cflags: String,
+    pub cxxflags: String,
     pub ar: String,
     pub linker: Option<String>,
     pub llvm_components: String,
 
     /// Path to a NodeJS executable. Used for JS doctests, emscripten and WASM tests
     pub nodejs: Option<String>,
+    /// Path to a npm executable. Used for rustdoc GUI tests
+    pub npm: Option<String>,
+
+    /// Whether to rerun tests even if the inputs are unchanged.
+    pub force_rerun: bool,
+
+    pub target_cfg: LazyCell<TargetCfg>,
+}
+
+impl Config {
+    pub fn run_enabled(&self) -> bool {
+        self.run.unwrap_or_else(|| {
+            // Auto-detect whether to run based on the platform.
+            !self.target.ends_with("-fuchsia")
+        })
+    }
+
+    fn target_cfg(&self) -> &TargetCfg {
+        self.target_cfg
+            .borrow_with(|| TargetCfg::new(&self.rustc_path, &self.target, &self.target_rustcflags))
+    }
+
+    pub fn matches_arch(&self, arch: &str) -> bool {
+        self.target_cfg().arch == arch ||
+        // Shorthand for convenience. The arch for
+        // asmjs-unknown-emscripten is actually wasm32.
+        (arch == "asmjs" && self.target.starts_with("asmjs")) ||
+        // Matching all the thumb variants as one can be convenient.
+        // (thumbv6m, thumbv7em, thumbv7m, etc.)
+        (arch == "thumb" && self.target.starts_with("thumb"))
+    }
+
+    pub fn matches_os(&self, os: &str) -> bool {
+        self.target_cfg().os == os
+    }
+
+    pub fn matches_env(&self, env: &str) -> bool {
+        self.target_cfg().env == env
+    }
+
+    pub fn matches_abi(&self, abi: &str) -> bool {
+        self.target_cfg().abi == abi
+    }
+
+    pub fn matches_family(&self, family: &str) -> bool {
+        self.target_cfg().families.iter().any(|f| f == family)
+    }
+
+    pub fn is_big_endian(&self) -> bool {
+        self.target_cfg().endian == Endian::Big
+    }
+
+    pub fn get_pointer_width(&self) -> u32 {
+        *&self.target_cfg().pointer_width
+    }
+
+    pub fn can_unwind(&self) -> bool {
+        self.target_cfg().panic == PanicStrategy::Unwind
+    }
+
+    pub fn has_asm_support(&self) -> bool {
+        static ASM_SUPPORTED_ARCHS: &[&str] = &[
+            "x86", "x86_64", "arm", "aarch64", "riscv32",
+            "riscv64",
+            // These targets require an additional asm_experimental_arch feature.
+            // "nvptx64", "hexagon", "mips", "mips64", "spirv", "wasm32",
+        ];
+        ASM_SUPPORTED_ARCHS.contains(&self.target_cfg().arch.as_str())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TargetCfg {
+    arch: String,
+    os: String,
+    env: String,
+    abi: String,
+    families: Vec<String>,
+    pointer_width: u32,
+    endian: Endian,
+    panic: PanicStrategy,
+}
+
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum Endian {
+    Little,
+    Big,
+}
+
+impl TargetCfg {
+    fn new(rustc_path: &Path, target: &str, target_rustcflags: &Vec<String>) -> TargetCfg {
+        let output = match Command::new(rustc_path)
+            .arg("--print=cfg")
+            .arg("--target")
+            .arg(target)
+            .args(target_rustcflags)
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => panic!("error: failed to get cfg info from {:?}: {e}", rustc_path),
+        };
+        if !output.status.success() {
+            panic!(
+                "error: failed to get cfg info from {:?}\n--- stdout\n{}\n--- stderr\n{}",
+                rustc_path,
+                String::from_utf8(output.stdout).unwrap(),
+                String::from_utf8(output.stderr).unwrap(),
+            );
+        }
+        let print_cfg = String::from_utf8(output.stdout).unwrap();
+        let mut arch = None;
+        let mut os = None;
+        let mut env = None;
+        let mut abi = None;
+        let mut families = Vec::new();
+        let mut pointer_width = None;
+        let mut endian = None;
+        let mut panic = None;
+        for line in print_cfg.lines() {
+            if let Some((name, value)) = line.split_once('=') {
+                let value = value.trim_matches('"');
+                match name {
+                    "target_arch" => arch = Some(value),
+                    "target_os" => os = Some(value),
+                    "target_env" => env = Some(value),
+                    "target_abi" => abi = Some(value),
+                    "target_family" => families.push(value.to_string()),
+                    "target_pointer_width" => pointer_width = Some(value.parse().unwrap()),
+                    "target_endian" => {
+                        endian = Some(match value {
+                            "little" => Endian::Little,
+                            "big" => Endian::Big,
+                            s => panic!("unexpected {s}"),
+                        })
+                    }
+                    "panic" => {
+                        panic = match value {
+                            "abort" => Some(PanicStrategy::Abort),
+                            "unwind" => Some(PanicStrategy::Unwind),
+                            s => panic!("unexpected {s}"),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        TargetCfg {
+            arch: arch.unwrap().to_string(),
+            os: os.unwrap().to_string(),
+            env: env.unwrap().to_string(),
+            abi: abi.unwrap().to_string(),
+            families,
+            pointer_width: pointer_width.unwrap(),
+            endian: endian.unwrap(),
+            panic: panic.unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -355,12 +554,24 @@ pub fn expected_output_path(
     testpaths.file.with_extension(extension)
 }
 
-pub const UI_EXTENSIONS: &[&str] = &[UI_STDERR, UI_STDOUT, UI_FIXED, UI_RUN_STDERR, UI_RUN_STDOUT];
+pub const UI_EXTENSIONS: &[&str] = &[
+    UI_STDERR,
+    UI_STDOUT,
+    UI_FIXED,
+    UI_RUN_STDERR,
+    UI_RUN_STDOUT,
+    UI_STDERR_64,
+    UI_STDERR_32,
+    UI_STDERR_16,
+];
 pub const UI_STDERR: &str = "stderr";
 pub const UI_STDOUT: &str = "stdout";
 pub const UI_FIXED: &str = "fixed";
 pub const UI_RUN_STDERR: &str = "run.stderr";
 pub const UI_RUN_STDOUT: &str = "run.stdout";
+pub const UI_STDERR_64: &str = "64bit.stderr";
+pub const UI_STDERR_32: &str = "32bit.stderr";
+pub const UI_STDERR_16: &str = "16bit.stderr";
 
 /// Absolute path to the directory where all output for all tests in the given
 /// `relative_dir` group should reside. Example:
@@ -397,4 +608,10 @@ pub fn output_base_dir(config: &Config, testpaths: &TestPaths, revision: Option<
 ///   /path/to/build/host-triple/test/ui/relative/testname.revision.mode/testname
 pub fn output_base_name(config: &Config, testpaths: &TestPaths, revision: Option<&str>) -> PathBuf {
     output_base_dir(config, testpaths, revision).join(testpaths.file.file_stem().unwrap())
+}
+
+/// Absolute path to the directory to use for incremental compilation. Example:
+///   /path/to/build/host-triple/test/ui/relative/testname.mode/testname.inc
+pub fn incremental_dir(config: &Config, testpaths: &TestPaths) -> PathBuf {
+    output_base_name(config, testpaths, None).with_extension("inc")
 }

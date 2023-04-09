@@ -1,4 +1,5 @@
 #![warn(clippy::items_after_statements)]
+#![allow(clippy::uninlined_format_args)]
 
 fn ok() {
     fn foo() {
@@ -28,9 +29,25 @@ fn mac() {
     // do not lint this, because it needs to be after `a`
     macro_rules! b {
         () => {{
-            a = 6
+            a = 6;
+            fn say_something() {
+                println!("something");
+            }
         }};
     }
     b!();
     println!("{}", a);
+}
+
+fn semicolon() {
+    struct S {
+        a: u32,
+    };
+    impl S {
+        fn new(a: u32) -> Self {
+            Self { a }
+        }
+    }
+
+    let _ = S::new(3);
 }

@@ -9,6 +9,9 @@ RUN /tmp/build-netbsd-toolchain.sh
 COPY scripts/sccache.sh /scripts/
 RUN sh /scripts/sccache.sh
 
+COPY scripts/cmake.sh /scripts/
+RUN /scripts/cmake.sh
+
 ENV PATH=$PATH:/x-tools/x86_64-unknown-netbsd/bin
 
 ENV \
@@ -18,5 +21,6 @@ ENV \
 
 ENV HOSTS=x86_64-unknown-netbsd
 
-ENV RUST_CONFIGURE_ARGS --enable-extended --disable-docs
+ENV RUST_CONFIGURE_ARGS --enable-extended --disable-docs \
+    --set llvm.allow-old-toolchain
 ENV SCRIPT python3 ../x.py dist --host $HOSTS --target $HOSTS

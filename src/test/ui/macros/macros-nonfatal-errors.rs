@@ -3,11 +3,96 @@
 // test that errors in a (selection) of macros don't kill compilation
 // immediately, so that we get more errors listed at a time.
 
-#![feature(asm, llvm_asm)]
 #![feature(trace_macros, concat_idents)]
+#![feature(stmt_expr_attributes)]
 
-#[derive(Default)] //~ ERROR
-enum OrDeriveThis {}
+use std::arch::asm;
+
+#[derive(Default)]
+struct DefaultInnerAttrStruct {
+    #[default] //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+    foo: (),
+}
+
+#[derive(Default)]
+struct DefaultInnerAttrTupleStruct(#[default] ());
+//~^ ERROR the `#[default]` attribute may only be used on unit enum variants
+
+#[derive(Default)]
+#[default] //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+struct DefaultOuterAttrStruct {}
+
+#[derive(Default)]
+#[default] //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+enum DefaultOuterAttrEnum {
+    #[default]
+    Foo,
+}
+
+#[rustfmt::skip] // needs some work to handle this case
+#[repr(u8)]
+#[derive(Default)]
+enum AttrOnInnerExpression {
+    Foo = #[default] 0, //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+    Bar([u8; #[default] 1]), //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+    #[default]
+    Baz,
+}
+
+#[derive(Default)] //~ ERROR no default declared
+enum NoDeclaredDefault {
+    Foo,
+    Bar,
+}
+
+#[derive(Default)] //~ ERROR multiple declared defaults
+enum MultipleDefaults {
+    #[default]
+    Foo,
+    #[default]
+    Bar,
+    #[default]
+    Baz,
+}
+
+#[derive(Default)]
+enum ExtraDeriveTokens {
+    #[default = 1] //~ ERROR `#[default]` attribute does not accept a value
+    Foo,
+}
+
+#[derive(Default)]
+enum TwoDefaultAttrs {
+    #[default]
+    #[default]
+    Foo, //~ERROR multiple `#[default]` attributes
+    Bar,
+}
+
+#[derive(Default)]
+enum ManyDefaultAttrs {
+    #[default]
+    #[default]
+    #[default]
+    #[default]
+    Foo, //~ERROR multiple `#[default]` attributes
+    Bar,
+}
+
+#[derive(Default)]
+enum DefaultHasFields {
+    #[default]
+    Foo {}, //~ ERROR the `#[default]` attribute may only be used on unit enum variants
+    Bar,
+}
+
+#[derive(Default)]
+enum NonExhaustiveDefault {
+    #[default]
+    #[non_exhaustive]
+    Foo, //~ ERROR default variant must be exhaustive
+    Bar,
+}
 
 fn main() {
     asm!(invalid); //~ ERROR
@@ -31,3 +116,24 @@ fn main() {
 
     trace_macros!(invalid); //~ ERROR
 }
+
+/// Check that `#[derive(Default)]` does use a `T : Default` bound when the
+/// `#[default]` variant is `#[non_exhaustive]` (should this end up allowed).
+const _: () = {
+    #[derive(Default)]
+    enum NonExhaustiveDefaultGeneric<T> {
+        #[default]
+        #[non_exhaustive]
+        Foo, //~ ERROR default variant must be exhaustive
+        Bar(T),
+    }
+
+    fn assert_impls_default<T: Default>() {}
+
+    enum NotDefault {}
+
+    // Note: the `derive(Default)` currently bails early enough for trait-checking
+    // not to happen. Should it bail late enough, or even pass, make sure to
+    // assert that the following line fails.
+    let _ = assert_impls_default::<NonExhaustiveDefaultGeneric<NotDefault>>;
+};

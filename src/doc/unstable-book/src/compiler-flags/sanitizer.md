@@ -1,18 +1,33 @@
 # `sanitizer`
 
-The tracking issue for this feature is: [#39699](https://github.com/rust-lang/rust/issues/39699).
+The tracking issues for this feature are:
+
+* [#39699](https://github.com/rust-lang/rust/issues/39699).
+* [#89653](https://github.com/rust-lang/rust/issues/89653).
 
 ------------------------
 
 This feature allows for use of one of following sanitizers:
 
-* [AddressSanitizer][clang-asan] a fast memory error detector.
-* [LeakSanitizer][clang-lsan] a run-time memory leak detector.
-* [MemorySanitizer][clang-msan] a detector of uninitialized reads.
-* [ThreadSanitizer][clang-tsan] a fast data race detector.
+* [AddressSanitizer](#addresssanitizer) a fast memory error detector.
+* [ControlFlowIntegrity](#controlflowintegrity) LLVM Control Flow Integrity (CFI) provides
+  forward-edge control flow protection.
+* [HWAddressSanitizer](#hwaddresssanitizer) a memory error detector similar to
+  AddressSanitizer, but based on partial hardware assistance.
+* [LeakSanitizer](#leaksanitizer) a run-time memory leak detector.
+* [MemorySanitizer](#memorysanitizer) a detector of uninitialized reads.
+* [MemTagSanitizer](#memtagsanitizer) fast memory error detector based on
+  Armv8.5-A Memory Tagging Extension.
+* [ShadowCallStack](#shadowcallstack) provides backward-edge control flow protection.
+* [ThreadSanitizer](#threadsanitizer) a fast data race detector.
 
-To enable a sanitizer compile with `-Zsanitizer=address`, `-Zsanitizer=leak`,
-`-Zsanitizer=memory` or `-Zsanitizer=thread`.
+To enable a sanitizer compile with `-Zsanitizer=address`,`-Zsanitizer=cfi`,
+`-Zsanitizer=hwaddress`, `-Zsanitizer=leak`, `-Zsanitizer=memory`,
+`-Zsanitizer=memtag`, `-Zsanitizer=shadow-call-stack`, or `-Zsanitizer=thread`.
+You might also need the `--target` and `build-std` flags. Example:
+```shell
+$ RUSTFLAGS=-Zsanitizer=address cargo build -Zbuild-std --target x86_64-unknown-linux-gnu
+```
 
 # AddressSanitizer
 
@@ -26,14 +41,24 @@ of bugs:
 * Double-free, invalid free
 * Memory leaks
 
+The memory leak detection is enabled by default on Linux, and can be enabled
+with runtime flag `ASAN_OPTIONS=detect_leaks=1` on macOS.
+
 AddressSanitizer is supported on the following targets:
 
+* `aarch64-apple-darwin`
+* `aarch64-fuchsia`
+* `aarch64-unknown-linux-gnu`
 * `x86_64-apple-darwin`
+* `x86_64-fuchsia`
+* `x86_64-unknown-freebsd`
 * `x86_64-unknown-linux-gnu`
 
 AddressSanitizer works with non-instrumented code although it will impede its
 ability to detect some bugs.  It is not expected to produce false positive
 reports.
+
+See the [Clang AddressSanitizer documentation][clang-asan] for more details.
 
 ## Examples
 
@@ -166,21 +191,352 @@ Shadow byte legend (one shadow byte represents 8 application bytes):
 ==39249==ABORTING
 ```
 
+# ControlFlowIntegrity
+
+The LLVM Control Flow Integrity (CFI) support in the Rust compiler initially
+provides forward-edge control flow protection for Rust-compiled code only by
+aggregating function pointers in groups identified by their return and parameter
+types.
+
+Forward-edge control flow protection for C or C++ and Rust -compiled code "mixed
+binaries" (i.e., for when C or C++ and Rust -compiled code share the same
+virtual address space) will be provided in later work by defining and using
+compatible type identifiers (see Type metadata in the design document in the
+tracking issue [#89653](https://github.com/rust-lang/rust/issues/89653)).
+
+LLVM CFI can be enabled with -Zsanitizer=cfi and requires LTO (i.e., -Clto).
+
+See the [Clang ControlFlowIntegrity documentation][clang-cfi] for more details.
+
+## Example
+
+```text
+#![feature(naked_functions)]
+
+use std::arch::asm;
+use std::mem;
+
+fn add_one(x: i32) -> i32 {
+    x + 1
+}
+
+#[naked]
+pub extern "C" fn add_two(x: i32) {
+    // x + 2 preceded by a landing pad/nop block
+    unsafe {
+        asm!(
+            "
+             nop
+             nop
+             nop
+             nop
+             nop
+             nop
+             nop
+             nop
+             nop
+             lea rax, [rdi+2]
+             ret
+        ",
+            options(noreturn)
+        );
+    }
+}
+
+fn do_twice(f: fn(i32) -> i32, arg: i32) -> i32 {
+    f(arg) + f(arg)
+}
+
+fn main() {
+    let answer = do_twice(add_one, 5);
+
+    println!("The answer is: {}", answer);
+
+    println!("With CFI enabled, you should not see the next answer");
+    let f: fn(i32) -> i32 = unsafe {
+        // Offsets 0-8 make it land in the landing pad/nop block, and offsets 1-8 are
+        // invalid branch/call destinations (i.e., within the body of the function).
+        mem::transmute::<*const u8, fn(i32) -> i32>((add_two as *const u8).offset(5))
+    };
+    let next_answer = do_twice(f, 5);
+
+    println!("The next answer is: {}", next_answer);
+}
+```
+Fig. 1. Modified example from the [Advanced Functions and
+Closures][rust-book-ch19-05] chapter of the [The Rust Programming
+Language][rust-book] book.
+
+```shell
+$ cargo run --release
+   Compiling rust-cfi-1 v0.1.0 (/home/rcvalle/rust-cfi-1)
+    Finished release [optimized] target(s) in 0.76s
+     Running `target/release/rust-cfi-1`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+The next answer is: 14
+$
+```
+Fig. 2. Build and execution of the modified example with LLVM CFI disabled.
+
+```shell
+$ RUSTFLAGS="-Zsanitizer=cfi -Cembed-bitcode=yes -Clto" cargo run --release
+   Compiling rust-cfi-1 v0.1.0 (/home/rcvalle/rust-cfi-1)
+    Finished release [optimized] target(s) in 3.39s
+     Running `target/release/rust-cfi-1`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+Illegal instruction
+$
+```
+Fig. 3. Build and execution of the modified example with LLVM CFI enabled.
+
+When LLVM CFI is enabled, if there are any attempts to change/hijack control
+flow using an indirect branch/call to an invalid destination, the execution is
+terminated (see Fig. 3).
+
+```rust
+use std::mem;
+
+fn add_one(x: i32) -> i32 {
+    x + 1
+}
+
+fn add_two(x: i32, _y: i32) -> i32 {
+    x + 2
+}
+
+fn do_twice(f: fn(i32) -> i32, arg: i32) -> i32 {
+    f(arg) + f(arg)
+}
+
+fn main() {
+    let answer = do_twice(add_one, 5);
+
+    println!("The answer is: {}", answer);
+
+    println!("With CFI enabled, you should not see the next answer");
+    let f: fn(i32) -> i32 =
+        unsafe { mem::transmute::<*const u8, fn(i32) -> i32>(add_two as *const u8) };
+    let next_answer = do_twice(f, 5);
+
+    println!("The next answer is: {}", next_answer);
+}
+```
+Fig. 4. Another modified example from the [Advanced Functions and
+Closures][rust-book-ch19-05] chapter of the [The Rust Programming
+Language][rust-book] book.
+
+```shell
+$ cargo run --release
+   Compiling rust-cfi-2 v0.1.0 (/home/rcvalle/rust-cfi-2)
+    Finished release [optimized] target(s) in 0.76s
+     Running `target/release/rust-cfi-2`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+The next answer is: 14
+$
+```
+Fig. 5. Build and execution of the modified example with LLVM CFI disabled.
+
+```shell
+$ RUSTFLAGS="-Zsanitizer=cfi -Cembed-bitcode=yes -Clto" cargo run --release
+   Compiling rust-cfi-2 v0.1.0 (/home/rcvalle/rust-cfi-2)
+    Finished release [optimized] target(s) in 3.38s
+     Running `target/release/rust-cfi-2`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+Illegal instruction
+$
+```
+Fig. 6. Build and execution of the modified example with LLVM CFI enabled.
+
+When LLVM CFI is enabled, if there are any attempts to change/hijack control
+flow using an indirect branch/call to a function with different number of
+parameters than arguments intended/passed in the call/branch site, the
+execution is also terminated (see Fig. 6).
+
+```rust
+use std::mem;
+
+fn add_one(x: i32) -> i32 {
+    x + 1
+}
+
+fn add_two(x: i64) -> i64 {
+    x + 2
+}
+
+fn do_twice(f: fn(i32) -> i32, arg: i32) -> i32 {
+    f(arg) + f(arg)
+}
+
+fn main() {
+    let answer = do_twice(add_one, 5);
+
+    println!("The answer is: {}", answer);
+
+    println!("With CFI enabled, you should not see the next answer");
+    let f: fn(i32) -> i32 =
+        unsafe { mem::transmute::<*const u8, fn(i32) -> i32>(add_two as *const u8) };
+    let next_answer = do_twice(f, 5);
+
+    println!("The next answer is: {}", next_answer);
+}
+```
+Fig. 7. Another modified example from the [Advanced Functions and
+Closures][rust-book-ch19-05] chapter of the [The Rust Programming
+Language][rust-book] book.
+
+```shell
+ cargo run --release
+   Compiling rust-cfi-3 v0.1.0 (/home/rcvalle/rust-cfi-3)
+    Finished release [optimized] target(s) in 0.74s
+     Running `target/release/rust-cfi-3`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+The next answer is: 14
+$
+```
+Fig. 8. Build and execution of the modified example with LLVM CFI disabled.
+
+```shell
+$ RUSTFLAGS="-Zsanitizer=cfi -Cembed-bitcode=yes -Clto" cargo run --release
+   Compiling rust-cfi-3 v0.1.0 (/home/rcvalle/rust-cfi-3)
+    Finished release [optimized] target(s) in 3.40s
+     Running `target/release/rust-cfi-3`
+The answer is: 12
+With CFI enabled, you should not see the next answer
+Illegal instruction
+$
+```
+Fig. 9. Build and execution of the modified example with LLVM CFI enabled.
+
+When LLVM CFI is enabled, if there are any attempts to change/hijack control
+flow using an indirect branch/call to a function with different return and
+parameter types than the return type expected and arguments intended/passed in
+the call/branch site, the execution is also terminated (see Fig. 9).
+
+[rust-book-ch19-05]: https://doc.rust-lang.org/book/ch19-05-advanced-functions-and-closures.html
+[rust-book]: https://doc.rust-lang.org/book/title-page.html
+
+# HWAddressSanitizer
+
+HWAddressSanitizer is a newer variant of AddressSanitizer that consumes much
+less memory.
+
+HWAddressSanitizer is supported on the following targets:
+
+* `aarch64-linux-android`
+* `aarch64-unknown-linux-gnu`
+
+HWAddressSanitizer requires `tagged-globals` target feature to instrument
+globals. To enable this target feature compile with `-C
+target-feature=+tagged-globals`
+
+See the [Clang HWAddressSanitizer documentation][clang-hwasan] for more details.
+
+## Example
+
+Heap buffer overflow:
+
+```rust
+fn main() {
+    let xs = vec![0, 1, 2, 3];
+    let _y = unsafe { *xs.as_ptr().offset(4) };
+}
+```
+
+```shell
+$ rustc main.rs -Zsanitizer=hwaddress -C target-feature=+tagged-globals -C
+linker=aarch64-linux-gnu-gcc -C link-arg=-fuse-ld=lld --target
+aarch64-unknown-linux-gnu
+```
+
+```shell
+$ ./main
+==241==ERROR: HWAddressSanitizer: tag-mismatch on address 0xefdeffff0050 at pc 0xaaaae0ae4a98
+READ of size 4 at 0xefdeffff0050 tags: 2c/00 (ptr/mem) in thread T0
+    #0 0xaaaae0ae4a94  (/.../main+0x54a94)
+    ...
+
+[0xefdeffff0040,0xefdeffff0060) is a small allocated heap chunk; size: 32 offset: 16
+0xefdeffff0050 is located 0 bytes to the right of 16-byte region [0xefdeffff0040,0xefdeffff0050)
+allocated here:
+    #0 0xaaaae0acb80c  (/.../main+0x3b80c)
+    ...
+
+Thread: T0 0xeffe00002000 stack: [0xffffc28ad000,0xffffc30ad000) sz: 8388608 tls: [0xffffaa10a020,0xffffaa10a7d0)
+Memory tags around the buggy address (one tag corresponds to 16 bytes):
+  0xfefcefffef80: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffef90: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffefa0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffefb0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffefc0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffefd0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffefe0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefcefffeff0: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+=>0xfefceffff000: d7  d7  05  00  2c [00] 00  00  00  00  00  00  00  00  00  00
+  0xfefceffff010: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff020: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff030: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff040: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff050: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff060: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff070: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+  0xfefceffff080: 00  00  00  00  00  00  00  00  00  00  00  00  00  00  00  00
+Tags for short granules around the buggy address (one tag corresponds to 16 bytes):
+  0xfefcefffeff0: ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..
+=>0xfefceffff000: ..  ..  8c  ..  .. [..] ..  ..  ..  ..  ..  ..  ..  ..  ..  ..
+  0xfefceffff010: ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..  ..
+See https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html#short-granules for a description of short granule tags
+Registers where the failure occurred (pc 0xaaaae0ae4a98):
+    x0  2c00efdeffff0050  x1  0000000000000004  x2  0000000000000004  x3  0000000000000000
+    x4  0000fffefc30ac37  x5  000000000000005d  x6  00000ffffc30ac37  x7  0000efff00000000
+    x8  2c00efdeffff0050  x9  0200efff00000000  x10 0000000000000000  x11 0200efff00000000
+    x12 0200effe00000310  x13 0200effe00000310  x14 0000000000000008  x15 5d00ffffc30ac360
+    x16 0000aaaae0ad062c  x17 0000000000000003  x18 0000000000000001  x19 0000ffffc30ac658
+    x20 4e00ffffc30ac6e0  x21 0000aaaae0ac5e10  x22 0000000000000000  x23 0000000000000000
+    x24 0000000000000000  x25 0000000000000000  x26 0000000000000000  x27 0000000000000000
+    x28 0000000000000000  x29 0000ffffc30ac5a0  x30 0000aaaae0ae4a98
+SUMMARY: HWAddressSanitizer: tag-mismatch (/.../main+0x54a94)
+```
+
+# LeakSanitizer
+
+LeakSanitizer is run-time memory leak detector.
+
+LeakSanitizer is supported on the following targets:
+
+* `aarch64-apple-darwin`
+* `aarch64-unknown-linux-gnu`
+* `x86_64-apple-darwin`
+* `x86_64-unknown-linux-gnu`
+
+See the [Clang LeakSanitizer documentation][clang-lsan] for more details.
+
 # MemorySanitizer
 
-MemorySanitizer is detector of uninitialized reads. It is only supported on the
-`x86_64-unknown-linux-gnu` target.
+MemorySanitizer is detector of uninitialized reads.
+
+MemorySanitizer is supported on the following targets:
+
+* `aarch64-unknown-linux-gnu`
+* `x86_64-unknown-freebsd`
+* `x86_64-unknown-linux-gnu`
 
 MemorySanitizer requires all program code to be instrumented. C/C++ dependencies
 need to be recompiled using Clang with `-fsanitize=memory` option. Failing to
 achieve that will result in false positive reports.
 
+See the [Clang MemorySanitizer documentation][clang-msan] for more details.
+
 ## Example
 
 Detecting the use of uninitialized memory. The `-Zbuild-std` flag rebuilds and
 instruments the standard library, and is strictly necessary for the correct
-operation of the tool. The `-Zsanitizer-track-origins` enables tracking of the
-origins of uninitialized memory:
+operation of the tool. The `-Zsanitizer-memory-track-origins` enables tracking
+of the origins of uninitialized memory:
 
 ```rust
 use std::mem::MaybeUninit;
@@ -196,10 +552,6 @@ fn main() {
 
 ```shell
 $ export \
-  CC=clang \
-  CXX=clang++ \
-  CFLAGS='-fsanitize=memory -fsanitize-memory-track-origins' \
-  CXXFLAGS='-fsanitize=memory -fsanitize-memory-track-origins' \
   RUSTFLAGS='-Zsanitizer=memory -Zsanitizer-memory-track-origins' \
   RUSTDOCFLAGS='-Zsanitizer=memory -Zsanitizer-memory-track-origins'
 $ cargo clean
@@ -215,12 +567,43 @@ $ cargo run -Zbuild-std --target x86_64-unknown-linux-gnu
     #0 0x560c04b2bc50 in memory::main::hd2333c1899d997f5 $CWD/src/main.rs:3
 ```
 
+# MemTagSanitizer
+
+MemTagSanitizer detects a similar class of errors as AddressSanitizer and HardwareAddressSanitizer, but with lower overhead suitable for use as hardening for production binaries.
+
+MemTagSanitizer is supported on the following targets:
+
+* `aarch64-linux-android`
+* `aarch64-unknown-linux-gnu`
+
+MemTagSanitizer requires hardware support and the `mte` target feature.
+To enable this target feature compile with `-C target-feature="+mte"`.
+
+See the [LLVM MemTagSanitizer documentation][llvm-memtag] for more details.
+
+# ShadowCallStack
+
+ShadowCallStack provides backward edge control flow protection by storing a function's return address in a separately allocated 'shadow call stack' and loading the return address from that shadow call stack.
+
+ShadowCallStack requires a platform ABI which reserves `x18` as the instrumentation makes use of this register.
+
+ShadowCallStack can be enabled with `-Zsanitizer=shadow-call-stack` option and is supported on the following targets:
+
+* `aarch64-linux-android`
+
+A runtime must be provided by the application or operating system.
+
+See the [Clang ShadowCallStack documentation][clang-scs] for more details.
+
 # ThreadSanitizer
 
 ThreadSanitizer is a data race detection tool. It is supported on the following
 targets:
 
+* `aarch64-apple-darwin`
+* `aarch64-unknown-linux-gnu`
 * `x86_64-apple-darwin`
+* `x86_64-unknown-freebsd`
 * `x86_64-unknown-linux-gnu`
 
 To work correctly ThreadSanitizer needs to be "aware" of all synchronization
@@ -232,6 +615,8 @@ can lead to false positive reports.
 
 ThreadSanitizer does not support atomic fences `std::sync::atomic::fence`,
 nor synchronization performed using inline assembly code.
+
+See the [Clang ThreadSanitizer documentation][clang-tsan] for more details.
 
 ## Example
 
@@ -298,11 +683,18 @@ Sanitizers produce symbolized stacktraces when llvm-symbolizer binary is in `PAT
 
 * [Sanitizers project page](https://github.com/google/sanitizers/wiki/)
 * [AddressSanitizer in Clang][clang-asan]
+* [ControlFlowIntegrity in Clang][clang-cfi]
+* [HWAddressSanitizer in Clang][clang-hwasan]
 * [LeakSanitizer in Clang][clang-lsan]
 * [MemorySanitizer in Clang][clang-msan]
+* [MemTagSanitizer in LLVM][llvm-memtag]
 * [ThreadSanitizer in Clang][clang-tsan]
 
 [clang-asan]: https://clang.llvm.org/docs/AddressSanitizer.html
+[clang-cfi]: https://clang.llvm.org/docs/ControlFlowIntegrity.html
+[clang-hwasan]: https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html
 [clang-lsan]: https://clang.llvm.org/docs/LeakSanitizer.html
 [clang-msan]: https://clang.llvm.org/docs/MemorySanitizer.html
+[clang-scs]: https://clang.llvm.org/docs/ShadowCallStack.html
 [clang-tsan]: https://clang.llvm.org/docs/ThreadSanitizer.html
+[llvm-memtag]: https://llvm.org/docs/MemTagSanitizer.html

@@ -4,6 +4,9 @@
 // compile-flags: -Z span-debug
 // run-pass
 
+#![no_std] // Don't load unnecessary hygiene information from std
+extern crate std;
+
 extern crate meta_macro;
 
 fn main() {

@@ -2,14 +2,13 @@
 //
 // check-pass
 
+use std::cmp::Ord;
 use std::collections::BTreeMap;
 use std::ops::Range;
-use std::cmp::Ord;
 
 macro_rules! valuetree {
     () => {
-        type ValueTree =
-            <Self::Strategy as $crate::Strategy>::Value;
+        type ValueTree = <Self::Strategy as $crate::Strategy>::Value;
     };
 }
 
@@ -40,7 +39,9 @@ macro_rules! product_type {
 macro_rules! default {
     ($type: ty, $val: expr) => {
         impl Default for $type {
-            fn default() -> Self { $val.into() }
+            fn default() -> Self {
+                $val.into()
+            }
         }
     };
 }
@@ -89,21 +90,17 @@ trait ValueTree {
 }
 
 trait Strategy {
-    type Value : ValueTree;
+    type Value: ValueTree;
 }
 
 #[derive(Clone)]
-struct VecStrategy<T : Strategy> {
+struct VecStrategy<T: Strategy> {
     element: T,
     size: Range<usize>,
 }
 
-fn vec<T : Strategy>(element: T, size: Range<usize>)
-                     -> VecStrategy<T> {
-    VecStrategy {
-        element: element,
-        size: size,
-    }
+fn vec<T: Strategy>(element: T, size: Range<usize>) -> VecStrategy<T> {
+    VecStrategy { element: element, size: size }
 }
 
 type ValueFor<S> = <<S as Strategy>::Value as ValueTree>::Value;
@@ -123,7 +120,6 @@ type StrategyType<'a, A> = <A as Arbitrary<'a>>::Strategy;
 struct SizeBounds(Range<usize>);
 default!(SizeBounds, 0..100);
 
-
 impl From<Range<usize>> for SizeBounds {
     fn from(high: Range<usize>) -> Self {
         unimplemented!()
@@ -136,24 +132,26 @@ impl From<SizeBounds> for Range<usize> {
     }
 }
 
-
-fn any_with<'a, A: Arbitrary<'a>>(args: A::Parameters)
-                                  -> StrategyType<'a, A> {
+fn any_with<'a, A: Arbitrary<'a>>(args: A::Parameters) -> StrategyType<'a, A> {
     unimplemented!()
 }
 
-impl<K: ValueTree, V: ValueTree> Strategy for (K, V) where
-    <K as ValueTree>::Value: Ord {
+impl<K: ValueTree, V: ValueTree> Strategy for (K, V)
+where
+    <K as ValueTree>::Value: Ord,
+{
     type Value = TupleValueTree<(K, V)>;
 }
 
-impl<K: ValueTree, V: ValueTree> ValueTree for TupleValueTree<(K, V)> where
-    <K as ValueTree>::Value: Ord {
+impl<K: ValueTree, V: ValueTree> ValueTree for TupleValueTree<(K, V)>
+where
+    <K as ValueTree>::Value: Ord,
+{
     type Value = BTreeMapValueTree<K, V>;
 }
 
 #[derive(Clone)]
-struct VecValueTree<T : ValueTree> {
+struct VecValueTree<T: ValueTree> {
     elements: Vec<T>,
 }
 
@@ -184,8 +182,8 @@ impl<'a, A, B> Arbitrary<'a> for BTreeMap<A, B>
 where
     A: Arbitrary<'static> + Ord,
     B: Arbitrary<'static>,
-StrategyFor<A>: 'static,
-StrategyFor<B>: 'static,
+    StrategyFor<A>: 'static,
+    StrategyFor<B>: 'static,
 {
     valuetree!();
     type Parameters = RangedParams2<A::Parameters, B::Parameters>;
@@ -207,10 +205,14 @@ mapfn! {
     }
 }
 
-fn btree_map<K : Strategy + 'static, V : Strategy + 'static>
-    (key: K, value: V, size: Range<usize>)
-     -> BTreeMapStrategy<K, V>
-where ValueFor<K> : Ord {
+fn btree_map<K: Strategy + 'static, V: Strategy + 'static>(
+    key: K,
+    value: V,
+    size: Range<usize>,
+) -> BTreeMapStrategy<K, V>
+where
+    ValueFor<K>: Ord,
+{
     unimplemented!()
 }
 
@@ -244,4 +246,4 @@ mod statics {
     }
 }
 
-fn main() { }
+fn main() {}

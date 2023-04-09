@@ -1,6 +1,3 @@
-#![allow(incomplete_features)]
-#![feature(generic_associated_types)]
-
 trait Shadow<'a> {
     type Bar<'a>;
     //~^ ERROR lifetime name `'a` shadows a lifetime name that is already in scope

@@ -1,53 +1,36 @@
-//! Checks for useless borrowed references.
-//!
-//! This lint is **warn** by default
-
-use crate::utils::{snippet_with_applicability, span_lint_and_then};
-use if_chain::if_chain;
+use clippy_utils::diagnostics::span_lint_and_then;
 use rustc_errors::Applicability;
 use rustc_hir::{BindingAnnotation, Mutability, Node, Pat, PatKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 
 declare_clippy_lint! {
-    /// **What it does:** Checks for useless borrowed references.
+    /// ### What it does
+    /// Checks for bindings that needlessly destructure a reference and borrow the inner
+    /// value with `&ref`.
     ///
-    /// **Why is this bad?** It is mostly useless and make the code look more
-    /// complex than it
-    /// actually is.
+    /// ### Why is this bad?
+    /// This pattern has no effect in almost all cases.
     ///
-    /// **Known problems:** It seems that the `&ref` pattern is sometimes useful.
-    /// For instance in the following snippet:
-    /// ```rust,ignore
-    /// enum Animal {
-    ///     Cat(u64),
-    ///     Dog(u64),
-    /// }
-    ///
-    /// fn foo(a: &Animal, b: &Animal) {
-    ///     match (a, b) {
-    ///         (&Animal::Cat(v), k) | (k, &Animal::Cat(v)) => (), // lifetime mismatch error
-    ///         (&Animal::Dog(ref c), &Animal::Dog(_)) => ()
-    ///     }
-    /// }
-    /// ```
-    /// There is a lifetime mismatch error for `k` (indeed a and b have distinct
-    /// lifetime).
-    /// This can be fixed by using the `&ref` pattern.
-    /// However, the code can also be fixed by much cleaner ways
-    ///
-    /// **Example:**
+    /// ### Example
     /// ```rust
     /// let mut v = Vec::<String>::new();
-    /// let _ = v.iter_mut().filter(|&ref a| a.is_empty());
+    /// v.iter_mut().filter(|&ref a| a.is_empty());
+    ///
+    /// if let &[ref first, ref second] = v.as_slice() {}
     /// ```
-    /// This closure takes a reference on something that has been matched as a
-    /// reference and
-    /// de-referenced.
-    /// As such, it could just be |a| a.is_empty()
+    ///
+    /// Use instead:
+    /// ```rust
+    /// let mut v = Vec::<String>::new();
+    /// v.iter_mut().filter(|a| a.is_empty());
+    ///
+    /// if let [first, second] = v.as_slice() {}
+    /// ```
+    #[clippy::version = "pre 1.29.0"]
     pub NEEDLESS_BORROWED_REFERENCE,
     complexity,
-    "taking a needless borrowed reference"
+    "destructuring a reference and borrowing the inner value"
 }
 
 declare_lint_pass!(NeedlessBorrowedRef => [NEEDLESS_BORROWED_REFERENCE]);
@@ -59,34 +42,83 @@ impl<'tcx> LateLintPass<'tcx> for NeedlessBorrowedRef {
             return;
         }
 
-        if_chain! {
-            // Only lint immutable refs, because `&mut ref T` may be useful.
-            if let PatKind::Ref(ref sub_pat, Mutability::Not) = pat.kind;
+        // Do not lint patterns that are part of an OR `|` pattern, the binding mode must match in all arms
+        for (_, node) in cx.tcx.hir().parent_iter(pat.hir_id) {
+            let Node::Pat(pat) = node else { break };
 
-            // Check sub_pat got a `ref` keyword (excluding `ref mut`).
-            if let PatKind::Binding(BindingAnnotation::Ref, .., spanned_name, _) = sub_pat.kind;
-            let parent_id = cx.tcx.hir().get_parent_node(pat.hir_id);
-            if let Some(parent_node) = cx.tcx.hir().find(parent_id);
-            then {
-                // do not recurse within patterns, as they may have other references
-                // XXXManishearth we can relax this constraint if we only check patterns
-                // with a single ref pattern inside them
-                if let Node::Pat(_) = parent_node {
-                    return;
-                }
-                let mut applicability = Applicability::MachineApplicable;
-                span_lint_and_then(cx, NEEDLESS_BORROWED_REFERENCE, pat.span,
-                                   "this pattern takes a reference on something that is being de-referenced",
-                                   |diag| {
-                                       let hint = snippet_with_applicability(cx, spanned_name.span, "..", &mut applicability).into_owned();
-                                       diag.span_suggestion(
-                                           pat.span,
-                                           "try removing the `&ref` part and just keep",
-                                           hint,
-                                           applicability,
-                                       );
-                                   });
+            if matches!(pat.kind, PatKind::Or(_)) {
+                return;
             }
+        }
+
+        // Only lint immutable refs, because `&mut ref T` may be useful.
+        let PatKind::Ref(sub_pat, Mutability::Not) = pat.kind else { return };
+
+        match sub_pat.kind {
+            // Check sub_pat got a `ref` keyword (excluding `ref mut`).
+            PatKind::Binding(BindingAnnotation::REF, _, ident, None) => {
+                span_lint_and_then(
+                    cx,
+                    NEEDLESS_BORROWED_REFERENCE,
+                    pat.span,
+                    "this pattern takes a reference on something that is being dereferenced",
+                    |diag| {
+                        // `&ref ident`
+                        //  ^^^^^
+                        let span = pat.span.until(ident.span);
+                        diag.span_suggestion_verbose(
+                            span,
+                            "try removing the `&ref` part",
+                            String::new(),
+                            Applicability::MachineApplicable,
+                        );
+                    },
+                );
+            },
+            // Slices where each element is `ref`: `&[ref a, ref b, ..., ref z]`
+            PatKind::Slice(
+                before,
+                None
+                | Some(Pat {
+                    kind: PatKind::Wild, ..
+                }),
+                after,
+            ) => {
+                let mut suggestions = Vec::new();
+
+                for element_pat in itertools::chain(before, after) {
+                    if let PatKind::Binding(BindingAnnotation::REF, _, ident, None) = element_pat.kind {
+                        // `&[..., ref ident, ...]`
+                        //         ^^^^
+                        let span = element_pat.span.until(ident.span);
+                        suggestions.push((span, String::new()));
+                    } else {
+                        return;
+                    }
+                }
+
+                if !suggestions.is_empty() {
+                    span_lint_and_then(
+                        cx,
+                        NEEDLESS_BORROWED_REFERENCE,
+                        pat.span,
+                        "dereferencing a slice pattern where every element takes a reference",
+                        |diag| {
+                            // `&[...]`
+                            //  ^
+                            let span = pat.span.until(sub_pat.span);
+                            suggestions.push((span, String::new()));
+
+                            diag.multipart_suggestion(
+                                "try removing the `&` and `ref` parts",
+                                suggestions,
+                                Applicability::MachineApplicable,
+                            );
+                        },
+                    );
+                }
+            },
+            _ => {},
         }
     }
 }

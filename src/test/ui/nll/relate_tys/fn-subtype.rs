@@ -2,9 +2,7 @@
 //
 // compile-flags:-Zno-leak-check
 
-#![feature(nll)]
-
 fn main() {
     let x: fn(&'static ()) = |_| {};
-    let y: for<'a> fn(&'a ()) = x; //~ ERROR higher-ranked subtype error
+    let y: for<'a> fn(&'a ()) = x; //~ ERROR mismatched types [E0308]
 }

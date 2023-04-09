@@ -1,5 +1,6 @@
-#![feature(const_generics)]
-#![allow(incomplete_features)]
+// revisions: full min
+#![cfg_attr(full, feature(adt_const_params))]
+#![cfg_attr(full, allow(incomplete_features))]
 
 use std::ffi::{CStr, CString};
 
