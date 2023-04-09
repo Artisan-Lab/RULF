@@ -51,10 +51,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         //同时提取impl块中的内容，存入api_dependency_graph
         let mut full_name_map = FullNameMap::new();
         impl_util::extract_impls_from_cache(&mut full_name_map, &mut api_dependency_graph);
-        println!("==== full name map ====");
-        println!("len: {:?}", full_name_map.map.len());
-        println!("{:?}", full_name_map);
-        println!("==== full name map end ====");
+
 
         Ok((
             FuzzTargetRenderer {
@@ -74,7 +71,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Renders a single non-module item. This means no recursive sub-item rendering is required.
     fn item(&mut self, item: clean::Item) -> Result<(), Error> {
-        println!("==== item ====");
+        //println!("==== item ====");
         let mut debug_str = String::new();
         debug_str.push_str("\nname: ");
         if let Some(name) = item.name {
@@ -82,10 +79,10 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         }
         debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
         debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-        println!("{}", debug_str);
+        //println!("{}", debug_str);
         let full_name: String = join_with_double_colon(&self.current) + item.name.unwrap().as_str();
         if let ItemKind::FunctionItem(ref func) = *item.kind {
-            println!("func = {:?}", func);
+            //println!("func = {:?}", func);
             let decl = func.decl.clone();
             let clean::FnDecl { inputs, output, .. } = decl;
             let generics = func.generics.clone();
@@ -111,7 +108,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Renders a module (should not handle recursing into children).
     fn mod_item_in(&mut self, item: &clean::Item) -> Result<(), Error> {
-        println!("==== mod_item_in ====");
+        //println!("==== mod_item_in ====");
         let mut debug_str = String::new();
         debug_str.push_str("\nname: ");
         if let Some(name) = item.name {
@@ -119,7 +116,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         }
         debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
         debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-        println!("{}", debug_str);
+        //println!("{}", debug_str);
         self.current.push(item.name.unwrap());
         self.api_dependency_graph
             .borrow_mut()
@@ -129,16 +126,16 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Runs after recursively rendering all sub-items of a module.
     fn mod_item_out(&mut self) -> Result<(), Error> {
-        println!("==== mod_item_out ====");
+        //println!("==== mod_item_out ====");
         self.current.pop();
         Ok(())
     }
 
     /// Post processing hook for cleanup and dumping output to files.
     fn after_krate(&mut self) -> Result<(), Error> {
-        println!("==== run after krate ====");
+        //println!("==== run after krate ====");
         let mut api_dependency_graph = self.api_dependency_graph.borrow_mut();
-        println!("ModVisibility: {:?}", api_dependency_graph.mod_visibility);
+        //println!("ModVisibility: {:?}", api_dependency_graph.mod_visibility);
 
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
@@ -158,13 +155,13 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         //api_dependency_graph._print_generated_test_functions();
         // print some information
         use crate::fuzz_target::print_message;
-        println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
-        print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, true);
-        println!(
+        //println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
+        //print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, true);
+        /* println!(
             "total generic functions in crate : {:?}",
             api_dependency_graph.generic_functions.len()
-        );
-        print_message::_print_generic_functions(&api_dependency_graph);
+        ); */
+        //print_message::_print_generic_functions(&api_dependency_graph);
         //print_message::_print_pretty_functions(&api_dependency_graph, true);
         //print_message::_print_generated_afl_file(&api_dependency_graph);
 
