@@ -13,3 +13,5 @@ mod mod_visibility;
 mod prelude_type;
 mod print_message;
 mod replay_util;
+mod statistic;
+mod def_set;

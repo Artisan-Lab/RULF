@@ -1,33 +1,32 @@
+use crate::clean::{GenericArgs, GenericArg, PathSegment};
 use crate::clean::{self, types::PrimitiveType};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
+use crate::html::format::join_with_double_colon;
 use rustc_hir::{self, Mutability};
 
-pub(crate) fn _extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
-    /* let mut input_types = Vec::new();
-    for argument in &inputs.values {
-        let arg_ty = argument.type_.clone();
-        input_types.push(arg_ty);
-    }
-    input_types */
-    inputs.values.iter().map(|arg|{arg.type_.clone()}).collect()
+use super::generic_function::GenericFunction;
+use super::{api_function, generic_function};
+
+pub(crate) fn extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
+    inputs.values.iter().map(|arg| arg.type_.clone()).collect()
 }
 
-pub(crate) fn _extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
+pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type> {
     match output {
         clean::FnRetTy::Return(ty) => Some(ty.clone()),
         clean::FnRetTy::DefaultReturn => None,
     }
 }
 
-pub(crate) fn _is_generic_type(ty: &clean::Type) -> bool {
+/* pub(crate) fn _is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
         clean::Type::Generic(_) => true,
-        clean::Type::Path{path} => {
+        clean::Type::Path { path } => {
             if path.generics().is_some() {
                 return true;
             }
@@ -81,9 +80,9 @@ pub(crate) fn _is_generic_type(ty: &clean::Type) -> bool {
             return false;
         }
     }
-}
+} */
 
-pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:&Cache) -> bool {
+pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> bool {
     match ty {
         clean::Type::Path { .. } => {
             //TODO:need more analyse
@@ -137,20 +136,64 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
     }
 }
 
+
+pub(crate) fn print_path_segment(segment: &PathSegment) -> String{
+    let mut res=String::new();
+    res.push_str(&segment.name.as_str());
+    match &segment.args{
+        GenericArgs::AngleBracketed { args, bindings } =>{
+            let mut syms=Vec::<String>::new();
+            for arg in args.iter(){
+                let sym=match arg{
+                    GenericArg::Lifetime(lifetime) => lifetime.0.to_string(),
+                    GenericArg::Const(constant) => _type_name(&constant.type_),
+                    GenericArg::Type(type_) => _type_name(&type_),
+                    GenericArg::Infer => "_".to_owned()
+                };
+                syms.push(sym);
+            }
+            let syms=syms.join(", ");
+            if !syms.is_empty(){
+                res.push_str(&format!("<{syms}>"));
+            }
+        }
+        GenericArgs::Parenthesized { inputs, output }=>{
+            res.push_str("{..}");
+        }
+    };
+    res
+}
 //get the name of a type
-pub(crate) fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap, cache:&Cache) -> String {
-    if let Some(def_id) = type_.def_id(cache) {
+pub(crate) fn _type_name(
+    type_: &clean::Type,
+    /* full_name_map: &FullNameMap,
+    cache: &Cache, */
+) -> String {
+    /*if let Some(def_id) = type_.def_id(cache) {
         if let Some(full_name) = full_name_map._get_full_name(def_id) {
             return full_name.clone();
         }
-    }
+    }*/
     match type_ {
+        clean::Type::Path { path } =>{
+            let mut res=Vec::<String>::new();
+            for segment in &path.segments{
+                res.push(print_path_segment(segment));
+            }
+            res.join("::").to_string()
+        }
         clean::Type::Primitive(primitive_type) => primitive_type.as_sym().to_string(),
         clean::Type::Generic(generic) => generic.to_string(),
         clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
-            let inner_name = _type_name(inner_type, full_name_map, cache);
+            let inner_name = _type_name(inner_type/* , full_name_map, cache */);
             format!("&{}", inner_name)
+        }
+        clean::Type::Slice(type_) => {
+            format!("[{}]", _type_name(type_/* , full_name_map, cache */))
+        }
+        clean::Type::Array(type_, str_) => {
+            format!("[{};{}]", _type_name(type_/* , full_name_map, cache */), str_)
         }
         clean::Type::Tuple(inner_types) => {
             let inner_types_number = inner_types.len();
@@ -160,10 +203,13 @@ pub(crate) fn _type_name(type_: &clean::Type, full_name_map: &FullNameMap, cache
                 if i != 0 {
                     res.push_str(" ,");
                 }
-                res.push_str(_type_name(inner_type, full_name_map, cache).as_str());
+                res.push_str(_type_name(inner_type/* , full_name_map, cache */).as_str());
             }
             res.push(')');
             res
+        }
+        clean::Type::ImplTrait(bounds) => {
+            format!("impl {:?}", generic_function::bounds_to_facts(bounds))
         }
         _ => "Currently not supported".to_string(),
     }
@@ -174,7 +220,7 @@ pub(crate) fn _same_type(
     input_type: &clean::Type,
     hard_mode: bool,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     if hard_mode {
         _same_type_hard_mode(output_type, input_type, full_name_map, cache)
@@ -189,7 +235,7 @@ pub(crate) fn _same_type_hard_mode(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     //same type, direct call
     if output_type == input_type {
@@ -199,7 +245,13 @@ pub(crate) fn _same_type_hard_mode(
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
             //TODO:should take lifetime into account?
-            return _borrowed_ref_in_same_type(mutability, type_, output_type, full_name_map, cache);
+            return _borrowed_ref_in_same_type(
+                mutability,
+                type_,
+                output_type,
+                full_name_map,
+                cache,
+            );
         }
         clean::Type::RawPointer(mutability, type_) => {
             return _raw_pointer_in_same_type(mutability, type_, output_type, full_name_map, cache);
@@ -209,7 +261,7 @@ pub(crate) fn _same_type_hard_mode(
 
     //考虑输入类型是prelude type的情况，后面就不再考虑
     if prelude_type::_prelude_type_need_special_dealing(input_type, full_name_map, cache) {
-        let input_prelude_type = PreludeType::from_type(input_type, full_name_map,cache);
+        let input_prelude_type = PreludeType::from_type(input_type, full_name_map, cache);
         let final_type = input_prelude_type._get_final_type();
         let inner_call_type = _same_type_hard_mode(output_type, &final_type, full_name_map, cache);
         match inner_call_type {
@@ -270,13 +322,14 @@ fn _same_type_resolved_path(
     output_type: &clean::Type,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     //处理output type 是 prelude type的情况
     if prelude_type::_prelude_type_need_special_dealing(output_type, full_name_map, cache) {
         let output_prelude_type = PreludeType::from_type(output_type, full_name_map, cache);
         let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type = _same_type_hard_mode(&final_output_type, input_type, full_name_map,cache);
+        let inner_call_type =
+            _same_type_hard_mode(&final_output_type, input_type, full_name_map, cache);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
@@ -402,14 +455,14 @@ fn _same_type_raw_pointer(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     let inner_type = &**type_;
     let inner_compatible = _same_type_hard_mode(inner_type, input_type, full_name_map, cache);
     match inner_compatible {
         CallType::_NotCompatible => {
             return CallType::_NotCompatible;
-        }, 
+        }
         _ => {
             return CallType::_UnsafeDeref(Box::new(inner_compatible));
         }
@@ -421,7 +474,7 @@ fn _same_type_borrowed_ref(
     type_: &Box<clean::Type>,
     input_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     let inner_type = &**type_;
     let inner_compatible = _same_type_hard_mode(inner_type, input_type, full_name_map, cache);
@@ -448,7 +501,7 @@ pub(crate) fn _borrowed_ref_in_same_type(
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     let inner_type = &**type_;
     let inner_compatible = _same_type_hard_mode(output_type, inner_type, full_name_map, cache);
@@ -473,7 +526,7 @@ pub(crate) fn _raw_pointer_in_same_type(
     type_: &Box<clean::Type>,
     output_type: &clean::Type,
     full_name_map: &FullNameMap,
-    cache: &Cache
+    cache: &Cache,
 ) -> CallType {
     let inner_type = &**type_;
     let inner_compatible = _same_type_hard_mode(output_type, inner_type, full_name_map, cache);
@@ -532,7 +585,7 @@ pub(crate) fn _copy_type(type_: &clean::Type) -> bool {
                 return false;
             }
         },
-        clean::Type::BareFunction(_)  | clean::Type::Infer => return false,
+        clean::Type::BareFunction(_) | clean::Type::Infer => return false,
         clean::Type::Tuple(types) => {
             //如果全都是可以copy的，那么整个元组也是可以copy的
             for ty_ in types {
@@ -573,7 +626,7 @@ pub(crate) fn _copy_type(type_: &clean::Type) -> bool {
             //TODO:不确定，遇到再看
             return false;
         }
-        _=>{
+        _ => {
             unimplemented!();
         }
     }
@@ -601,7 +654,11 @@ pub(crate) fn _move_condition(input_type: &clean::Type, call_type: &CallType) ->
     return false;
 }
 
-pub(crate) fn is_fuzzable_type(ty_: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> bool {
+pub(crate) fn is_fuzzable_type(
+    ty_: &clean::Type,
+    full_name_map: &FullNameMap,
+    cache: &Cache,
+) -> bool {
     let fuzzable = fuzzable_type::fuzzable_call_type(ty_, full_name_map, cache);
     match fuzzable {
         FuzzableCallType::NoFuzzable => false,
@@ -659,12 +716,13 @@ pub(crate) fn _need_mut_tag(call_type: &CallType) -> bool {
     }
 }
 
-pub(crate) fn _resolved_path_equal_without_lifetime(ltype: &clean::Type, rtype: &clean::Type) -> bool {
-    if let clean::Type::Path { path: lpath, ..} = ltype
-    {
-        if let clean::Type::Path { path: rpath, .. } = rtype
-        {
-            if lpath.generics().is_some() || rpath.generics().is_some(){
+pub(crate) fn _resolved_path_equal_without_lifetime(
+    ltype: &clean::Type,
+    rtype: &clean::Type,
+) -> bool {
+    if let clean::Type::Path { path: lpath, .. } = ltype {
+        if let clean::Type::Path { path: rpath, .. } = rtype {
+            if lpath.generics().is_some() || rpath.generics().is_some() {
                 return false;
             }
             if lpath.def_id() != rpath.def_id() {
@@ -675,7 +733,9 @@ pub(crate) fn _resolved_path_equal_without_lifetime(ltype: &clean::Type, rtype: 
             let lsegment_len = lsegments.len();
             let rsegment_len = rsegments.len();
 
-            if /* *lglobal != *rglobal || */ *lres != *rres || lsegment_len != rsegment_len {
+            if
+            /* *lglobal != *rglobal || */
+            *lres != *rres || lsegment_len != rsegment_len {
                 return false;
             }
             let l_segments_without_lifetime = new_segments_without_lifetime(lsegments);
@@ -706,12 +766,16 @@ fn new_segments_without_lifetime(
                     clean::GenericArg::Lifetime(..) => {}
                     clean::GenericArg::Const(..) | clean::GenericArg::Type(..) => {
                         new_args.push(arg.clone());
-                    },
-                    _ => {unimplemented!();}
+                    }
+                    _ => {
+                        unimplemented!();
+                    }
                 }
             }
-            let new_generic_args =
-                clean::GenericArgs::AngleBracketed { args: new_args.into(), bindings: bindings.clone() };
+            let new_generic_args = clean::GenericArgs::AngleBracketed {
+                args: new_args.into(),
+                bindings: bindings.clone(),
+            };
             let new_path_segment =
                 clean::PathSegment { name: segment_name.clone(), args: new_generic_args };
             new_segments_without_lifetime.push(new_path_segment);
@@ -720,4 +784,110 @@ fn new_segments_without_lifetime(
         }
     }
     new_segments_without_lifetime
+}
+/* 
+pub(crate) fn replace_generic_type(
+    ty: &mut clean::Type,
+    solutions: FxHashMap<String, clean::Type>,
+) -> bool {
+    match ty {
+        clean::Type::Generic(sym) => {
+            ty = solutions.get(sym.as_str()).unwrap();
+            return true;
+        }
+        clean::Type::Path { path } => {
+            let segments = &path.segments;
+            let mut changed = false;
+            for segment in segments {
+                let generic_args = &segment.args;
+                match generic_args {
+                    clean::GenericArgs::AngleBracketed { args, .. } => {
+                        for generic_arg in args.iter_mut() {
+                            if let clean::GenericArg::Type(inner_ty) = generic_arg {
+                                changed |= replace_generic_type(inner_ty, solutions);
+                            }
+                        }
+                    }
+                    clean::GenericArgs::Parenthesized { inputs, output } => {
+                        for input_ty in inputs.iter_mut() {
+                            changed |= replace_generic_type(inner_ty, solutions);
+                        }
+                        if let Some(output_ty) = output {
+                            changed |= replace_generic_type(&mut output_ty, solutions);
+                        }
+                    }
+                }
+            }
+            changed
+        }
+        clean::Type::Tuple(types) => {
+            let mut changed = false;
+            for ty_ in types {
+                changed |= replace_generic_type(ty_, solutions);
+            }
+            changed
+        }
+        clean::Type::Slice(type_)
+        | clean::Type::Array(type_, ..)
+        | clean::Type::RawPointer(_, type_)
+        | clean::Type::BorrowedRef { type_, .. } => {
+            let inner_type = &mut *type_;
+            return replace_generic_type(inner_type, solutions);
+        }
+        clean::Type::ImplTrait(type_) => {}
+        _ => {
+            //TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
+            //如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
+            return false;
+        }
+    };
+    return changed;
+}*/
+
+pub(crate) fn replace_type_with<F: FnMut(&clean::Type) -> Option<clean::Type>>(
+    ty: &clean::Type,
+    f: &mut F,
+) -> clean::Type {
+    if let Some(new_ty) = f(ty) {
+        new_ty
+    } else {
+        let mut new_ty = ty.clone();
+        // If we meet nested type, travel all type
+        match new_ty {
+            clean::Type::Path { ref mut path } => {
+                for segment in path.segments.iter_mut() {
+                    match segment.args {
+                        clean::GenericArgs::AngleBracketed { ref mut args, .. } => {
+                            for generic_arg in args.iter_mut() {
+                                if let clean::GenericArg::Type(ref mut inner_ty) = generic_arg {
+                                    *inner_ty = replace_type_with(inner_ty, f);
+                                }
+                            }
+                        }
+                        clean::GenericArgs::Parenthesized { ref mut inputs, ref mut output } => {
+                            for input_ty in inputs.iter_mut() {
+                                *input_ty = replace_type_with(input_ty, f);
+                            }
+                            if let Some(output_ty) = output {
+                                **output_ty = replace_type_with(&output_ty, f);
+                            }
+                        }
+                    }
+                }
+            }
+            clean::Type::Tuple(ref mut types) => {
+                for ty_ in types {
+                    *ty_ = replace_type_with(ty_, f);
+                }
+            }
+            clean::Type::Slice(ref mut type_)
+            | clean::Type::Array(ref mut type_,..)
+            | clean::Type::RawPointer(_, ref mut type_)
+            | clean::Type::BorrowedRef { ref mut type_, .. } => {
+                *type_ = Box::new(replace_type_with(type_, f));
+            }
+            _ => {}
+        }
+        new_ty
+    }
 }

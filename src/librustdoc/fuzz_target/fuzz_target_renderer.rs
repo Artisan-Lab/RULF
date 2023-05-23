@@ -4,11 +4,11 @@ use crate::config::RenderOptions;
 use crate::error::Error;
 use crate::formats::cache::Cache;
 use crate::formats::renderer;
-use crate::fuzz_target::api_function;
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::file_util;
 use crate::fuzz_target::impl_util::{self, FullNameMap};
+use crate::fuzz_target::{api_function, statistic};
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
 use rustc_span::symbol::Symbol;
@@ -28,6 +28,46 @@ pub struct FuzzTargetRenderer<'tcx> {
     current: Vec<Symbol>,
     api_dependency_graph: Rc<RefCell<ApiGraph<'tcx>>>,
     full_name_map: Rc<RefCell<FullNameMap>>,
+}
+
+impl<'tcx> FuzzTargetRenderer<'tcx> {
+    fn analyse_item(&mut self, item: clean::Item) -> Result<(), Error> {
+        let mut full_name: String =
+            join_with_double_colon(&self.current) + "::" + item.name.unwrap().as_str();
+
+        match *item.kind {
+            ItemKind::FunctionItem(ref func) => {
+                //println!("func = {:?}", func);
+                statistic::inc("FUNCTIONS");
+                if (!func.generics.is_empty()) {
+                    statistic::inc("GENERIC_FUNCTIONS");
+                }
+                println!("Fn {}", full_name);
+                let decl = func.decl.clone();
+                let clean::FnDecl { inputs, output, .. } = decl;
+                let generics = func.generics.clone();
+                let inputs = api_util::extract_input_types(&inputs);
+                let output = api_util::extract_output_type(&output);
+
+                let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(
+                    &item.fn_header(self.context.tcx).unwrap(),
+                );
+                let api_fun = api_function::ApiFunction {
+                    full_name,
+                    inputs,
+                    output,
+                    _trait_full_path: None,
+                    _unsafe_tag: api_unsafety,
+                };
+                self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+            }
+            ItemKind::MethodItem(_, _) => {
+                unreachable!();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
@@ -51,10 +91,11 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         //同时提取impl块中的内容，存入api_dependency_graph
         let mut full_name_map = FullNameMap::new();
         impl_util::extract_impls_from_cache(&mut full_name_map, &mut api_dependency_graph);
-        println!("==== full name map ====");
+        //api_dependency_graph.print_impl_traits();
+        /*         println!("==== full name map ====");
         println!("len: {:?}", full_name_map.map.len());
         println!("{:?}", full_name_map);
-        println!("==== full name map end ====");
+        println!("==== full name map end ===="); */
 
         Ok((
             FuzzTargetRenderer {
@@ -74,7 +115,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Renders a single non-module item. This means no recursive sub-item rendering is required.
     fn item(&mut self, item: clean::Item) -> Result<(), Error> {
-        println!("==== item ====");
+        /*         println!("==== item ====");
         let mut debug_str = String::new();
         debug_str.push_str("\nname: ");
         if let Some(name) = item.name {
@@ -82,36 +123,18 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         }
         debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
         debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-        println!("{}", debug_str);
-        let full_name: String = join_with_double_colon(&self.current) + item.name.unwrap().as_str();
-        if let ItemKind::FunctionItem(ref func) = *item.kind {
-            println!("func = {:?}", func);
-            let decl = func.decl.clone();
-            let clean::FnDecl { inputs, output, .. } = decl;
-            let generics = func.generics.clone();
-            let inputs = api_util::_extract_input_types(&inputs);
-            let output = api_util::_extract_output_type(&output);
-
-            let api_unsafety = api_function::ApiUnsafety::_get_unsafety_from_fnheader(
-                &item.fn_header(self.context.tcx).unwrap(),
-            );
-            let api_fun = api_function::ApiFunction {
-                full_name,
-                generics,
-                inputs,
-                output,
-                _trait_full_path: None,
-                _unsafe_tag: api_unsafety,
-            };
-            self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
-        }
-
-        Ok(())
+        println!("{}", debug_str); */
+        self.analyse_item(item)
     }
 
     /// Renders a module (should not handle recursing into children).
     fn mod_item_in(&mut self, item: &clean::Item) -> Result<(), Error> {
-        println!("==== mod_item_in ====");
+        self.current.push(item.name.unwrap());
+        self.api_dependency_graph
+        .borrow_mut()
+        .add_mod_visibility(&join_with_double_colon(&self.current), &item.visibility);
+
+/*         println!("==== mod_item_in ====");
         let mut debug_str = String::new();
         debug_str.push_str("\nname: ");
         if let Some(name) = item.name {
@@ -120,31 +143,29 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
         debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
         println!("{}", debug_str);
-        self.current.push(item.name.unwrap());
-        self.api_dependency_graph
-            .borrow_mut()
-            .add_mod_visibility(&join_with_double_colon(&self.current), &item.visibility);
+
+ */
         Ok(())
     }
 
     /// Runs after recursively rendering all sub-items of a module.
     fn mod_item_out(&mut self) -> Result<(), Error> {
-        println!("==== mod_item_out ====");
         self.current.pop();
         Ok(())
     }
 
     /// Post processing hook for cleanup and dumping output to files.
     fn after_krate(&mut self) -> Result<(), Error> {
+
         println!("==== run after krate ====");
         let mut api_dependency_graph = self.api_dependency_graph.borrow_mut();
-        println!("ModVisibility: {:?}", api_dependency_graph.mod_visibility);
-
+        //println!("ModVisibility: {:?}", api_dependency_graph.mod_visibility);
+        api_dependency_graph.resolve_generic_functions();
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
         //寻找所有依赖，并且构建序列
         api_dependency_graph.find_all_dependencies();
-        //api_dependency_graph._print_pretty_dependencies();
+        // api_dependency_graph._print_pretty_dependencies();
 
         let random_strategy = false;
         if !random_strategy {
@@ -159,14 +180,14 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         // print some information
         use crate::fuzz_target::print_message;
         println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
-        print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, true);
+        print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, false);
         println!(
             "total generic functions in crate : {:?}",
             api_dependency_graph.generic_functions.len()
-        );
-        print_message::_print_generic_functions(&api_dependency_graph);
+        ); 
+        //print_message::_print_pretty_sequences(&api_dependency_graph);
         //print_message::_print_pretty_functions(&api_dependency_graph, true);
-        //print_message::_print_generated_afl_file(&api_dependency_graph);
+        // print_message::_print_generated_afl_file(&api_dependency_graph);
 
         //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
         //use crate::html::afl_util;
@@ -181,16 +202,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
                 file_helper.write_libfuzzer_files();
             }
         }
-
-        // Flush pending errors.
-        /* Rc::get_mut(&mut self.shared).unwrap().fs.close();
-        let nb_errors =
-            self.shared.errors.iter().map(|err| self.tcx().sess.struct_err(&err).emit()).count();
-        if nb_errors > 0 {
-            Err(Error::new(io::Error::new(io::ErrorKind::Other, "I/O error"), ""))
-        } else {
-            Ok(())
-        } */
+        statistic::print_summary();
         Ok(())
     }
 

@@ -46,7 +46,7 @@ impl CallType {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map, cache);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *const ");
-                call_string.push_str(_type_name(ty_, full_name_map, cache).as_str());
+                call_string.push_str(_type_name(ty_).as_str());
                 call_string
             }
             CallType::_MutRawPointer(inner_, ty_) => {
@@ -55,7 +55,7 @@ impl CallType {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map, cache);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *mut ");
-                call_string.push_str(_type_name(ty_, full_name_map, cache).as_str());
+                call_string.push_str(_type_name(ty_).as_str());
                 call_string
             }
             CallType::_AsConvert(str_) => {

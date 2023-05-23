@@ -1,17 +1,31 @@
-use crate::clean::{self, ItemKind};
+use std::default;
+use std::f32::consts::E;
+
+use crate::clean::Function;
+use crate::clean::GenericBound;
+use crate::clean::Item;
+use crate::clean::Type;
+use crate::clean::WherePredicate;
+use crate::clean::{self, ItemKind, Struct};
+use crate::error::Error;
+use crate::formats;
+use crate::formats::cache::Cache;
 use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::api_util;
+use crate::fuzz_target::generic_function::analyse_generics;
 use crate::fuzz_target::prelude_type;
+use crate::fuzz_target::statistic;
+use crate::fuzz_target::{api_util, generic_function};
 use crate::html::format::join_with_double_colon;
+use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def_id::DefId;
-use rustc_data_structures::fx::{FxHashMap};
+use rustc_span::Symbol;
 //use rustdoc_json_types::Type::Path;
 //TODO:是否需要为impl里面的method重新设计数据结构？目前沿用了ApiFunction,或者直接对ApiFunction进行扩展
 //两种函数目前相差一个defaultness
-#[derive(Debug, Clone)]
+/* #[derive(Debug, Clone)]
 pub(crate) struct CrateImplCollection {
     //impl type类型的impl块
     pub(crate) impl_types: Vec<clean::Impl>,
@@ -51,7 +65,7 @@ impl CrateImplCollection {
             }
         }
     }
-}
+} */
 
 #[derive(Debug, Clone)]
 pub(crate) struct FullNameMap {
@@ -83,17 +97,18 @@ pub(crate) fn extract_impls_from_cache(
     let _trait_impl_maps = &api_graph.cache().implementors;
     let paths = &api_graph.cache().paths;
 
-    let mut crate_impl_collection = CrateImplCollection::new();
+    // let mut crate_impl_collection = CrateImplCollection::new();
 
     //construct the map of `did to type`
     for (did, (syms, item_type)) in paths {
-        let full_name = join_with_double_colon(syms);
+        let full_name = join_with_double_colon(&syms);
         full_name_map.push_mapping(*did, &full_name, *item_type);
     }
 
     let extertal_paths = &api_graph.cache().external_paths;
     for (did, (syms, item_type)) in extertal_paths {
-        let full_name = join_with_double_colon(syms);
+        let full_name = join_with_double_colon(&syms);
+        //println!("[E] {} : {}", item_type.as_str(), full_name);
         if prelude_type::is_preluded_type(&full_name) {
             full_name_map.push_mapping(*did, &full_name, *item_type);
         }
@@ -101,120 +116,146 @@ pub(crate) fn extract_impls_from_cache(
 
     api_graph.set_full_name_map(&full_name_map);
 
+    let impls_ = api_graph.cache().impls.clone();
     //首先提取所有type的impl
-    for (did, impls) in &api_graph.cache().impls {
+    for (did, impls) in impls_ {
         //只添加可以在full_name_map中找到对应的did的type
-        if full_name_map._get_full_name(*did) != None {
-            for impl_ in impls {
-                //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
-                crate_impl_collection.add_impl(impl_.inner_impl());
-            }
+        if full_name_map._get_full_name(did).is_none() {
+            continue;
+        }
+        for impl_ in &impls {
+            //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
+            analyse_impl(impl_, full_name_map, &mut api_graph);
         }
     }
-    //println!("analyse impl Type");
-    //分析impl type类型
-    for impl_ in &crate_impl_collection.impl_types {
-        //println!("analyse_impl_");
-        _analyse_impl(impl_, &full_name_map, &mut api_graph);
-    }
-
-    //println!("analyse impl Trait for Type");
-    for impl_ in &crate_impl_collection.impl_trait_for_types {
-        _analyse_impl(impl_, &full_name_map, &mut api_graph);
-    }
-    //TODO：如何提取trait对应的impl，impl traitA for traitB? impl dyn traitA?下面的逻辑有误
-    //for (did, impls) in trait_impl_maps {
-    //   println!("trait:{:?}",did);
-    //    //还是只看当前crate中的trait
-    //    if full_name_map._get_full_name(did) != None {
-    //        let full_name = full_name_map._get_full_name(did).unwrap();
-    //        println!("full_name : {:?}", full_name);
-    //        println!("{}", impls.len());
-    //    }
-
-    //}
-
-    //println!("{:?}", crate_impl_collection);
 }
 
-fn full_path(paths: &Vec<String>) -> String {
-    paths.join("::")
-}
-
-pub(crate) fn _analyse_impl(
-    impl_: &clean::Impl,
+///
+/// There are multiple situations of impl statements.
+///
+/// No Trait: impl xx {}
+///
+/// Trait:
+/// ```
+/// impl Trait for Type
+/// impl Trait for Trait
+/// impl<T:bounds> Trait for T // blanket implement
+/// ```
+pub(crate) fn analyse_impl(
+    impl_: &formats::Impl,
     full_name_map: &FullNameMap,
     api_graph: &mut ApiGraph<'_>,
 ) {
+    let impl_did = impl_.def_id();
+    let impl_ = impl_.inner_impl();
+    println!(">>>>> IMPL BLOCK INFO <<<<<");
+    println!("process impl: {:?}", impl_);
     let inner_items = &impl_.items;
-
     //BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
-
     let trait_full_name = match &impl_.trait_ {
         None => None,
         Some(trait_) => {
             //println!("{:?}", trait_);
             let trait_ty_def_id = trait_.def_id();
             let trait_full_name = full_name_map._get_full_name(trait_ty_def_id);
-            if let Some(trait_name) = trait_full_name {
-                Some(trait_name.clone())
-            } else {
-                None
-            }
+            if let Some(trait_name) = trait_full_name { Some(trait_name.clone()) } else { None }
         }
     };
+
+    let is_trait_impl = impl_.trait_.is_some();
+    let is_crate_trait_impl = impl_.trait_.as_ref().map_or(false, |path| path.def_id().is_local());
+    let self_generics = impl_.for_.generics();
+    let for_ty = &impl_.for_; // 
+    if for_ty.is_full_generic() || for_ty.is_impl_trait() {
+        println!("for type is generic/trait");
+    }
+
+    // println!("impl for: {}", api_graph.get_full_path_from_def_id(impl_ty_def_id).as_str());
+    println!("self generics: {:?}", self_generics);
+    println!("impl generics: {:?}", impl_.generics);
+    println!(
+        "impl trait: {}",
+        impl_
+            .trait_
+            .as_ref()
+            .map_or("none".to_string(), |path| api_graph.get_full_path_from_def_id(path.def_id()))
+            .as_str()
+    );
+    println!("is trait: {}", is_trait_impl);
+    println!("is local trait: {}", is_crate_trait_impl);
+    println!("trait kind: {:?}", impl_.kind);
+    println!("trait_full_name: {:?}", trait_full_name);
 
     let impl_ty_def_id = impl_.for_.def_id(api_graph.cache());
     let type_full_name = if let Some(def_id) = impl_ty_def_id {
         let type_name = full_name_map._get_full_name(def_id);
-        if let Some(real_type_name) = type_name {
-            Some(real_type_name.clone())
-        } else {
-            None
-        }
+        if let Some(real_type_name) = type_name { Some(real_type_name.clone()) } else { None }
     } else {
         None
     };
+    println!("type_full_name: {:?}", type_full_name);
+    println!(">>>>>>>>>>    <<<<<<<<<<");
+    // add type map
+    api_graph.add_type(for_ty.def_id(api_graph.cache()).unwrap(), for_ty.clone());
+
+    // add trait impl
+    if let (Some(trait_path), for_) = (&impl_.trait_, &impl_.for_) {
+        let ty_did = for_.def_id(api_graph.cache()).unwrap();
+        let trait_did = trait_path.def_id();
+        api_graph.add_type_trait_impl(ty_did, trait_did, impl_did);
+        api_graph.add_type_trait(ty_did, trait_did);
+    }
 
     for item in inner_items {
         //println!("item_name, {:?}", item.name.as_ref().unwrap());
         match &*item.kind {
-            //TODO:这段代码暂时没用了，impl块里面的是method item，而不是function item,暂时留着，看里面是否会出现function item
             ItemKind::FunctionItem(_function) => {
-                unimplemented!("function name in impl");
-                //let function_name = String::new();
-                //使用全限定名称：type::f
-                //function_name.push_str(type_full_name.as_str());
-                //function_name.push_str("::");
-                //function_name.push_str(item.name.as_ref().unwrap().as_str());
-                //println!("function name in impl:{:?}", function_name);
+                unimplemented!("function in impl statement");
             }
-            ItemKind::MethodItem(_method, _) => {
-                let decl = _method.decl.clone();
-                let clean::FnDecl { inputs, output, .. } = decl;
-                let generics = _method.generics.clone();
-                let mut inputs = api_util::_extract_input_types(&inputs);
-                let output = api_util::_extract_output_type(&output);
-                //println!("input types = {:?}", inputs);
+            ItemKind::MethodItem(function, _) => {
+                if (!is_trait_impl || is_crate_trait_impl) {
+                    statistic::inc("FUNCTIONS");
 
+                    if (!function.generics.is_empty()) {
+                        statistic::inc("GENERIC_FUNCTIONS");
+                    }
+
+                    if (is_trait_impl) {
+                        if (matches!(impl_.kind, clean::ImplKind::Normal)) {
+                            statistic::inc("TRAIT_IMPLS");
+                        } else if (impl_.kind.is_blanket()) {
+                            // FIXME: this might be inprecise, as the some blanket implemation might implement to multiple type
+                            // BLANKET IMPLS => impl<T> trait for T
+                            statistic::inc("BLANKET_IMPLS")
+                        }
+                    }
+
+                    println!("==== MethodItem ====");
+                    println!("{:?}", item);
+                    println!("func: {:?}", function);
+                    println!("====================");
+                }
+                let clean::FnDecl { inputs, output, .. } = &function.decl;
+                let mut inputs = api_util::extract_input_types(&inputs);
+                let output = api_util::extract_output_type(&output);
                 let mut contains_self_type = false;
-
                 let input_len = inputs.len();
-                for index in 0..input_len {
-                    let ty_ = &inputs[index];
+
+                for ty_ in inputs.iter_mut() {
                     if is_param_self_type(ty_) {
                         contains_self_type = true;
                         let raplaced_ty = replace_self_type(ty_, &impl_.for_);
-                        inputs[index] = raplaced_ty;
+                        *ty_ = raplaced_ty;
                     }
                 }
                 //println!("after replace, input = {:?}", inputs);
-
+                let mut contains_self_output = false;
                 let output = match output {
                     None => None,
                     Some(ty_) => {
                         if is_param_self_type(&ty_) {
                             let replaced_type = replace_self_type(&ty_, &impl_.for_);
+                            contains_self_output = true;
                             Some(replaced_type)
                         } else {
                             Some(ty_)
@@ -257,7 +298,6 @@ pub(crate) fn _analyse_impl(
                 let api_function = match &impl_.trait_ {
                     None => ApiFunction {
                         full_name: method_name,
-                        generics,
                         inputs,
                         output,
                         _trait_full_path: None,
@@ -267,7 +307,6 @@ pub(crate) fn _analyse_impl(
                         if let Some(ref real_trait_name) = trait_full_name {
                             ApiFunction {
                                 full_name: method_name,
-                                generics,
                                 inputs,
                                 output,
                                 _trait_full_path: Some(real_trait_name.clone()),
@@ -279,10 +318,19 @@ pub(crate) fn _analyse_impl(
                         }
                     }
                 };
-                api_graph.add_api_function(api_function);
+
+                if !function.generics.is_empty() || !(impl_.generics.is_empty()) {
+                    // function is a generic function
+                    let mut generic_function = generic_function::GenericFunction::from(api_function);
+                    generic_function.add_generics(&function.generics);
+                    generic_function.add_generics(&impl_.generics);
+                    api_graph.generic_functions.push(generic_function);
+                } else {
+                    api_graph.add_api_function(api_function);
+                }
             }
             _ => {
-                //println!("no covered item {:?}", &item.inner);
+                println!("no covered item {:?}", &item);
             }
         }
     }
@@ -297,11 +345,7 @@ fn is_param_self_type(ty_: &clean::Type) -> bool {
     match ty_ {
         clean::Type::BorrowedRef { type_, .. } => {
             let inner_ty = &**type_;
-            if is_param_self_type(inner_ty) {
-                return true;
-            } else {
-                return false;
-            }
+            is_param_self_type(inner_ty)
         }
         clean::Type::Path { path, .. } => {
             let segments = &path.segments;
@@ -358,7 +402,7 @@ fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean:
                 return self_type.clone();
             }
         }
-        clean::Type::Path { path /*  param_names, did, is_generic  */ } => {
+        clean::Type::Path { path } => {
             if !is_param_self_type(self_type) {
                 return self_type.clone();
             }

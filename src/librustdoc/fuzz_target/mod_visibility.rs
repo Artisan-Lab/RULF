@@ -15,7 +15,6 @@ impl ModVisibity {
     }
 
     pub(crate) fn add_one_mod(&mut self, mod_name: &String, visibility: &Visibility) {
-        println!("add_one_mod: {} {:?}",mod_name, visibility);
         self.inner.insert(mod_name.clone(), visibility.clone());
     }
 

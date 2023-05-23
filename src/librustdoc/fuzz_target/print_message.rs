@@ -24,15 +24,12 @@ pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
     }
 }
 
-pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache:&Cache, check_visited: bool) {
-    println!("functions");
+pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache: &Cache, check_visited: bool) {
     let api_functions_num = graph.api_functions.len();
     for i in 0..api_functions_num {
-        if check_visited {
-            //如果需要check visited，只输出没有被覆盖到的函数
-            if graph.api_functions_visited[i] {
-                continue;
-            }
+        //如果需要check visited，只输出没有被覆盖到的函数
+        if check_visited && graph.api_functions_visited[i] {
+            continue;
         }
         let api_function = &graph.api_functions[i];
         let fn_line = api_function._pretty_print(&graph.full_name_map, cache);
@@ -97,11 +94,4 @@ pub(crate) fn _print_generated_libfuzzer_file(graph: &ApiGraph<'_>) {
         let api_sequence = &graph.api_sequences[i];
         println!("{}", api_sequence._to_libfuzzer_test_file(graph, i));
     }
-}
-
-pub(crate) fn _print_generic_functions(graph: &ApiGraph<'_>) {
-    println!("generic functions");
-    graph.generic_functions.iter().for_each(|generic_function| {
-        println!("{}", generic_function.api_function.full_name);
-    });
 }

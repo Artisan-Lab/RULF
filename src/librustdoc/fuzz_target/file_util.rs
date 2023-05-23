@@ -74,7 +74,8 @@ static MAX_TEST_FILE_NUMBER: usize = 300;
 static DEFAULT_RANDOM_FILE_NUMBER: usize = 100;
 
 pub(crate) fn can_write_to_file(crate_name: &String, random_strategy: bool) -> bool {
-    if !random_strategy && CRATE_TEST_DIR.contains_key(crate_name.as_str()) {
+    true
+    /* if !random_strategy && CRATE_TEST_DIR.contains_key(crate_name.as_str()) {
         return true;
     }
 
@@ -82,7 +83,7 @@ pub(crate) fn can_write_to_file(crate_name: &String, random_strategy: bool) -> b
         return true;
     }
 
-    return false;
+    return false; */
 }
 
 pub(crate) fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
@@ -96,7 +97,7 @@ pub(crate) fn can_generate_libfuzzer_target(crate_name: &String) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct FileHelper {
     pub(crate) crate_name: String,
-    pub(crate) test_dir: String,
+    pub(crate) test_dir: PathBuf,
     pub(crate) test_files: Vec<String>,
     pub(crate) reproduce_files: Vec<String>,
     pub(crate) libfuzzer_files: Vec<String>,
@@ -105,11 +106,8 @@ pub(crate) struct FileHelper {
 impl FileHelper {
     pub(crate) fn new(api_graph: &ApiGraph<'_>, random_strategy: bool) -> Self {
         let crate_name = api_graph._crate_name.clone();
-        let test_dir = if !random_strategy {
-            CRATE_TEST_DIR.get(crate_name.as_str()).unwrap().to_string()
-        } else {
-            RANDOM_TEST_DIR.get(crate_name.as_str()).unwrap().to_string()
-        };
+        let mut test_dir=std::env::current_dir().unwrap();
+        test_dir.push("fuzz_target");
         let mut sequence_count = 0;
         let mut test_files = Vec::new();
         let mut reproduce_files = Vec::new();
@@ -144,13 +142,12 @@ impl FileHelper {
 
     pub(crate) fn write_files(&self) {
         let test_path = PathBuf::from(&self.test_dir);
-        if test_path.is_file() {
-            fs::remove_file(&test_path).unwrap();
-        }
         let test_file_path = test_path.clone().join(_TEST_FILE_DIR);
-        ensure_empty_dir(&test_file_path);
         let reproduce_file_path = test_path.clone().join(_REPRODUCE_FILE_DIR);
-        ensure_empty_dir(&reproduce_file_path);
+        println!("test_file_path: {test_file_path:?}");
+        println!("reproduce_file_path: {reproduce_file_path:?}");
+        fs::create_dir_all(&test_file_path);
+        fs::create_dir_all(&reproduce_file_path);
 
         write_to_files(&self.crate_name, &test_file_path, &self.test_files, "test");
         //暂时用test file代替一下，后续改成真正的reproduce file
@@ -160,11 +157,8 @@ impl FileHelper {
     pub(crate) fn write_libfuzzer_files(&self) {
         let libfuzzer_dir = LIBFUZZER_FUZZ_TARGET_DIR.get(self.crate_name.as_str()).unwrap();
         let libfuzzer_path = PathBuf::from(libfuzzer_dir);
-        if libfuzzer_path.is_file() {
-            fs::remove_file(&libfuzzer_path).unwrap();
-        }
         let libfuzzer_files_path = libfuzzer_path.join(_LIBFUZZER_DIR_NAME);
-        ensure_empty_dir(&libfuzzer_files_path);
+        fs::create_dir_all(&libfuzzer_files_path);
         write_to_files(
             &self.crate_name,
             &libfuzzer_files_path,
@@ -182,14 +176,4 @@ fn write_to_files(crate_name: &String, path: &PathBuf, contents: &Vec<String>, p
         let mut file = fs::File::create(full_filename).unwrap();
         file.write_all(contents[i].as_bytes()).unwrap();
     }
-}
-
-fn ensure_empty_dir(path: &PathBuf) {
-    if path.is_file() {
-        fs::remove_file(path).unwrap();
-    }
-    if path.is_dir() {
-        fs::remove_dir_all(path).unwrap();
-    }
-    fs::create_dir_all(path).unwrap();
 }

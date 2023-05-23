@@ -19,7 +19,6 @@ pub(crate) enum ApiUnsafety {
 #[derive(Clone)]
 pub(crate) struct ApiFunction {
     pub(crate) full_name: String, //函数名，要来比较是否相等
-    pub(crate) generics: clean::Generics,
     pub(crate) inputs: Vec<clean::Type>,
     pub(crate) output: Option<clean::Type>,
     pub(crate) _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
@@ -103,11 +102,6 @@ impl ApiFunction {
         flag
     }
 
-    //TODO:判断一个函数是否是泛型函数
-    pub(crate) fn _is_generic_function(&self) -> bool {
-        !self.generics.is_empty()
-    }
-
     pub(crate) fn _has_no_output(&self) -> bool {
         match self.output {
             None => true,
@@ -121,14 +115,14 @@ impl ApiFunction {
         for i in 0..input_len {
             let input_type = &self.inputs[i];
             if i != 0 {
-                fn_line.push_str(" ,");
+                fn_line.push_str(", ");
             }
-            fn_line.push_str(api_util::_type_name(input_type, full_name_map, cache).as_str());
+            fn_line.push_str(api_util::_type_name(input_type).as_str());
         }
         fn_line.push_str(")");
         if let Some(ref ty_) = self.output {
             fn_line.push_str("->");
-            fn_line.push_str(api_util::_type_name(ty_, full_name_map, cache).as_str());
+            fn_line.push_str(api_util::_type_name(ty_).as_str());
         }
         fn_line
     }
