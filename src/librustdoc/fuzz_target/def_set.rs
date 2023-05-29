@@ -17,6 +17,11 @@ impl DefSet {
     pub fn new() -> DefSet {
         DefSet { defs: FxHashSet::default() }
     }
+    pub fn union(&mut self,other:&DefSet) {
+        for el in other.iter(){
+            self.insert(*el);
+        }
+    }
     /*     pub fn insert(&mut self, did: DefId) {
         self.traits.insert(did);
     }

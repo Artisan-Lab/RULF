@@ -21,7 +21,7 @@ use lazy_static::lazy_static;
 use rand::{self, Rng};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::fmt;
 use std::rc::Rc;
 
@@ -86,6 +86,7 @@ pub(crate) enum ApiType {
     //GenericFunction, currently not support now
 }
 
+type Solution = FxHashMap<String, Vec<DefId>>;
 //函数的依赖关系
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct ApiDependency {
@@ -176,67 +177,85 @@ impl<'tcx> ApiGraph<'tcx> {
         Some(res)
     }
 
-    fn get_generic_params_solutions(&self,function: &GenericFunction) -> FxHashMap<String, Vec<DefId>> {
+    fn get_generic_params_solutions(&self, function: &GenericFunction) -> Option<Solution> {
         let mut solutions = FxHashMap::<String, Vec<DefId>>::default();
-        let mut visited = DefSet::new();
-
-        for (name, fact) in function.generic_params.iter() {
-            //let mut v=Vec::<DefId>::new();
-            solutions.insert(name.to_string(), Vec::new());
-
+        for name in &function.generic_symbols {
+            let fact = function.generic_params.get(name).expect("symbol must have fact");
             let mut v = Vec::<String>::new();
             let mut count = 0;
+            let mut visited = DefSet::new();
+            solutions.insert(name.to_string(), Vec::new());
             for (did, trait_impls) in self.type_trait_impls.iter() {
+                // evert type (did, trait-impl pairs)
                 if let Some(type_impl_fact) = self.extract_type_impls(trait_impls, fact) {
-                    //v.push(format!("{did:?}(impl: {type_impl_fact:?})"));
-                    v.push(format!("{}", self.get_full_path_from_def_id(*did)));
-                    if !(type_impl_fact.is_subset(&visited)){ 
+                    // filter by bound fact
+                    v.push(format!(
+                        "=> {}(impl: {type_impl_fact:?})",
+                        self.get_full_path_from_def_id(*did)
+                    ));
+                    if !(type_impl_fact.is_subset(&visited)) {
                         count += 1;
                         *v.last_mut().unwrap() += "(selected)";
                         solutions.get_mut(name).unwrap().push(*did);
-                        //v.push(*did);
                         visited.union(&type_impl_fact);
                     }
                 }
             }
-            print!("{count} available types for param {name}: {}\n", v.join(", "));
+            function.pretty_print();
+            print!("{count} available types for param {name}:\n{}\n", v.join("\n"));
+            if count == 0 {
+                return None;
+            }
         }
-        solutions
+        Some(solutions)
     }
 
-    fn monomorphise(&self, function: &GenericFunction) -> Vec<ApiFunction> {
+    fn monomorphise(
+        &self,
+        function: &GenericFunction,
+        type_candidates: &Vec<DefId>,
+    ) -> Vec<ApiFunction> {
         // calculate solutions
+        let max_mono_size = 10;
         let solutions = self.get_generic_params_solutions(function);
-        let mut solution_nums = 0;
-        let mut solution_counts = FxHashMap::<String, i32>::default();
-        for (k, v) in solutions.iter() {
-            if v.len() == 0 {
-                solution_nums = 0;
-                println!("no solution for {}", function.api_function.full_name);
-                break;
-            } // if 
-            solution_nums = max(v.len(), solution_nums);
-            solution_counts.insert(k.to_string(), 0);
+        if solutions.is_none() {
+            return Vec::new();
         }
-
-        if solution_nums > 0 {
-            statistic::inc("DEGENERIC");
-        }
-
         let mut res = Vec::new();
+        statistic::inc("DEGENERIC");
+        if function.generic_params.is_empty() {
+            // no type parameter
+            let mut func=function.api_function.clone();
+            func.mono=true;
+            res.push(func);
+            return res;
+        }
+        let solutions = solutions.unwrap();
+        let mut solution_nums = 0;
+        for (k, v) in solutions.iter() {
+            if v.len() != 0 {
+                // param is not unbound
+                solution_nums = max(v.len(), solution_nums);
+            } // if 
+        }
+        solution_nums = min(solution_nums, max_mono_size);
+
         for i in 0..solution_nums {
             statistic::inc("MONO_FUNS");
             let mut solution = FxHashMap::<String, DefId>::default();
             // produce new solution
             for (k, v) in &solutions {
-                let index = solution_counts.get_mut(k).unwrap();
-                solution.insert(
-                    k.to_string(),
-                    v[if *index < v.len() as i32 { *index } else { 0 } as usize],
-                );
-                *index += 1;
+                if v.len() == 0 {
+                    // param k is unbounded
+                    solution.insert(k.to_string(), type_candidates[i % type_candidates.len()]);
+                    println!("{}: {:?}", k, type_candidates[i % type_candidates.len()]);
+                } else {
+                    solution.insert(k.to_string(), v[i % v.len()]);
+                    println!("{}: {:?}", k, v[i % v.len()]);
+                }
             }
             let mut monofun = function.api_function.clone();
+            monofun.mono=true;
             let mut replace_generic = |type_: &Type| -> Option<Type> {
                 if let Type::Generic(sym) = type_ {
                     let id = solution.get(sym.as_str()).unwrap();
@@ -251,18 +270,41 @@ impl<'tcx> ApiGraph<'tcx> {
             if let Some(ref output) = monofun.output {
                 monofun.output = Some(api_util::replace_type_with(output, &mut replace_generic));
             }
-            monofun.full_name.push_str(&format!("#{}", i).to_owned());
-            println!("monofun#{i}:");
-            println!("{}", monofun._pretty_print(&self.full_name_map, self.cache()));
+            // monofun.full_name.push_str(&format!("#{}", i).to_owned());
+            print!("monofun#{i}:");
+            println!("{}", monofun._pretty_print());
             res.push(monofun);
         }
         res
     }
 
+    pub(crate) fn resolve_type_candidates(&self) -> Vec<DefId> {
+        let mut map = FxHashMap::<DefId, i32>::default();
+        for function in &self.api_functions {
+            for input in &function.inputs {
+                if let Some(did) = input.def_id(self.cache()) {
+                    *map.entry(did).or_default() += 1;
+                }
+            }
+
+            if let Some(output) = &function.output {
+                if let Some(did) = output.def_id(self.cache()) {
+                    *map.entry(did).or_default() += 1;
+                }
+            }
+        }
+
+        let mut vec = map.into_iter().collect::<Vec<_>>();
+        vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        println!("type candidates: {:?}", vec);
+        vec.into_iter().map(|a| a.0).collect()
+    }
+
     pub(crate) fn resolve_generic_functions(&mut self) {
+        let candidates = self.resolve_type_candidates();
         for function in self.generic_functions.iter() {
-            function.pretty_print(&self.full_name_map, self.cache());
-            for api_fun in self.monomorphise(function) {
+            function.pretty_print();
+            for api_fun in self.monomorphise(function, &candidates) {
                 if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
                     self.functions_with_unsupported_fuzzable_types
                         .insert(api_fun.full_name.clone());
@@ -272,6 +314,46 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
     }
+
+    /*pub(crate) fn new_resolve_generic_functions(&mut self) {
+        let max_mono_per_function=10;
+        //
+        for function in self.generic_functions.iter() {
+            function.pretty_print(&self.full_name_map, self.cache());
+        }
+
+        let all_solutions:Vec<Option<Solution>>=Vec::new();
+        let all_monos:Vec<Vec<ApiFunction>>=Vec::new();
+        let all_visits:Vec<DefSet>=Vec::new();
+        for function in self.generic_functions.iter() {
+            let solution=self.get_generic_params_solutions(function);
+            if solution.is_some(){
+                statistic::inc("DEGENERIC");
+            } else {
+                println!("no solution: {}",function.get_full_signature());
+            }
+            all_solutions.push(solution);
+            all_monos.push(Vec::new());
+        }
+        // iterative
+        loop{
+            let last_num=self.api_functions.len();
+            let monos=Vec<ApiFunction>::new();
+            for solutions in &all_solutions{
+                if let Some(solution)=solutions{
+
+                }
+            }
+        }
+        for api_fun in self.monomorphise(function) {
+            if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
+                self.functions_with_unsupported_fuzzable_types
+                    .insert(api_fun.full_name.clone());
+            } else {
+                self.api_functions.push(api_fun);
+            }
+        }
+    }*/
 
     pub(crate) fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
@@ -1046,6 +1128,10 @@ impl<'tcx> ApiGraph<'tcx> {
                 }
                 let api_sequence = &self.api_sequences[j];
 
+                if !api_sequence.has_mono(){
+                    continue;
+                }
+
                 if api_sequence._has_no_fuzzables()
                     || api_sequence._contains_dead_code_except_last_one(self)
                 {
@@ -1238,6 +1324,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 let mut _immutable_borrow = FxHashSet::default();
 
                 let input_function = &self.api_functions[input_fun_index];
+                let is_mono = input_function.is_mono();
                 //如果是个unsafe函数，给sequence添加unsafe标记
                 if input_function._unsafe_tag._is_unsafe() {
                     new_sequence.set_unsafe();
@@ -1250,7 +1337,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 let input_params_num = input_params.len();
                 if input_params_num == 0 {
                     //无需输入参数，直接是可满足的
-                    new_sequence._add_fn(api_call);
+                    new_sequence._add_fn(api_call, is_mono);
                     return Some(new_sequence);
                 }
 
@@ -1376,7 +1463,7 @@ impl<'tcx> ApiGraph<'tcx> {
                     }
                 }
                 //所有参数都可以找到依赖，那么这个函数就可以加入序列
-                new_sequence._add_fn(api_call);
+                new_sequence._add_fn(api_call, is_mono);
                 for move_index in _moved_indexes {
                     new_sequence._insert_move_index(move_index);
                 }

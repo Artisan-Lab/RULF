@@ -7,6 +7,7 @@ use crate::formats::renderer;
 use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::file_util;
+use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::impl_util::{self, FullNameMap};
 use crate::fuzz_target::{api_function, statistic};
 use crate::html::format::join_with_double_colon;
@@ -45,7 +46,6 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                 println!("Fn {}", full_name);
                 let decl = func.decl.clone();
                 let clean::FnDecl { inputs, output, .. } = decl;
-                let generics = func.generics.clone();
                 let inputs = api_util::extract_input_types(&inputs);
                 let output = api_util::extract_output_type(&output);
 
@@ -58,8 +58,16 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     output,
                     _trait_full_path: None,
                     _unsafe_tag: api_unsafety,
+                    mono:false
                 };
-                self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+                if !func.generics.is_empty(){
+                    let mut api_fun=GenericFunction::from(api_fun);
+                    api_fun.add_generics(&func.generics);
+                    self.api_dependency_graph.borrow_mut().generic_functions.push(api_fun);
+                } else {
+                    self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+                }
+
             }
             ItemKind::MethodItem(_, _) => {
                 unreachable!();

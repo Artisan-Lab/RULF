@@ -81,9 +81,10 @@ impl From<ApiFunction> for GenericFunction {
     }
 }
 
+
 impl GenericFunction {
-    pub(crate) fn pretty_print(&self, full_name_map: &FullNameMap, cache: &Cache) {
-        let mut signature = String::from("[G]fn ");
+    pub(crate) fn get_full_signature(&self)->String{
+        let mut signature = String::from("[G] fn ");
         let mut inputs = Vec::<String>::new();
         signature.push_str(&self.api_function.full_name);
         for ty in self.api_function.inputs.iter() {
@@ -97,8 +98,16 @@ impl GenericFunction {
         } else {
             signature.push_str("void");
         }
-        println!("{}", signature);
-        print!("where: ");
+        signature
+    }
+
+    pub(crate) fn pretty_print(&self) {
+        println!("{}", self.get_full_signature());
+        print!("Symbol: ");
+        for sym in &self.generic_symbols{
+            print!("{}, ",sym.as_str());
+        }
+        print!("\nWhere: ");
         for (name, fact) in self.generic_params.iter() {
             print!("{}: {:?}, ", name, fact);
         }
@@ -129,7 +138,7 @@ impl GenericFunction {
                     if let Type::Generic(sym) = ty {
                         self.generic_params.insert(sym.to_string(), bounds_to_facts(&bounds));
                     } else {
-                        unreachable!();
+                        unreachable!("unsupport error\n {:?}", param);
                     }
                 }
                 WherePredicate::RegionPredicate { lifetime, bounds } => {
@@ -148,11 +157,11 @@ impl GenericFunction {
 
     fn resolve_impl_trait(&mut self) {
         let mut input_vec = self.api_function.inputs.clone();
-        println!("before replace: {:?}\n", input_vec);
+        //println!("before replace: {:?}\n", input_vec);
         for type_ in &mut input_vec {
             *type_ = self.replace_impl(type_);
         }
-        println!("after replace: {:?}\n", input_vec);
+        //println!("after replace: {:?}\n", input_vec);
         self.api_function.inputs = input_vec;
         let output_type = self.api_function.output.clone();
         if let Some(type_) = output_type {

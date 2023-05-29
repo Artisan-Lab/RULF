@@ -55,6 +55,7 @@ pub(crate) struct ApiSequence {
     pub(crate) _fuzzable_mut_tag: FxHashSet<usize>, //表示哪些fuzzable的变量需要带上mut标记
     pub(crate) _function_mut_tag: FxHashSet<usize>, //表示哪些function的返回值需要带上mut标记
     pub(crate) _covered_dependencies: FxHashSet<usize>, //表示用到了哪些dependency,即边覆盖率
+    pub(crate) mono: bool,                          // have any mono function in sequence
 }
 
 impl ApiSequence {
@@ -76,13 +77,23 @@ impl ApiSequence {
             _fuzzable_mut_tag,
             _function_mut_tag,
             _covered_dependencies,
+            mono: false,
         }
     }
 
-    pub(crate) fn _add_fn_without_params(&mut self, api_type: &ApiType, index: usize) {
-        let api_call = ApiCall::_new_without_params(api_type, index);
-        self.functions.push(api_call);
+    pub(crate) fn has_mono(&self) -> bool {
+        self.mono
     }
+
+    /* pub(crate) fn _add_fn_without_params(
+        &mut self,
+        api_type: &ApiType,
+        index: usize,
+        is_mono: bool,
+    ) {
+        let api_call = ApiCall::_new_without_params(api_type, index);
+        self._add_fn(api_call, is_mono);
+    } */
 
     pub(crate) fn _add_dependency(&mut self, dependency: usize) {
         self._covered_dependencies.insert(dependency);
@@ -189,19 +200,16 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_moved(&self, index: usize) -> bool {
-        if self._moved.contains(&index) {
-            true
-        } else {
-            false
-        }
+        if self._moved.contains(&index) { true } else { false }
     }
 
     pub(crate) fn _insert_move_index(&mut self, index: usize) {
         self._moved.insert(index);
     }
 
-    pub(crate) fn _add_fn(&mut self, api_call: ApiCall) {
+    pub(crate) fn _add_fn(&mut self, api_call: ApiCall, is_mono: bool) {
         self.functions.push(api_call);
+        self.mono |= is_mono;
     }
 
     pub(crate) fn _insert_fuzzable_mut_tag(&mut self, index: usize) {
@@ -209,11 +217,7 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_fuzzable_need_mut_tag(&self, index: usize) -> bool {
-        if self._fuzzable_mut_tag.contains(&index) {
-            true
-        } else {
-            false
-        }
+        if self._fuzzable_mut_tag.contains(&index) { true } else { false }
     }
 
     pub(crate) fn _insert_function_mut_tag(&mut self, index: usize) {
@@ -221,11 +225,7 @@ impl ApiSequence {
     }
 
     pub(crate) fn _is_function_need_mut_tag(&self, index: usize) -> bool {
-        if self._function_mut_tag.contains(&index) {
-            true
-        } else {
-            false
-        }
+        if self._function_mut_tag.contains(&index) { true } else { false }
     }
 
     pub(crate) fn set_unsafe(&mut self) {

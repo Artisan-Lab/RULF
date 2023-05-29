@@ -32,7 +32,7 @@ pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache: &Cache, check
             continue;
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print(&graph.full_name_map, cache);
+        let fn_line = api_function._pretty_print();
 
         println!("{}:{}", i, fn_line);
     }

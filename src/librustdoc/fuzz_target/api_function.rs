@@ -1,4 +1,4 @@
-use rustc_data_structures::fx::{FxHashSet};
+use rustc_data_structures::fx::FxHashSet;
 
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util;
@@ -23,6 +23,7 @@ pub(crate) struct ApiFunction {
     pub(crate) output: Option<clean::Type>,
     pub(crate) _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
     pub(crate) _unsafe_tag: ApiUnsafety,
+    pub(crate) mono: bool,
 }
 
 impl ApiUnsafety {
@@ -42,6 +43,10 @@ impl ApiUnsafety {
 }
 
 impl ApiFunction {
+    pub(crate) fn is_mono(&self) -> bool {
+        self.mono
+    }
+
     pub(crate) fn _is_end_function(&self, full_name_map: &FullNameMap, cache: &Cache) -> bool {
         if self.contains_mut_borrow() {
             return false;
@@ -60,6 +65,10 @@ impl ApiFunction {
         //TODO:考虑可变引用或者是可变裸指针做参数的情况
     }
 
+    /*  pub(crate) fn is_mono(&self) -> bool{
+           self.mono
+       }
+    */
     pub(crate) fn contains_mut_borrow(&self) -> bool {
         let input_len = self.inputs.len();
         if input_len <= 0 {
@@ -109,8 +118,8 @@ impl ApiFunction {
         }
     }
 
-    pub(crate) fn _pretty_print(&self, full_name_map: &FullNameMap, cache: &Cache) -> String {
-        let mut fn_line = format!("fn {}(", self.full_name);
+    pub(crate) fn _pretty_print(&self) -> String {
+        let mut fn_line = format!("fn {}{}(", self.full_name, if self.is_mono() {"#mono"} else {""});
         let input_len = self.inputs.len();
         for i in 0..input_len {
             let input_type = &self.inputs[i];
@@ -120,8 +129,9 @@ impl ApiFunction {
             fn_line.push_str(api_util::_type_name(input_type).as_str());
         }
         fn_line.push_str(")");
+
         if let Some(ref ty_) = self.output {
-            fn_line.push_str("->");
+            fn_line.push_str(" -> ");
             fn_line.push_str(api_util::_type_name(ty_).as_str());
         }
         fn_line
