@@ -1,8 +1,10 @@
-use crate::clean::{GenericArgs, GenericArg, PathSegment};
+use crate::clean::Path;
 use crate::clean::{self, types::PrimitiveType};
+use crate::clean::{types, GenericArg, GenericArgs, PathSegment, TypeBinding};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
+use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use crate::html::format::join_with_double_colon;
@@ -22,14 +24,12 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
     }
 }
 
-/* pub(crate) fn _is_generic_type(ty: &clean::Type) -> bool {
+pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
         clean::Type::Generic(_) => true,
+        clean::Type::ImplTrait(_) => true,
         clean::Type::Path { path } => {
-            if path.generics().is_some() {
-                return true;
-            }
             let segments = &path.segments;
             for segment in segments {
                 let generic_args = &segment.args;
@@ -37,7 +37,7 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
                     clean::GenericArgs::AngleBracketed { args, .. } => {
                         for generic_arg in args.iter() {
                             if let clean::GenericArg::Type(inner_ty) = generic_arg {
-                                if _is_generic_type(inner_ty) {
+                                if is_generic_type(inner_ty) {
                                     return true;
                                 }
                             }
@@ -45,12 +45,12 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
                     }
                     clean::GenericArgs::Parenthesized { inputs, output } => {
                         for input_ty in inputs.iter() {
-                            if _is_generic_type(input_ty) {
+                            if is_generic_type(input_ty) {
                                 return true;
                             }
                         }
                         if let Some(output_ty) = output {
-                            if _is_generic_type(&output_ty) {
+                            if is_generic_type(&output_ty) {
                                 return true;
                             }
                         }
@@ -61,7 +61,7 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
         }
         clean::Type::Tuple(types) => {
             for ty_ in types {
-                if _is_generic_type(ty_) {
+                if is_generic_type(ty_) {
                     return true;
                 }
             }
@@ -72,15 +72,15 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
         | clean::Type::RawPointer(_, type_)
         | clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
-            return _is_generic_type(inner_type);
+            return is_generic_type(inner_type);
         }
         _ => {
             //TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
             //如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
-            return false;
+            unimplemented!("is_generic_type: not support this type: {ty:?}");
         }
     }
-} */
+}
 
 pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> bool {
     match ty {
@@ -130,39 +130,65 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
             //TODO: impl trait
             false
         }
+        clean::Type::DynTrait(..) => false,
         _ => {
             unimplemented!();
         }
     }
 }
 
-
-pub(crate) fn print_path_segment(segment: &PathSegment) -> String{
-    let mut res=String::new();
+pub(crate) fn print_path_segment(segment: &PathSegment) -> String {
+    let mut res = String::new();
     res.push_str(&segment.name.as_str());
-    match &segment.args{
-        GenericArgs::AngleBracketed { args, bindings } =>{
-            let mut syms=Vec::<String>::new();
-            for arg in args.iter(){
-                let sym=match arg{
+    match &segment.args {
+        GenericArgs::AngleBracketed { args, bindings } => {
+            let mut syms = Vec::<String>::new();
+            for arg in args.iter() {
+                let sym = match arg {
                     GenericArg::Lifetime(lifetime) => lifetime.0.to_string(),
                     GenericArg::Const(constant) => _type_name(&constant.type_),
                     GenericArg::Type(type_) => _type_name(&type_),
-                    GenericArg::Infer => "_".to_owned()
+                    GenericArg::Infer => "_".to_owned(),
                 };
                 syms.push(sym);
             }
-            let syms=syms.join(", ");
-            if !syms.is_empty(){
+            for binding in bindings.iter() {
+                let assoc_item = print_path_segment(&binding.assoc);
+                let value = match binding.kind {
+                    clean::TypeBindingKind::Equality { ref term } => {
+                        format!("={}", print_term(term))
+                    }
+                    clean::TypeBindingKind::Constraint { ref bounds } => format!(":{:?}", bounds),
+                };
+                syms.push(format!("{}{}", assoc_item, value));
+            }
+            let syms = syms.join(", ");
+            if !syms.is_empty() {
                 res.push_str(&format!("<{syms}>"));
             }
         }
-        GenericArgs::Parenthesized { inputs, output }=>{
-            res.push_str("{..}");
+        GenericArgs::Parenthesized { inputs, output } => {
+            res.push_str("Fn(<unknown>) -> <unknown>");
         }
     };
     res
 }
+
+pub(crate) fn print_term(term: &types::Term) -> String {
+    match term {
+        clean::Term::Type(ty) => _type_name(ty),
+        clean::Term::Constant(constant) => "<constant>".to_string(),
+    }
+}
+
+pub(crate) fn print_path(path: &Path) -> String {
+    let mut res = Vec::<String>::new();
+    for segment in &path.segments {
+        res.push(print_path_segment(segment));
+    }
+    res.join("::").to_string()
+}
+
 //get the name of a type
 pub(crate) fn _type_name(
     type_: &clean::Type,
@@ -175,25 +201,22 @@ pub(crate) fn _type_name(
         }
     }*/
     match type_ {
-        clean::Type::Path { path } =>{
-            let mut res=Vec::<String>::new();
-            for segment in &path.segments{
-                res.push(print_path_segment(segment));
-            }
-            res.join("::").to_string()
-        }
+        clean::Type::Path { path } => print_path(path),
         clean::Type::Primitive(primitive_type) => primitive_type.as_sym().to_string(),
         clean::Type::Generic(generic) => generic.to_string(),
-        clean::Type::BorrowedRef { type_, .. } => {
+        clean::Type::BorrowedRef { type_, mutability, .. } => {
             let inner_type = &**type_;
-            let inner_name = _type_name(inner_type/* , full_name_map, cache */);
-            format!("&{}", inner_name)
+            let inner_name = _type_name(inner_type /* , full_name_map, cache */);
+            match mutability {
+                Mutability::Not => format!("&{}", inner_name),
+                Mutability::Mut => format!("&mut {}", inner_name),
+            }
         }
         clean::Type::Slice(type_) => {
-            format!("[{}]", _type_name(type_/* , full_name_map, cache */))
+            format!("[{}]", _type_name(type_ /* , full_name_map, cache */))
         }
         clean::Type::Array(type_, str_) => {
-            format!("[{};{}]", _type_name(type_/* , full_name_map, cache */), str_)
+            format!("[{};{}]", _type_name(type_ /* , full_name_map, cache */), str_)
         }
         clean::Type::Tuple(inner_types) => {
             let inner_types_number = inner_types.len();
@@ -203,13 +226,23 @@ pub(crate) fn _type_name(
                 if i != 0 {
                     res.push_str(" ,");
                 }
-                res.push_str(_type_name(inner_type/* , full_name_map, cache */).as_str());
+                res.push_str(_type_name(inner_type /* , full_name_map, cache */).as_str());
             }
             res.push(')');
             res
         }
         clean::Type::ImplTrait(bounds) => {
-            format!("impl {:?}", generic_function::bounds_to_facts(bounds))
+            let mut def_set = GenericParamMap::new();
+            def_set.add_generic_bounds("impl", bounds);
+            format!("impl {:?}", def_set)
+        }
+        clean::Type::QPath(qpathdata) => {
+            format!(
+                "<{} as {}>::{}",
+                _type_name(&qpathdata.self_type),
+                print_path(&qpathdata.trait_),
+                print_path_segment(&qpathdata.assoc),
+            )
         }
         _ => "Currently not supported".to_string(),
     }
@@ -310,9 +343,7 @@ pub(crate) fn _same_type_hard_mode(
             //TODO:有需要的时候在考虑
             CallType::_NotCompatible
         }
-        _ => {
-            unimplemented!();
-        }
+        clean::Type::DynTrait(..) => CallType::_NotCompatible,
     }
 }
 
@@ -785,64 +816,6 @@ fn new_segments_without_lifetime(
     }
     new_segments_without_lifetime
 }
-/* 
-pub(crate) fn replace_generic_type(
-    ty: &mut clean::Type,
-    solutions: FxHashMap<String, clean::Type>,
-) -> bool {
-    match ty {
-        clean::Type::Generic(sym) => {
-            ty = solutions.get(sym.as_str()).unwrap();
-            return true;
-        }
-        clean::Type::Path { path } => {
-            let segments = &path.segments;
-            let mut changed = false;
-            for segment in segments {
-                let generic_args = &segment.args;
-                match generic_args {
-                    clean::GenericArgs::AngleBracketed { args, .. } => {
-                        for generic_arg in args.iter_mut() {
-                            if let clean::GenericArg::Type(inner_ty) = generic_arg {
-                                changed |= replace_generic_type(inner_ty, solutions);
-                            }
-                        }
-                    }
-                    clean::GenericArgs::Parenthesized { inputs, output } => {
-                        for input_ty in inputs.iter_mut() {
-                            changed |= replace_generic_type(inner_ty, solutions);
-                        }
-                        if let Some(output_ty) = output {
-                            changed |= replace_generic_type(&mut output_ty, solutions);
-                        }
-                    }
-                }
-            }
-            changed
-        }
-        clean::Type::Tuple(types) => {
-            let mut changed = false;
-            for ty_ in types {
-                changed |= replace_generic_type(ty_, solutions);
-            }
-            changed
-        }
-        clean::Type::Slice(type_)
-        | clean::Type::Array(type_, ..)
-        | clean::Type::RawPointer(_, type_)
-        | clean::Type::BorrowedRef { type_, .. } => {
-            let inner_type = &mut *type_;
-            return replace_generic_type(inner_type, solutions);
-        }
-        clean::Type::ImplTrait(type_) => {}
-        _ => {
-            //TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
-            //如果有不支持的类型，也可以往这个函数里面丢，会在将函数加到图里面的时候最后过滤一遍
-            return false;
-        }
-    };
-    return changed;
-}*/
 
 pub(crate) fn replace_type_with<F: FnMut(&clean::Type) -> Option<clean::Type>>(
     ty: &clean::Type,
@@ -881,7 +854,7 @@ pub(crate) fn replace_type_with<F: FnMut(&clean::Type) -> Option<clean::Type>>(
                 }
             }
             clean::Type::Slice(ref mut type_)
-            | clean::Type::Array(ref mut type_,..)
+            | clean::Type::Array(ref mut type_, ..)
             | clean::Type::RawPointer(_, ref mut type_)
             | clean::Type::BorrowedRef { ref mut type_, .. } => {
                 *type_ = Box::new(replace_type_with(type_, f));
@@ -889,5 +862,90 @@ pub(crate) fn replace_type_with<F: FnMut(&clean::Type) -> Option<clean::Type>>(
             _ => {}
         }
         new_ty
+    }
+}
+
+pub(crate) fn is_binding_match(a: &TypeBinding, b: &TypeBinding) -> bool {
+    if a.assoc.name.as_str() != b.assoc.name.as_str() || a.term() != b.term() {
+        false
+    } else {
+        true
+    }
+}
+
+pub(crate) fn is_type_match(a: &clean::Type, b: &clean::Type) -> bool {
+    match (a, b) {
+        (clean::Type::Generic(_), _) | (_, clean::Type::Generic(_)) => {
+            unimplemented!("is_type_match generic");
+        }
+        (clean::Type::ImplTrait(_), _) | (_, clean::Type::ImplTrait(_)) => {
+            unimplemented!("is_type_match ImplTrait");
+        }
+        (clean::Type::Path { path: a }, clean::Type::Path { path: b }) => {
+            if a.def_id() != b.def_id() {
+                return false;
+            }
+            let a_args = &a.segments.last().unwrap().args;
+            let b_args = &b.segments.last().unwrap().args;
+            if matches!(a_args, GenericArgs::Parenthesized { .. })
+                || matches!(a_args, GenericArgs::Parenthesized { .. })
+            {
+                println!("ignore unsupport parenthesized args:\n{:?}\n{:?}", a, b);
+                return false;
+            }
+            if let (
+                GenericArgs::AngleBracketed { args: a_args, bindings: a_bindings },
+                GenericArgs::AngleBracketed { args: b_args, bindings: b_bindings },
+            ) = (a_args, b_args)
+            {
+                for i in 0..a_args.len() {
+                    if let (GenericArg::Type(a_arg), GenericArg::Type(b_arg)) =
+                        (&a_args[i], &b_args[i])
+                    {
+                        if !is_type_match(&a_arg, &b_arg) {
+                            return false;
+                        }
+                    } else {
+                        println!(
+                            "ignore unsupport generic Args (Const or Lifetime): {:?} {:?}",
+                            a_args[i], b_args[i]
+                        );
+                    }
+                }
+                let mut match_bindings = 0;
+                for a_binding in a_bindings {
+                    for b_binding in b_bindings {
+                        if is_binding_match(a_binding, b_binding) {
+                            match_bindings += 1;
+                        }
+                    }
+                }
+                if match_bindings < a_bindings.len() {
+                    return false;
+                }
+            }
+            return true;
+        }
+        (clean::Type::Tuple(a), clean::Type::Tuple(b)) => {
+            if a.len() != b.len() {
+                return false;
+            }
+            for (a, b) in a.iter().zip(b.iter()) {
+                if (!is_type_match(a, b)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        (clean::Type::Slice(a), clean::Type::Slice(b))
+        | (clean::Type::Array(a, ..), clean::Type::Array(b, ..))
+        | (clean::Type::RawPointer(_, a), clean::Type::RawPointer(_, b))
+        | (clean::Type::BorrowedRef { type_: a, .. }, clean::Type::BorrowedRef { type_: b, .. }) => {
+            return is_type_match(a, b);
+        }
+        _ => {
+            unimplemented!();
+            return false;
+        }
     }
 }

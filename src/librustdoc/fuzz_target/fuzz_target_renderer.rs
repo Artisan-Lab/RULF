@@ -58,16 +58,15 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     output,
                     _trait_full_path: None,
                     _unsafe_tag: api_unsafety,
-                    mono:false
+                    mono: false,
                 };
-                if !func.generics.is_empty(){
-                    let mut api_fun=GenericFunction::from(api_fun);
+                if !func.generics.is_empty() {
+                    let mut api_fun = GenericFunction::from(api_fun);
                     api_fun.add_generics(&func.generics);
                     self.api_dependency_graph.borrow_mut().generic_functions.push(api_fun);
                 } else {
                     self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
                 }
-
             }
             ItemKind::MethodItem(_, _) => {
                 unreachable!();
@@ -139,20 +138,20 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
     fn mod_item_in(&mut self, item: &clean::Item) -> Result<(), Error> {
         self.current.push(item.name.unwrap());
         self.api_dependency_graph
-        .borrow_mut()
-        .add_mod_visibility(&join_with_double_colon(&self.current), &item.visibility);
+            .borrow_mut()
+            .add_mod_visibility(&join_with_double_colon(&self.current), &item.visibility);
 
-/*         println!("==== mod_item_in ====");
-        let mut debug_str = String::new();
-        debug_str.push_str("\nname: ");
-        if let Some(name) = item.name {
-            debug_str.push_str(name.as_str());
-        }
-        debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
-        debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-        println!("{}", debug_str);
+        /*         println!("==== mod_item_in ====");
+               let mut debug_str = String::new();
+               debug_str.push_str("\nname: ");
+               if let Some(name) = item.name {
+                   debug_str.push_str(name.as_str());
+               }
+               debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
+               debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
+               println!("{}", debug_str);
 
- */
+        */
         Ok(())
     }
 
@@ -164,11 +163,13 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Post processing hook for cleanup and dumping output to files.
     fn after_krate(&mut self) -> Result<(), Error> {
-
         println!("==== run after krate ====");
         let mut api_dependency_graph = self.api_dependency_graph.borrow_mut();
-        //println!("ModVisibility: {:?}", api_dependency_graph.mod_visibility);
+        
+        api_dependency_graph.print_type_map();
+        api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.resolve_generic_functions();
+        statistic::print_summary();
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
         //寻找所有依赖，并且构建序列
@@ -192,7 +193,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         println!(
             "total generic functions in crate : {:?}",
             api_dependency_graph.generic_functions.len()
-        ); 
+        );
         //print_message::_print_pretty_sequences(&api_dependency_graph);
         //print_message::_print_pretty_functions(&api_dependency_graph, true);
         // print_message::_print_generated_afl_file(&api_dependency_graph);
@@ -210,7 +211,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
                 file_helper.write_libfuzzer_files();
             }
         }
-        statistic::print_summary();
+
         Ok(())
     }
 

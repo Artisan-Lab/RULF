@@ -1,69 +1,21 @@
-use crate::clean::Type;
 use crate::clean::{self, GenericBound, WherePredicate};
 use crate::clean::{GenericParamDefKind, Generics};
+use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
-use crate::fuzz_target::def_set::DefSet;
+use crate::fuzz_target::api_util::_type_name;
+use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::{api_function::ApiFunction, api_util, impl_util::FullNameMap};
+use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use rustc_span::symbol::Symbol;
-
-pub(crate) fn analyse_generics(generics: &Generics) -> FxHashMap<String, DefSet> {
-    let mut res = FxHashMap::default();
-    for param in generics.params.iter() {
-        match &param.kind {
-            GenericParamDefKind::Type { did, bounds, .. } => {
-                res.insert(param.name.to_string(), bounds_to_facts(bounds));
-            }
-            GenericParamDefKind::Const { .. } => {
-                println!("unsupport generic (const)");
-            }
-            GenericParamDefKind::Lifetime { .. } => {
-                println!("unsupport generic (lifetime)");
-            }
-        }
-    }
-    for param in generics.where_predicates.iter() {
-        match param {
-            WherePredicate::BoundPredicate { ty, bounds, bound_params } => {
-                if let Type::Generic(sym) = ty {
-                    res.insert(sym.to_string(), bounds_to_facts(&bounds));
-                } else {
-                    unreachable!();
-                }
-            }
-            WherePredicate::RegionPredicate { lifetime, bounds } => {
-                println!("unsupport generic (RegionPredicate)");
-            }
-            WherePredicate::EqPredicate { lhs, rhs, bound_params } => {
-                println!("unsupport generic (EqPredicate)");
-            }
-        }
-    }
-    res
-}
-
-pub(crate) fn bounds_to_facts(bounds: &[GenericBound]) -> DefSet {
-    let mut res = DefSet::new();
-    for bound in bounds.iter() {
-        match bound {
-            GenericBound::TraitBound(poly, _) => {
-                // FIXME: we currenly don't consider nested generic params e.g. Trait<Trait<T>>
-                res.insert(poly.trait_.def_id());
-            }
-            GenericBound::Outlives(lifetime) => {
-                println!("bounds to facts ignore lifetime: {:?}", lifetime);
-            }
-        }
-    }
-    res
-}
 
 //impl From<FxHashSet<Def>>
 #[derive(Clone)]
 pub(crate) struct GenericFunction {
     pub(crate) api_function: ApiFunction,
-    pub(crate) generic_params: FxHashMap<String, DefSet>, // symbol => {trait_def_id}
+    //pub(crate) generic_params: FxHashMap<String, DefSet>, // symbol => {trait}
+    pub(crate) bounds_map: GenericParamMap,
     pub(crate) generic_symbols: FxHashSet<String>,
     impl_count: i32, // number of impl declaration
 }
@@ -72,7 +24,7 @@ impl From<ApiFunction> for GenericFunction {
     fn from(api_function: ApiFunction) -> Self {
         let mut gf = GenericFunction {
             api_function,
-            generic_params: FxHashMap::default(),
+            bounds_map: GenericParamMap::new(),
             generic_symbols: FxHashSet::default(),
             impl_count: 0,
         };
@@ -81,9 +33,12 @@ impl From<ApiFunction> for GenericFunction {
     }
 }
 
+fn print_fact(facts: &Vec<Path>) -> String {
+    facts.iter().map(|path| _type_name(&Type::Path { path: path.clone() })).join(" + ")
+}
 
 impl GenericFunction {
-    pub(crate) fn get_full_signature(&self)->String{
+    pub(crate) fn get_full_signature(&self) -> String {
         let mut signature = String::from("[G] fn ");
         let mut inputs = Vec::<String>::new();
         signature.push_str(&self.api_function.full_name);
@@ -103,13 +58,18 @@ impl GenericFunction {
 
     pub(crate) fn pretty_print(&self) {
         println!("{}", self.get_full_signature());
-        print!("Symbol: ");
-        for sym in &self.generic_symbols{
-            print!("{}, ",sym.as_str());
+        print!("Generic Params: ");
+        for sym in &self.generic_symbols {
+            print!("{}, ", sym.as_str());
         }
-        print!("\nWhere: ");
-        for (name, fact) in self.generic_params.iter() {
-            print!("{}: {:?}, ", name, fact);
+        print!("\nWhere: \n");
+        for (name, fact) in self.bounds_map.iter() {
+            println!("{}: {}, ", name, print_fact(fact));
+        }
+
+        println!("Type Pred:");
+        for (type_, fact) in self.bounds_map.type_pred.iter() {
+            println!("{}: {}", _type_name(type_), print_fact(fact));
         }
         print!("\n");
         /* println!("=====\n");
@@ -118,37 +78,8 @@ impl GenericFunction {
         println!("=====\n"); */
     }
 
-    pub fn add_generics(&mut self, generics: &Generics) {
-        for param in generics.params.iter() {
-            match &param.kind {
-                GenericParamDefKind::Type { did, bounds, .. } => {
-                    self.generic_params.insert(param.name.to_string(), bounds_to_facts(bounds));
-                }
-                GenericParamDefKind::Const { .. } => {
-                    println!("unsupport generic (const)");
-                }
-                GenericParamDefKind::Lifetime { .. } => {
-                    println!("unsupport generic (lifetime)");
-                }
-            }
-        }
-        for param in generics.where_predicates.iter() {
-            match param {
-                WherePredicate::BoundPredicate { ty, bounds, bound_params } => {
-                    if let Type::Generic(sym) = ty {
-                        self.generic_params.insert(sym.to_string(), bounds_to_facts(&bounds));
-                    } else {
-                        unreachable!("unsupport error\n {:?}", param);
-                    }
-                }
-                WherePredicate::RegionPredicate { lifetime, bounds } => {
-                    println!("unsupport generic (RegionPredicate)");
-                }
-                WherePredicate::EqPredicate { lhs, rhs, bound_params } => {
-                    println!("unsupport generic (EqPredicate)");
-                }
-            }
-        }
+    pub(crate) fn add_generics(&mut self, generics: &Generics) {
+        self.bounds_map.add_generics(generics);
     }
 
     fn resolve_argument_type(&mut self) {
@@ -156,6 +87,7 @@ impl GenericFunction {
     }
 
     fn resolve_impl_trait(&mut self) {
+        // replace impl
         let mut input_vec = self.api_function.inputs.clone();
         //println!("before replace: {:?}\n", input_vec);
         for type_ in &mut input_vec {
@@ -170,9 +102,9 @@ impl GenericFunction {
     }
 
     fn add_new_impl_generic(&mut self, bounds: &[GenericBound]) -> String {
-        let generic_param_name = format!("impl{}", self.impl_count);
+        let generic_param_name = format!("impl_trait_{}", self.impl_count);
         self.impl_count += 1;
-        self.generic_params.insert(generic_param_name.clone(), bounds_to_facts(bounds));
+        self.bounds_map.add_generic_bounds(&generic_param_name, bounds);
         self.generic_symbols.insert(generic_param_name.clone());
         generic_param_name
     }

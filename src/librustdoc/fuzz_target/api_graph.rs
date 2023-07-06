@@ -1,20 +1,27 @@
-use super::generic_function;
-use super::statistic;
+use crate::clean::GenericArg;
+use crate::clean::GenericArgs;
+use crate::clean::Generics;
+use crate::clean::Path;
+use crate::clean::PrimitiveType;
 use crate::clean::Type;
 use crate::clean::Visibility;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
+use crate::fuzz_target::api_util::_type_name;
 use crate::fuzz_target::call_type::CallType;
-use crate::fuzz_target::def_set::DefSet;
 use crate::fuzz_target::fuzz_target_renderer::FuzzTargetContext;
 use crate::fuzz_target::fuzzable_type;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
+use crate::fuzz_target::generic_function;
 use crate::fuzz_target::generic_function::GenericFunction;
+use crate::fuzz_target::generic_param_map::GenericParamMap;
+use crate::fuzz_target::generic_solver::GenericSolver;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
+use crate::fuzz_target::statistic;
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
 use lazy_static::lazy_static;
@@ -22,8 +29,10 @@ use rand::{self, Rng};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use std::cmp::{max, min};
+use std::default;
 use std::fmt;
-use std::rc::Rc;
+use std::vec;
+use std::{cell::RefCell, rc::Rc};
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: FxHashMap<&'static str, usize> = {
@@ -45,16 +54,96 @@ lazy_static! {
     };
 }
 
+pub(crate) struct TypeContext {
+    pub(crate) type_candidates: FxHashMap<Type, usize>,
+    pub(crate) type_sorted: Vec<Type>,
+}
+
+impl TypeContext {
+    pub(crate) fn new() -> TypeContext {
+        TypeContext {
+            type_candidates: FxHashMap::<Type, usize>::default(),
+            type_sorted: Vec::new(),
+        }
+    }
+
+    pub(crate) fn get_sorted_type(&self) -> &Vec<Type> {
+        &self.type_sorted
+    }
+
+    fn add_type_candidate(&mut self, type_: &Type) -> bool {
+        if let Some(v) = self.type_candidates.get_mut(type_) {
+            *v += 1;
+            false
+        } else {
+            println!("[new candidate] {} => {:?}", _type_name(&type_), type_);
+            self.type_candidates.insert(type_.clone(), 1);
+            true
+        }
+    }
+
+    pub(crate) fn add_canonical_types(&mut self, type_: &Type) {
+        match type_ {
+            Type::Primitive(inner) => {
+                if *inner != PrimitiveType::Str {
+                    self.add_type_candidate(type_);
+                }
+            }
+            Type::Path { .. } => {
+                self.add_type_candidate(type_);
+            }
+            Type::Tuple(ref types) => {
+                for ty_ in types {
+                    self.add_canonical_types(ty_);
+                }
+            }
+            Type::Slice(ref type_)
+            | Type::Array(ref type_, ..)
+            | Type::RawPointer(_, ref type_) => {
+                self.add_canonical_types(type_);
+            }
+            Type::BorrowedRef { type_: inner, .. } => {
+                // &str is canonical type
+                if let Type::Primitive(PrimitiveType::Str) = **inner {
+                    self.add_type_candidate(type_);
+                } else {
+                    self.add_canonical_types(inner);
+                }
+            }
+            Type::DynTrait(..) => {}
+            _ => {
+                unimplemented!("unexpected type: {type_:?}");
+            }
+        }
+    }
+
+    pub(crate) fn add_type_candidates(&mut self, api_functions: &Vec<ApiFunction>, cache: &Cache) {
+        println!("====== new candidates ======");
+        for function in api_functions.iter() {
+            for input in &function.inputs {
+                self.add_canonical_types(input);
+            }
+
+            if let Some(output) = &function.output {
+                self.add_canonical_types(output);
+            }
+        }
+
+        let mut vec = self.type_candidates.iter().collect::<Vec<_>>();
+        vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        self.type_sorted = vec.into_iter().map(|a| a.0.clone()).collect();
+    }
+}
+
 pub(crate) struct ApiGraph<'tcx> {
     pub(crate) _crate_name: String,
     pub(crate) api_functions: Vec<ApiFunction>,
     pub(crate) api_functions_visited: Vec<bool>,
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
-    pub(crate) type_traits: FxHashMap<DefId, DefSet>, // type defid => set of trait defid
     pub(crate) type_map: FxHashMap<DefId, Type>,
-    pub(crate) type_trait_impls: FxHashMap<DefId, FxHashMap<DefId, DefId>>, // type defid => set of impl defid
-    pub(crate) full_name_map: FullNameMap,                                  //did to full_name
+    pub(crate) type_trait_impls: FxHashMap<DefId, Vec<(Path, GenericParamMap, DefId)>>, // type defid => {(trait path, generics, impl id)}
+    pub(crate) full_name_map: FullNameMap,  //did to full_name
     pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
     pub(crate) generic_functions: Vec<GenericFunction>,
     pub(crate) functions_with_unsupported_fuzzable_types: FxHashSet<String>,
@@ -86,7 +175,7 @@ pub(crate) enum ApiType {
     //GenericFunction, currently not support now
 }
 
-type Solution = FxHashMap<String, Vec<DefId>>;
+type Solution = FxHashMap<String, Vec<Type>>; // TODO: Type or DefId?
 //函数的依赖关系
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct ApiDependency {
@@ -104,7 +193,6 @@ impl<'tcx> ApiGraph<'tcx> {
             api_functions_visited: Vec::new(),
             api_dependencies: Vec::new(),
             api_sequences: Vec::new(),
-            type_traits: FxHashMap::default(),
             type_map: FxHashMap::default(),
             type_trait_impls: FxHashMap::default(),
             full_name_map: FullNameMap::new(),
@@ -116,18 +204,40 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    pub(crate) fn add_type_trait(&mut self, ty_did: DefId, trait_did: DefId) {
-        self.type_traits.entry(ty_did).or_default().insert(trait_did);
-    }
+    /* pub(crate) fn add_type_trait(&mut self, ty_did: DefId, trait_did: DefId) {
+        self.type_traits.entry(ty_did).or_default().add_trait(trait_did);
+    } */
 
-    pub(crate) fn add_type_trait_impl(&mut self, ty_did: DefId, trait_did: DefId, impl_did: DefId) {
-        *self.type_trait_impls.entry(ty_did).or_default().entry(trait_did).or_insert(impl_did) =
-            impl_did;
+    pub(crate) fn add_type_trait_impl(
+        &mut self,
+        ty_did: DefId,
+        trait_: Path,
+        impl_generics: GenericParamMap,
+        impl_did: DefId,
+    ) {
+        self.type_trait_impls.entry(ty_did).or_default().push((trait_, impl_generics, impl_did));
     }
 
     pub(crate) fn add_type(&mut self, ty_did: DefId, type_: Type) {
+        if let Some(before) = self.type_map.get(&ty_did) {
+            println!("[add_type] before: {}", _type_name(before));
+            println!("[add_type] after: {}", _type_name(&type_));
+        }
         self.type_map.insert(ty_did, type_);
     }
+
+    pub(crate) fn get_type(&self, did: DefId) -> Type {
+        self.type_map.get(&did).expect(&format!("type did should exist: {:?}", did)).clone()
+    }
+
+    /* pub(crate) fn get_path(&self, did: DefId) -> Path {
+        let ty = self.get_type(did);
+        if let Type::Path { path } = ty {
+            path
+        } else {
+            unreachable!("{ty:?} is not a path");
+        }
+    } */
 
     pub fn get_full_path_from_def_id(&self, did: DefId) -> String {
         if let Some(&(ref syms, item_type)) = self.cache().paths.get(&did) {
@@ -135,21 +245,7 @@ impl<'tcx> ApiGraph<'tcx> {
         } else if let Some(&(ref syms, item_type)) = self.cache().external_paths.get(&did) {
             join_with_double_colon(syms)
         } else {
-            panic!("did should be found in cache")
-        }
-    }
-
-    pub fn print_impl_traits(&self) {
-        for (did, traits) in &self.type_traits {
-            println!(
-                "\ntrait impl for {}:\n{}",
-                self.get_full_path_from_def_id(*did),
-                traits
-                    .iter()
-                    .map(|did| { self.get_full_path_from_def_id(*did) })
-                    .collect::<Vec<String>>()
-                    .join(",")
-            );
+            panic!("did could not be found in cache")
         }
     }
 
@@ -161,150 +257,86 @@ impl<'tcx> ApiGraph<'tcx> {
         self.cx.tcx
     }
 
-    pub(crate) fn extract_type_impls(
-        &self,
-        trait_impls: &FxHashMap<DefId, DefId>,
-        fact: &DefSet,
-    ) -> Option<DefSet> {
-        let mut res = DefSet::new();
-        for did in fact.iter() {
-            if let Some(impl_did) = trait_impls.get(did) {
-                res.insert(*impl_did);
-            } else {
-                return None;
-            }
+    pub(crate) fn print_type_map(&self) {
+        println!("all types:");
+        for (did, type_) in &self.type_map {
+            println!("{did:?} => {}", _type_name(type_));
         }
-        Some(res)
+        println!("");
     }
 
-    fn get_generic_params_solutions(&self, function: &GenericFunction) -> Option<Solution> {
-        let mut solutions = FxHashMap::<String, Vec<DefId>>::default();
-        for name in &function.generic_symbols {
-            let fact = function.generic_params.get(name).expect("symbol must have fact");
-            let mut v = Vec::<String>::new();
-            let mut count = 0;
-            let mut visited = DefSet::new();
-            solutions.insert(name.to_string(), Vec::new());
-            for (did, trait_impls) in self.type_trait_impls.iter() {
-                // evert type (did, trait-impl pairs)
-                if let Some(type_impl_fact) = self.extract_type_impls(trait_impls, fact) {
-                    // filter by bound fact
-                    v.push(format!(
-                        "=> {}(impl: {type_impl_fact:?})",
-                        self.get_full_path_from_def_id(*did)
-                    ));
-                    if !(type_impl_fact.is_subset(&visited)) {
-                        count += 1;
-                        *v.last_mut().unwrap() += "(selected)";
-                        solutions.get_mut(name).unwrap().push(*did);
-                        visited.union(&type_impl_fact);
-                    }
-                }
-            }
-            function.pretty_print();
-            print!("{count} available types for param {name}:\n{}\n", v.join("\n"));
-            if count == 0 {
-                return None;
+    pub(crate) fn print_type_trait_impls(&self) {
+        for (did, vec_trait_impls) in &self.type_trait_impls {
+            println!(
+                "\ntype {} implement {} traits: ",
+                _type_name(&self.get_type(*did)),
+                vec_trait_impls.len()
+            );
+            for (trait_, bounds, impl_id) in vec_trait_impls {
+                let ty = Type::Path { path: trait_.clone() };
+                println!("> {:?} ,{} ,bounds: {:?}", impl_id, _type_name(&ty), bounds);
             }
         }
-        Some(solutions)
     }
 
-    fn monomorphise(
-        &self,
-        function: &GenericFunction,
-        type_candidates: &Vec<DefId>,
-    ) -> Vec<ApiFunction> {
-        // calculate solutions
-        let max_mono_size = 10;
-        let solutions = self.get_generic_params_solutions(function);
-        if solutions.is_none() {
-            return Vec::new();
-        }
+    fn prune_solutions(&self, sol_with_impl: Vec<(Type, FxHashSet<DefId>)>) -> Vec<Type> {
+        //return sol_with_impl.into_iter().map(|x|{x.0}).collect();
         let mut res = Vec::new();
-        statistic::inc("DEGENERIC");
-        if function.generic_params.is_empty() {
-            // no type parameter
-            let mut func=function.api_function.clone();
-            func.mono=true;
-            res.push(func);
-            return res;
-        }
-        let solutions = solutions.unwrap();
-        let mut solution_nums = 0;
-        for (k, v) in solutions.iter() {
-            if v.len() != 0 {
-                // param is not unbound
-                solution_nums = max(v.len(), solution_nums);
-            } // if 
-        }
-        solution_nums = min(solution_nums, max_mono_size);
-
-        for i in 0..solution_nums {
-            statistic::inc("MONO_FUNS");
-            let mut solution = FxHashMap::<String, DefId>::default();
-            // produce new solution
-            for (k, v) in &solutions {
-                if v.len() == 0 {
-                    // param k is unbounded
-                    solution.insert(k.to_string(), type_candidates[i % type_candidates.len()]);
-                    println!("{}: {:?}", k, type_candidates[i % type_candidates.len()]);
-                } else {
-                    solution.insert(k.to_string(), v[i % v.len()]);
-                    println!("{}: {:?}", k, v[i % v.len()]);
-                }
+        let mut visited = FxHashSet::<DefId>::default();
+        let union = |a: &mut FxHashSet<DefId>, b: &FxHashSet<DefId>| {
+            for id in b {
+                a.insert(*id);
             }
-            let mut monofun = function.api_function.clone();
-            monofun.mono=true;
-            let mut replace_generic = |type_: &Type| -> Option<Type> {
-                if let Type::Generic(sym) = type_ {
-                    let id = solution.get(sym.as_str()).unwrap();
-                    Some(self.type_map.get(id).unwrap().clone())
-                } else {
-                    None
-                }
-            };
-            for type_ in &mut monofun.inputs {
-                *type_ = api_util::replace_type_with(type_, &mut replace_generic);
+        };
+        for (ty, impl_set) in sol_with_impl.iter() {
+            if (!impl_set.is_subset(&visited)) {
+                union(&mut visited, impl_set);
+                res.push(ty.clone());
+                println!("{} is selected", _type_name(&ty));
             }
-            if let Some(ref output) = monofun.output {
-                monofun.output = Some(api_util::replace_type_with(output, &mut replace_generic));
-            }
-            // monofun.full_name.push_str(&format!("#{}", i).to_owned());
-            print!("monofun#{i}:");
-            println!("{}", monofun._pretty_print());
-            res.push(monofun);
         }
         res
     }
 
-    pub(crate) fn resolve_type_candidates(&self) -> Vec<DefId> {
-        let mut map = FxHashMap::<DefId, i32>::default();
-        for function in &self.api_functions {
-            for input in &function.inputs {
-                if let Some(did) = input.def_id(self.cache()) {
-                    *map.entry(did).or_default() += 1;
-                }
-            }
-
-            if let Some(output) = &function.output {
-                if let Some(did) = output.def_id(self.cache()) {
-                    *map.entry(did).or_default() += 1;
-                }
-            }
-        }
-
-        let mut vec = map.into_iter().collect::<Vec<_>>();
-        vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        println!("type candidates: {:?}", vec);
-        vec.into_iter().map(|a| a.0).collect()
-    }
-
     pub(crate) fn resolve_generic_functions(&mut self) {
-        let candidates = self.resolve_type_candidates();
+        let mut type_context = Rc::new(RefCell::new(TypeContext::new()));
+        type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
+        let mut solvers = Vec::new();
+        let num_function = self.generic_functions.len();
+        let mut counts: Vec<usize> = vec![0; num_function];
         for function in self.generic_functions.iter() {
             function.pretty_print();
-            for api_fun in self.monomorphise(function, &candidates) {
+            solvers.push(GenericSolver::new(
+                &self.cx.cache,
+                Rc::clone(&type_context),
+                &self.type_trait_impls,
+                function,
+            ));
+        }
+
+        let mut num_iter = 0;
+        loop {
+            statistic::inc("ITERS");
+            println!("=====Iteration #{}=====", num_iter);
+            num_iter += 1;
+            let mut new_candidates = Vec::new();
+            for i in 0..num_function {
+                solvers[i].solve();
+                for api_fun in solvers[i].take_solutions() {
+                    print!("monofun#{}:", counts[i]);
+                    statistic::inc("MONO_FUNS");
+                    counts[i] += 1;
+                    println!("{}", api_fun._pretty_print());
+                    new_candidates.push(api_fun);
+                }
+            }
+
+            if new_candidates.is_empty() {
+                break;
+            }
+
+            type_context.borrow_mut().add_type_candidates(&new_candidates, self.cache());
+            for api_fun in new_candidates {
                 if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
                     self.functions_with_unsupported_fuzzable_types
                         .insert(api_fun.full_name.clone());
@@ -312,6 +344,15 @@ impl<'tcx> ApiGraph<'tcx> {
                     self.api_functions.push(api_fun);
                 }
             }
+        }
+        println!("unsolve generic function:");
+        for i in 0..num_function {
+            if counts[i] > 0 {
+                statistic::inc("DEGENERIC");
+            } else {
+                self.generic_functions[i].pretty_print();
+            }
+
         }
     }
 
@@ -1128,7 +1169,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 }
                 let api_sequence = &self.api_sequences[j];
 
-                if !api_sequence.has_mono(){
+                if !api_sequence.has_mono() {
                     continue;
                 }
 

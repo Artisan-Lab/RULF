@@ -427,7 +427,11 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
         clean::Type::Infer => {
             return FuzzableCallType::NoFuzzable;
         }
+        clean::Type::DynTrait(..) => {
+            return FuzzableCallType::NoFuzzable;
+        }
         _ => {
+            println!("is this fuzzable? {:?}",ty_);
             unimplemented!()
         }
     }

@@ -1,6 +1,3 @@
-use std::default;
-use std::f32::consts::E;
-
 use crate::clean::Function;
 use crate::clean::GenericBound;
 use crate::clean::Item;
@@ -14,7 +11,7 @@ use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::generic_function::analyse_generics;
+use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::statistic;
 use crate::fuzz_target::{api_util, generic_function};
@@ -104,7 +101,7 @@ pub(crate) fn analyse_impl(
 ) {
     let impl_did = impl_.def_id();
     let impl_ = impl_.inner_impl();
-    println!(">>>>> IMPL BLOCK INFO <<<<<");
+    println!("\n>>>>> IMPL BLOCK INFO <<<<<");
     println!("process impl: {:?}", impl_);
     let inner_items = &impl_.items;
     //BUG FIX: TRAIT作为全限定名只能用于输入类型中带有self type的情况，这样可以推测self type，否则需要用具体的类型名
@@ -126,6 +123,7 @@ pub(crate) fn analyse_impl(
         println!("for type is generic/trait");
     }
 
+    // print some debug info
     // println!("impl for: {}", api_graph.get_full_path_from_def_id(impl_ty_def_id).as_str());
     println!("self generics: {:?}", self_generics);
     println!("impl generics: {:?}", impl_.generics);
@@ -152,16 +150,16 @@ pub(crate) fn analyse_impl(
     println!("type_def_id: {:?}", impl_for_def_id);
     println!("trait_def_id: {:?}", impl_.trait_.as_ref().map(|tr| tr.def_id()));
     println!("impl_def_id: {:?}", impl_did);
-    println!(">>>>>>>>>>    <<<<<<<<<<");
-    
-    if let Some(ty_did)=impl_for_def_id{
+
+    if let Some(ty_did) = impl_for_def_id {
         // add type map
         // id => type
         api_graph.add_type(ty_did, impl_for.clone());
-        if let Some(ref trait_path) = impl_.trait_{
-            let trait_did = trait_path.def_id();
-            api_graph.add_type_trait_impl(ty_did, trait_did, impl_did);
-            api_graph.add_type_trait(ty_did, trait_did);
+        if let Some(ref trait_path) = impl_.trait_ {
+            let mut def_set = GenericParamMap::new();
+            def_set.add_generics(&impl_.generics);
+            api_graph.add_type_trait_impl(ty_did, trait_path.clone(), def_set, impl_did);
+            //api_graph.add_type_trait(ty_did, trait_did);
         }
     }
 
@@ -169,15 +167,11 @@ pub(crate) fn analyse_impl(
         //println!("item_name, {:?}", item.name.as_ref().unwrap());
         match &*item.kind {
             ItemKind::FunctionItem(_function) => {
-                unimplemented!("function in impl statement");
+                unreachable!("function in impl statement");
             }
             ItemKind::MethodItem(function, _) => {
                 if (!is_trait_impl || is_crate_trait_impl) {
                     statistic::inc("FUNCTIONS");
-
-                    if (!function.generics.is_empty()) {
-                        statistic::inc("GENERIC_FUNCTIONS");
-                    }
 
                     if (is_trait_impl) {
                         if (matches!(impl_.kind, clean::ImplKind::Normal)) {
@@ -261,7 +255,7 @@ pub(crate) fn analyse_impl(
                         output,
                         _trait_full_path: None,
                         _unsafe_tag: api_unsafety,
-                        mono:false
+                        mono: false,
                     },
                     Some(_) => {
                         if let Some(ref real_trait_name) = trait_full_name {
@@ -271,7 +265,7 @@ pub(crate) fn analyse_impl(
                                 output,
                                 _trait_full_path: Some(real_trait_name.clone()),
                                 _unsafe_tag: api_unsafety,
-                                mono:false
+                                mono: false,
                             }
                         } else {
                             //println!("Trait not found in current crate.");
@@ -286,16 +280,24 @@ pub(crate) fn analyse_impl(
                         generic_function::GenericFunction::from(api_function);
                     generic_function.add_generics(&function.generics);
                     generic_function.add_generics(&impl_.generics);
-                    api_graph.generic_functions.push(generic_function);
+
+                    // if there is no type generic, regard it as a normal function
+                    if generic_function.bounds_map.is_empty() {
+                        api_graph.add_api_function(generic_function.api_function);
+                    } else {
+                        api_graph.generic_functions.push(generic_function);
+                        statistic::inc("GENERIC_FUNCTIONS");
+                    }
                 } else {
                     api_graph.add_api_function(api_function);
                 }
             }
             _ => {
-                println!("no covered item {:?}", &item);
+                println!("not covered item {:?}", &item);
             }
         }
     }
+    println!(">>>>>>>>>>       <<<<<<<<<<\n");
 }
 
 //递归判断一个参数是否是self类型的

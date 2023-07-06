@@ -28,7 +28,7 @@ pub(crate) enum _AflHelpers {
 impl _AflHelpers {
     pub(crate) fn _new_from_fuzzable(fuzzable: &FuzzableType) -> Self {
         match fuzzable {
-            FuzzableType::NoFuzzable => _AflHelpers::_NoHelper,
+            FuzzableType::NoFuzzable => unreachable!("reach no fuzzable type: {:?}",fuzzable),
             FuzzableType::RefStr => _AflHelpers::_Str,
             FuzzableType::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::U8 => _AflHelpers::_U8,
@@ -140,7 +140,7 @@ impl _AflHelpers {
 
     pub(crate) fn _to_full_function(&self) -> &'static str {
         match self {
-            _AflHelpers::_NoHelper => "afl no helper",
+            _AflHelpers::_NoHelper => unreachable!("afl no helper"),
             _AflHelpers::_U8 => _data_to_u8(),
             _AflHelpers::_I8 => _data_to_i8(),
             _AflHelpers::_U16 => _data_to_u16(),
@@ -165,7 +165,7 @@ impl _AflHelpers {
 
     pub(crate) fn _type_name(&self) -> String {
         match self {
-            _AflHelpers::_NoHelper => "afl no helper".to_string(),
+            _AflHelpers::_NoHelper => unreachable!("afl no helper"),
             _AflHelpers::_U8 => "u8".to_string(),
             _AflHelpers::_I8 => "i8".to_string(),
             _AflHelpers::_U16 => "u16".to_string(),
@@ -406,6 +406,7 @@ pub(crate) fn _get_all_dependent_afl_helpers_of_sequence(
 pub(crate) fn _get_afl_helpers_functions_of_sequence(
     fuzzable_params: &Vec<FuzzableType>,
 ) -> Option<Vec<String>> {
+    //println!("{:?}",fuzzable_params);
     let afl_helpers = _get_all_dependent_afl_helpers_of_sequence(fuzzable_params);
     if afl_helpers.len() < 1 {
         return None;
