@@ -16,3 +16,4 @@ mod replay_util;
 mod statistic;
 mod generic_param_map;
 mod generic_solver;
+mod trait_impl;

@@ -4,19 +4,21 @@ use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util::_type_name;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
-use crate::fuzz_target::{api_function::ApiFunction, api_util, impl_util::FullNameMap};
+use crate::fuzz_target::impl_util::FullNameMap;
+use crate::fuzz_target::{api_function::ApiFunction, api_util};
 use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use rustc_span::symbol::Symbol;
 
+use super::api_util::replace_type_with;
+
 //impl From<FxHashSet<Def>>
 #[derive(Clone)]
 pub(crate) struct GenericFunction {
     pub(crate) api_function: ApiFunction,
-    //pub(crate) generic_params: FxHashMap<String, DefSet>, // symbol => {trait}
-    pub(crate) bounds_map: GenericParamMap,
-    pub(crate) generic_symbols: FxHashSet<String>,
+    pub(crate) generic_map: GenericParamMap,
+    pub(crate) bounded_symbols: FxHashSet<String>,
     impl_count: i32, // number of impl declaration
 }
 
@@ -24,8 +26,8 @@ impl From<ApiFunction> for GenericFunction {
     fn from(api_function: ApiFunction) -> Self {
         let mut gf = GenericFunction {
             api_function,
-            bounds_map: GenericParamMap::new(),
-            generic_symbols: FxHashSet::default(),
+            generic_map: GenericParamMap::new(),
+            bounded_symbols: FxHashSet::default(),
             impl_count: 0,
         };
         gf.resolve_argument_type();
@@ -34,42 +36,42 @@ impl From<ApiFunction> for GenericFunction {
 }
 
 fn print_fact(facts: &Vec<Path>) -> String {
-    facts.iter().map(|path| _type_name(&Type::Path { path: path.clone() })).join(" + ")
+    facts.iter().map(|path| _type_name(&Type::Path { path: path.clone() }, None)).join(" + ")
 }
 
 impl GenericFunction {
-    pub(crate) fn get_full_signature(&self) -> String {
+    pub(crate) fn get_full_signature(&self, full_name_map: &FullNameMap) -> String {
         let mut signature = String::from("[G] fn ");
         let mut inputs = Vec::<String>::new();
         signature.push_str(&self.api_function.full_name);
         for ty in self.api_function.inputs.iter() {
-            inputs.push(api_util::_type_name(ty));
+            inputs.push(api_util::_type_name(ty, Some(full_name_map)));
         }
         signature.push_str("(");
         signature.push_str(inputs.join(", ").as_str());
         signature.push_str(") -> ");
         if let Some(ref ty) = self.api_function.output {
-            signature.push_str(api_util::_type_name(ty).as_str());
+            signature.push_str(api_util::_type_name(ty, Some(full_name_map)).as_str());
         } else {
             signature.push_str("void");
         }
         signature
     }
 
-    pub(crate) fn pretty_print(&self) {
-        println!("{}", self.get_full_signature());
-        print!("Generic Params: ");
-        for sym in &self.generic_symbols {
-            print!("{}, ", sym.as_str());
-        }
+    pub(crate) fn pretty_print(&self, full_name_map: &FullNameMap) {
+        println!("{}", self.get_full_signature(full_name_map));
         print!("\nWhere: \n");
-        for (name, fact) in self.bounds_map.iter() {
+        for (name, fact) in self.generic_map.iter() {
             println!("{}: {}, ", name, print_fact(fact));
         }
 
         println!("Type Pred:");
-        for (type_, fact) in self.bounds_map.type_pred.iter() {
-            println!("{}: {}", _type_name(type_), print_fact(fact));
+        for (type_, fact) in self.generic_map.type_pred.iter() {
+            println!("{}: {}", _type_name(type_, Some(full_name_map)), print_fact(fact));
+        }
+        print!("bounded Params: ");
+        for sym in &self.bounded_symbols {
+            print!("{}, ", sym.as_str());
         }
         print!("\n");
         /* println!("=====\n");
@@ -79,11 +81,39 @@ impl GenericFunction {
     }
 
     pub(crate) fn add_generics(&mut self, generics: &Generics) {
-        self.bounds_map.add_generics(generics);
+        self.generic_map.add_generics(generics);
     }
 
     fn resolve_argument_type(&mut self) {
         self.resolve_impl_trait();
+    }
+
+    pub(crate) fn resolve_bounded_symbol(&mut self) {
+        println!("resolve bounded symbol: {}",self.api_function._pretty_print());
+        for (key, bounds) in self.generic_map.iter() {
+            if !bounds.is_empty() {
+                self.bounded_symbols.insert(key.to_owned());
+            }
+        }
+
+        let mut find_generic = |type_: &Type| -> Option<Type> {
+            match type_ {
+                Type::Generic(sym) => {
+                    self.bounded_symbols.insert(sym.to_string());
+                }
+                _ => {}
+            }
+            None
+        };
+
+        for (type_, bounds) in self.generic_map.type_pred.iter() {
+            println!("{:?} : {:?}",type_,bounds);
+            replace_type_with(type_, &mut find_generic);
+            for bound in bounds.iter() {
+                replace_type_with(&Type::Path { path: bound.clone() }, &mut find_generic);
+            }
+        }
+        println!("{:?}",self.bounded_symbols);
     }
 
     fn resolve_impl_trait(&mut self) {
@@ -104,8 +134,7 @@ impl GenericFunction {
     fn add_new_impl_generic(&mut self, bounds: &[GenericBound]) -> String {
         let generic_param_name = format!("impl_trait_{}", self.impl_count);
         self.impl_count += 1;
-        self.bounds_map.add_generic_bounds(&generic_param_name, bounds);
-        self.generic_symbols.insert(generic_param_name.clone());
+        self.generic_map.add_generic_bounds(&generic_param_name, bounds);
         generic_param_name
     }
 
@@ -114,7 +143,6 @@ impl GenericFunction {
             let sym = self.add_new_impl_generic(&bounds);
             Type::Generic(Symbol::intern(&sym))
         } else if let Type::Generic(sym) = ty {
-            self.generic_symbols.insert(sym.to_string());
             ty.clone()
         } else {
             let mut new_ty = ty.clone();

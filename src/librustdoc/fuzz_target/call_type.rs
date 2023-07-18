@@ -22,7 +22,18 @@ pub(crate) enum CallType {
 }
 
 impl CallType {
-    pub(crate) fn _to_call_string(&self, variable_name: &String, full_name_map: &FullNameMap, cache: &Cache) -> String {
+    pub(crate) fn is_compatible(&self) -> bool {
+        match *self {
+            CallType::_NotCompatible => false,
+            _ => true,
+        }
+    }
+    pub(crate) fn _to_call_string(
+        &self,
+        variable_name: &String,
+        full_name_map: &FullNameMap,
+        cache: &Cache,
+    ) -> String {
         match self {
             CallType::_NotCompatible => String::new(),
             CallType::_DirectCall => variable_name.clone(),
@@ -46,7 +57,7 @@ impl CallType {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map, cache);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *const ");
-                call_string.push_str(_type_name(ty_).as_str());
+                call_string.push_str(_type_name(ty_, Some(full_name_map)).as_str());
                 call_string
             }
             CallType::_MutRawPointer(inner_, ty_) => {
@@ -55,7 +66,7 @@ impl CallType {
                 let inner_call_string = inner_._to_call_string(variable_name, full_name_map, cache);
                 call_string.push_str(inner_call_string.as_str());
                 call_string.push_str(") as *mut ");
-                call_string.push_str(_type_name(ty_).as_str());
+                call_string.push_str(_type_name(ty_, Some(full_name_map)).as_str());
                 call_string
             }
             CallType::_AsConvert(str_) => {

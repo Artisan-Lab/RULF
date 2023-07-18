@@ -119,20 +119,21 @@ impl ApiFunction {
     }
 
     pub(crate) fn _pretty_print(&self) -> String {
-        let mut fn_line = format!("fn {}{}(", self.full_name, if self.is_mono() {"#mono"} else {""});
+        let mut fn_line =
+            format!("fn {}{}(", self.full_name, if self.is_mono() { "#mono" } else { "" });
         let input_len = self.inputs.len();
         for i in 0..input_len {
             let input_type = &self.inputs[i];
             if i != 0 {
                 fn_line.push_str(", ");
             }
-            fn_line.push_str(api_util::_type_name(input_type).as_str());
+            fn_line.push_str(api_util::_type_name(input_type, None).as_str());
         }
         fn_line.push_str(")");
 
         if let Some(ref ty_) = self.output {
             fn_line.push_str(" -> ");
-            fn_line.push_str(api_util::_type_name(ty_).as_str());
+            fn_line.push_str(api_util::_type_name(ty_, None).as_str());
         }
         fn_line
     }

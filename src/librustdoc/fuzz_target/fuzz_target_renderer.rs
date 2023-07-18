@@ -36,6 +36,9 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
         let mut full_name: String =
             join_with_double_colon(&self.current) + "::" + item.name.unwrap().as_str();
 
+        if !item.visibility.is_public() {
+            return Ok(());
+        }
         match *item.kind {
             ItemKind::FunctionItem(ref func) => {
                 //println!("func = {:?}", func);
@@ -43,7 +46,6 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                 if (!func.generics.is_empty()) {
                     statistic::inc("GENERIC_FUNCTIONS");
                 }
-                println!("Fn {}", full_name);
                 let decl = func.decl.clone();
                 let clean::FnDecl { inputs, output, .. } = decl;
                 let inputs = api_util::extract_input_types(&inputs);
@@ -60,16 +62,22 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     _unsafe_tag: api_unsafety,
                     mono: false,
                 };
+                println!("Add function: {}", api_fun._pretty_print());
+                println!("visibility: {:?}", item.visibility);
                 if !func.generics.is_empty() {
-                    let mut api_fun = GenericFunction::from(api_fun);
-                    api_fun.add_generics(&func.generics);
-                    self.api_dependency_graph.borrow_mut().generic_functions.push(api_fun);
+                    let mut generic_function = GenericFunction::from(api_fun);
+                    generic_function.add_generics(&func.generics);
+                    generic_function.resolve_bounded_symbol();
+                    self.api_dependency_graph.borrow_mut().generic_functions.push(generic_function);
                 } else {
                     self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
                 }
             }
             ItemKind::MethodItem(_, _) => {
                 unreachable!();
+            }
+            ItemKind::StructItem(_) | ItemKind::EnumItem(_) => {
+                impl_util::analyse_type(&item, &mut self.api_dependency_graph.borrow_mut());
             }
             _ => {}
         }
@@ -97,13 +105,8 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         //从cache中提出def_id与full_name的对应关系，存入full_name_map来进行调用
         //同时提取impl块中的内容，存入api_dependency_graph
         let mut full_name_map = FullNameMap::new();
-        impl_util::extract_impls_from_cache(&mut full_name_map, &mut api_dependency_graph);
-        //api_dependency_graph.print_impl_traits();
-        /*         println!("==== full name map ====");
-        println!("len: {:?}", full_name_map.map.len());
-        println!("{:?}", full_name_map);
-        println!("==== full name map end ===="); */
-
+        // impl_util::analyse_trait(&mut api_dependency_graph);
+        impl_util::extract_full_name_from_cache(&mut full_name_map, &mut api_dependency_graph);
         Ok((
             FuzzTargetRenderer {
                 context: rcx,
@@ -122,15 +125,6 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
     /// Renders a single non-module item. This means no recursive sub-item rendering is required.
     fn item(&mut self, item: clean::Item) -> Result<(), Error> {
-        /*         println!("==== item ====");
-        let mut debug_str = String::new();
-        debug_str.push_str("\nname: ");
-        if let Some(name) = item.name {
-            debug_str.push_str(name.as_str());
-        }
-        debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
-        debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-        println!("{}", debug_str); */
         self.analyse_item(item)
     }
 
@@ -140,18 +134,6 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         self.api_dependency_graph
             .borrow_mut()
             .add_mod_visibility(&join_with_double_colon(&self.current), &item.visibility);
-
-        /*         println!("==== mod_item_in ====");
-               let mut debug_str = String::new();
-               debug_str.push_str("\nname: ");
-               if let Some(name) = item.name {
-                   debug_str.push_str(name.as_str());
-               }
-               debug_str.push_str(&format!("\n vis: {:?}", item.visibility));
-               debug_str.push_str(&format!("\n item kind: {:?}", item.kind));
-               println!("{}", debug_str);
-
-        */
         Ok(())
     }
 
@@ -165,16 +147,22 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
     fn after_krate(&mut self) -> Result<(), Error> {
         println!("==== run after krate ====");
         let mut api_dependency_graph = self.api_dependency_graph.borrow_mut();
-        
-        api_dependency_graph.print_type_map();
+
+        // analyse impl blocks
+        impl_util::analyse_impls(&mut api_dependency_graph);
+
+        println!("visibility: {:?}", api_dependency_graph.mod_visibility);
+        api_dependency_graph.print_type_generics();
+        api_dependency_graph.print_full_name_map();
         api_dependency_graph.print_type_trait_impls();
-        api_dependency_graph.resolve_generic_functions();
-        statistic::print_summary();
+        api_dependency_graph.print_type_candidates();
+
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
+        // Resolve all visible generic functions to normal function
+        api_dependency_graph.resolve_generic_functions();
         //寻找所有依赖，并且构建序列
         api_dependency_graph.find_all_dependencies();
-        // api_dependency_graph._print_pretty_dependencies();
 
         let random_strategy = false;
         if !random_strategy {
@@ -189,12 +177,15 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         // print some information
         use crate::fuzz_target::print_message;
         println!("total functions in crate : {:?}", api_dependency_graph.api_functions.len());
-        print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, false);
         println!(
             "total generic functions in crate : {:?}",
             api_dependency_graph.generic_functions.len()
         );
-        //print_message::_print_pretty_sequences(&api_dependency_graph);
+        print_message::_print_pretty_functions(&api_dependency_graph, &self.context.cache, false);
+        println!("======");
+
+        // print_message::_print_pretty_sequences(&api_dependency_graph);
+        // print_message::_print_pretty_dependencies(&api_dependency_graph);
         //print_message::_print_pretty_functions(&api_dependency_graph, true);
         // print_message::_print_generated_afl_file(&api_dependency_graph);
 
@@ -211,6 +202,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
                 file_helper.write_libfuzzer_files();
             }
         }
+        statistic::print_summary();
 
         Ok(())
     }

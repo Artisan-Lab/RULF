@@ -44,7 +44,7 @@ pub(crate) fn preluded_type(
     cache: &Cache,
 ) -> bool {
     let def_id = type_.def_id(cache).unwrap();
-    if let Some(type_name) = full_name_map._get_full_name(def_id) {
+    if let Some(type_name) = full_name_map.get_full_name(def_id) {
         if is_preluded_type(type_name) {
             return true;
         }
@@ -80,7 +80,7 @@ impl PreludeType {
             clean::Type::Path { path, .. } => {
                 if preluded_type(type_, full_name_map, cache) {
                     let def_id = type_.def_id(cache).unwrap();
-                    let type_full_name = full_name_map._get_full_name(def_id).unwrap();
+                    let type_full_name = full_name_map.get_full_name(def_id).unwrap();
                     let strip_type_name_string = to_strip_type_name(type_full_name);
                     let strip_type_name = strip_type_name_string.as_str();
                     if _OPTION == strip_type_name {
@@ -101,14 +101,14 @@ impl PreludeType {
 
     pub(crate) fn _to_type_name(&self, full_name_map: &FullNameMap, cache: &Cache) -> String {
         match self {
-            PreludeType::NotPrelude(type_) => api_util::_type_name(type_),
+            PreludeType::NotPrelude(type_) => api_util::_type_name(type_, Some(full_name_map)),
             PreludeType::PreludeOption(type_) => {
-                let inner_type_name = api_util::_type_name(type_);
+                let inner_type_name = api_util::_type_name(type_, Some(full_name_map));
                 format!("Option<{}>", inner_type_name)
             }
             PreludeType::PreludeResult { ok_type, err_type } => {
-                let ok_type_name = api_util::_type_name(ok_type);
-                let err_type_name = api_util::_type_name(err_type);
+                let ok_type_name = api_util::_type_name(ok_type, Some(full_name_map));
+                let err_type_name = api_util::_type_name(err_type, Some(full_name_map));
                 format!("Result<{}, {}>", ok_type_name, err_type_name)
             }
         }
@@ -212,11 +212,7 @@ pub(crate) fn _prelude_type_need_special_dealing(
 ) -> bool {
     let prelude_type = PreludeType::from_type(type_, full_name_map, cache);
     let final_type = prelude_type._get_final_type();
-    if final_type == *type_ {
-        false
-    } else {
-        true
-    }
+    if final_type == *type_ { false } else { true }
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]

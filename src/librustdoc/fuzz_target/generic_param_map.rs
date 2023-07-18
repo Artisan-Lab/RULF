@@ -7,6 +7,7 @@ use crate::fuzz_target::{api_function::ApiFunction, api_util, impl_util::FullNam
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use std::collections::hash_map::Iter;
+use std::f32::consts::E;
 use std::ops::{Deref, DerefMut};
 
 /// DefSet is a struct to record generic environment
@@ -23,10 +24,13 @@ impl GenericParamMap {
     }
 
     pub fn new() -> GenericParamMap {
-        GenericParamMap { inner: FxHashMap::<String, Vec<Path>>::default(), type_pred:Vec::new() }
+        GenericParamMap {
+            inner: FxHashMap::<String, Vec<Path>>::default(),
+            type_pred: Vec::new(),
+        }
     }
 
-    pub fn get_bounds(&self, name:&str) -> &Vec<Path>{
+    pub fn get_bounds(&self, name: &str) -> &Vec<Path> {
         self.inner.get(name).unwrap()
     }
 
@@ -99,16 +103,13 @@ impl GenericParamMap {
 
     pub fn add_generic_bounds(&mut self, name: &str, bounds: &[GenericBound]) {
         let v = self.bounds_to_vec(bounds);
-        if let Some(before) = self.inner.get(name) {
-            println!("generic map occur an update");
-            println!("name: {}",name);
-            println!("before: {:?}", before);
-            println!("after: {:?}", v);
-            if !before.is_empty() {
-                unreachable!("before is not empty");
+        if let Some(bounds) = self.inner.get_mut(name) {
+            for p in v {
+                bounds.push(p);
             }
+        } else {
+            self.inner.insert(name.to_string(), v);
         }
-        self.inner.insert(name.to_string(), v);
     }
 }
 

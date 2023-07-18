@@ -22,6 +22,7 @@ use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::statistic;
+use crate::fuzz_target::trait_impl::TraitImpl;
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
 use lazy_static::lazy_static;
@@ -33,6 +34,9 @@ use std::default;
 use std::fmt;
 use std::vec;
 use std::{cell::RefCell, rc::Rc};
+
+use super::api_util::is_fuzzable_type;
+use super::api_util::replace_type_with;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: FxHashMap<&'static str, usize> = {
@@ -57,6 +61,8 @@ lazy_static! {
 pub(crate) struct TypeContext {
     pub(crate) type_candidates: FxHashMap<Type, usize>,
     pub(crate) type_sorted: Vec<Type>,
+    pub(crate) functions: Vec<ApiFunction>,
+    pub(crate) functions_with_param: Vec<ApiFunction>,
 }
 
 impl TypeContext {
@@ -64,6 +70,8 @@ impl TypeContext {
         TypeContext {
             type_candidates: FxHashMap::<Type, usize>::default(),
             type_sorted: Vec::new(),
+            functions: Vec::new(),
+            functions_with_param: Vec::new(),
         }
     }
 
@@ -71,12 +79,27 @@ impl TypeContext {
         &self.type_sorted
     }
 
-    fn add_type_candidate(&mut self, type_: &Type) -> bool {
+    pub(crate) fn print_all_candidates(&self) {
+        let mut count = 0;
+        for (ty, freq) in self.type_candidates.iter() {
+            println!("Type Candidate #{}: ({}){} => {:?}", count, freq, _type_name(ty, None), ty);
+            count += 1;
+        }
+    }
+
+    pub(crate) fn add_type_candidate(&mut self, type_: &Type) -> bool {
         if let Some(v) = self.type_candidates.get_mut(type_) {
             *v += 1;
             false
         } else {
-            println!("[new candidate] {} => {:?}", _type_name(&type_), type_);
+            let no = self.type_candidates.len();
+            statistic::inc("CANDIDATES");
+            println!(
+                "[TypeContext] add candidate #{}: {} => {:?}",
+                no,
+                _type_name(&type_, None),
+                type_
+            );
             self.type_candidates.insert(type_.clone(), 1);
             true
         }
@@ -111,15 +134,94 @@ impl TypeContext {
                 }
             }
             Type::DynTrait(..) => {}
+            Type::QPath(..) => {} // TODO: Check why it will appear?
+            Type::BareFunction(..) => {}
+            Type::Generic(..) => {}
             _ => {
                 unimplemented!("unexpected type: {type_:?}");
             }
         }
     }
 
+    pub(crate) fn get_callable(
+        &self,
+        type_: &Type,
+        is_input: bool,
+        full_name_map: &FullNameMap,
+        cache: &Cache,
+    ) -> FxHashSet<(i32, i32)> {
+        let mut callable = FxHashSet::<(i32, i32)>::default();
+        for i in 0..self.functions.len() {
+            let function = &self.functions[i];
+            if is_input {
+                if let Some(ref output) = function.output {
+                    if api_util::_same_type(&output, type_, true, full_name_map, cache)
+                        .is_compatible()
+                    {
+                        callable.insert((i as i32, -1));
+                    }
+                }
+            } else {
+                for j in 0..function.inputs.len() {
+                    let input = &function.inputs[j];
+                    if api_util::_same_type(type_, input, true, full_name_map, cache)
+                        .is_compatible()
+                    {
+                        callable.insert((i as i32, j as i32));
+                    }
+                }
+            }
+        }
+        callable
+    }
+
+    pub(crate) fn is_callable(
+        &self,
+        type_: &Type,
+        full_name_map: &FullNameMap,
+        cache: &Cache,
+        // search_in_generic: bool,
+    ) -> bool {
+        if is_fuzzable_type(type_, full_name_map, cache) {
+            return true;
+        }
+        for i in 0..self.functions.len() {
+            let function = &self.functions[i];
+            if let Some(ref output) = function.output {
+                if api_util::_same_type(&output, type_, true, full_name_map, cache).is_compatible()
+                {
+                    return true;
+                }
+            }
+        }
+
+        /* if !search_in_generic {
+            return false;
+        }
+
+        for i in 0..self.functions_with_param.len() {
+            let function = &self.functions_with_param[i];
+            if let Some(ref output) = function.output {
+                if api_util::_same_type(&output, type_, true, full_name_map, cache){
+                    let mut generic_sols=FxHashMap::<String,Vec<Type>>::default();
+                    let mut get_generic_sols=|type_:&Type| -> Option<Type>{
+                        if let Type::Generic(sym) = type_{
+                            generic_sols.entry(sym.to_string()).or_default().push(Type);
+                        }
+                        None
+                    };
+                    replace_type_with(output, &mut get_generic_sols);
+
+                    return true;
+                }
+            }
+        }*/
+        return false; 
+    }
+
     pub(crate) fn add_type_candidates(&mut self, api_functions: &Vec<ApiFunction>, cache: &Cache) {
-        println!("====== new candidates ======");
         for function in api_functions.iter() {
+            self.functions.push(function.clone());
             for input in &function.inputs {
                 self.add_canonical_types(input);
             }
@@ -141,12 +243,13 @@ pub(crate) struct ApiGraph<'tcx> {
     pub(crate) api_functions_visited: Vec<bool>,
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
-    pub(crate) type_map: FxHashMap<DefId, Type>,
-    pub(crate) type_trait_impls: FxHashMap<DefId, Vec<(Path, GenericParamMap, DefId)>>, // type defid => {(trait path, generics, impl id)}
+    pub(crate) type_trait_impls: FxHashMap<DefId, Vec<TraitImpl>>, // type defid => {(trait path, generics, impl id)}
+    pub(crate) type_generics: FxHashMap<DefId, Generics>,
     pub(crate) full_name_map: FullNameMap,  //did to full_name
     pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
     pub(crate) generic_functions: Vec<GenericFunction>,
     pub(crate) functions_with_unsupported_fuzzable_types: FxHashSet<String>,
+    pub(crate) type_context: Rc<RefCell<TypeContext>>,
     pub(crate) cx: Rc<FuzzTargetContext<'tcx>>, //pub(crate) _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
 }
 
@@ -172,7 +275,6 @@ pub(crate) enum GraphTraverseAlgorithm {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub(crate) enum ApiType {
     BareFunction,
-    //GenericFunction, currently not support now
 }
 
 type Solution = FxHashMap<String, Vec<Type>>; // TODO: Type or DefId?
@@ -193,7 +295,9 @@ impl<'tcx> ApiGraph<'tcx> {
             api_functions_visited: Vec::new(),
             api_dependencies: Vec::new(),
             api_sequences: Vec::new(),
-            type_map: FxHashMap::default(),
+            type_context: Rc::new(RefCell::new(TypeContext::new())),
+            type_generics: FxHashMap::default(),
+            // type_map: FxHashMap::default(),
             type_trait_impls: FxHashMap::default(),
             full_name_map: FullNameMap::new(),
             mod_visibility: ModVisibity::new(&_crate_name),
@@ -204,40 +308,30 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    /* pub(crate) fn add_type_trait(&mut self, ty_did: DefId, trait_did: DefId) {
-        self.type_traits.entry(ty_did).or_default().add_trait(trait_did);
-    } */
-
     pub(crate) fn add_type_trait_impl(
         &mut self,
         ty_did: DefId,
         trait_: Path,
-        impl_generics: GenericParamMap,
+        for_: Type,
+        generic_map: GenericParamMap,
         impl_did: DefId,
     ) {
-        self.type_trait_impls.entry(ty_did).or_default().push((trait_, impl_generics, impl_did));
+        self.type_trait_impls.entry(ty_did).or_default().push(TraitImpl::new(
+            trait_,
+            for_,
+            generic_map,
+            impl_did,
+        ));
     }
+    /*
+       pub(crate) fn add_type(&mut self, did: DefId, type_: Type) {
+           self.type_map.insert(did, type_);
+       }
 
-    pub(crate) fn add_type(&mut self, ty_did: DefId, type_: Type) {
-        if let Some(before) = self.type_map.get(&ty_did) {
-            println!("[add_type] before: {}", _type_name(before));
-            println!("[add_type] after: {}", _type_name(&type_));
-        }
-        self.type_map.insert(ty_did, type_);
-    }
-
-    pub(crate) fn get_type(&self, did: DefId) -> Type {
-        self.type_map.get(&did).expect(&format!("type did should exist: {:?}", did)).clone()
-    }
-
-    /* pub(crate) fn get_path(&self, did: DefId) -> Path {
-        let ty = self.get_type(did);
-        if let Type::Path { path } = ty {
-            path
-        } else {
-            unreachable!("{ty:?} is not a path");
-        }
-    } */
+       pub(crate) fn get_type(&self, did: DefId) -> Type {
+           self.type_map.get(&did).expect(&format!("type did should exist: {:?}", did)).clone()
+       }
+    */
 
     pub fn get_full_path_from_def_id(&self, did: DefId) -> String {
         if let Some(&(ref syms, item_type)) = self.cache().paths.get(&did) {
@@ -257,29 +351,46 @@ impl<'tcx> ApiGraph<'tcx> {
         self.cx.tcx
     }
 
-    pub(crate) fn print_type_map(&self) {
-        println!("all types:");
-        for (did, type_) in &self.type_map {
-            println!("{did:?} => {}", _type_name(type_));
+    pub(crate) fn print_full_name_map(&self) {
+        for (did, (full_name, _)) in self.full_name_map.map.iter() {
+            println!("{:?} => {}", did, full_name);
         }
-        println!("");
+    }
+
+    pub(crate) fn print_type_candidates(&self) {
+        self.type_context.borrow().print_all_candidates();
+    }
+
+    pub(crate) fn print_type_generics(&self) {
+        for (did, generics) in self.type_generics.iter() {
+            println!("type generics: {:?} => {:?}", did, generics);
+        }
     }
 
     pub(crate) fn print_type_trait_impls(&self) {
         for (did, vec_trait_impls) in &self.type_trait_impls {
             println!(
                 "\ntype {} implement {} traits: ",
-                _type_name(&self.get_type(*did)),
+                &self.full_name_map.get_full_name(*did).unwrap(),
                 vec_trait_impls.len()
             );
-            for (trait_, bounds, impl_id) in vec_trait_impls {
+            for trait_impl in vec_trait_impls.iter() {
+                let trait_ = &trait_impl.trait_;
+                let bounds = &trait_impl.generic_map;
+                let impl_id = trait_impl.impl_id;
                 let ty = Type::Path { path: trait_.clone() };
-                println!("> {:?} ,{} ,bounds: {:?}", impl_id, _type_name(&ty), bounds);
+                println!(
+                    "{:?}: impl {} for {}\nbounds: {:?}",
+                    impl_id,
+                    _type_name(&ty, Some(&self.full_name_map)),
+                    _type_name(&trait_impl.for_, Some(&self.full_name_map)),
+                    bounds
+                );
             }
         }
     }
 
-    fn prune_solutions(&self, sol_with_impl: Vec<(Type, FxHashSet<DefId>)>) -> Vec<Type> {
+    /* fn prune_solutions(&self, sol_with_impl: Vec<(Type, FxHashSet<DefId>)>) -> Vec<Type> {
         //return sol_with_impl.into_iter().map(|x|{x.0}).collect();
         let mut res = Vec::new();
         let mut visited = FxHashSet::<DefId>::default();
@@ -296,19 +407,19 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
         res
-    }
+    } */
 
     pub(crate) fn resolve_generic_functions(&mut self) {
-        let mut type_context = Rc::new(RefCell::new(TypeContext::new()));
-        type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
+        self.type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
         let mut solvers = Vec::new();
         let num_function = self.generic_functions.len();
         let mut counts: Vec<usize> = vec![0; num_function];
         for function in self.generic_functions.iter() {
-            function.pretty_print();
+            function.pretty_print(&self.full_name_map);
             solvers.push(GenericSolver::new(
                 &self.cx.cache,
-                Rc::clone(&type_context),
+                &self.full_name_map,
+                Rc::clone(&self.type_context),
                 &self.type_trait_impls,
                 function,
             ));
@@ -335,8 +446,9 @@ impl<'tcx> ApiGraph<'tcx> {
                 break;
             }
 
-            type_context.borrow_mut().add_type_candidates(&new_candidates, self.cache());
+            self.type_context.borrow_mut().add_type_candidates(&new_candidates, self.cache());
             for api_fun in new_candidates {
+                //self.add_api_function(api_fun);
                 if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
                     self.functions_with_unsupported_fuzzable_types
                         .insert(api_fun.full_name.clone());
@@ -350,51 +462,10 @@ impl<'tcx> ApiGraph<'tcx> {
             if counts[i] > 0 {
                 statistic::inc("DEGENERIC");
             } else {
-                self.generic_functions[i].pretty_print();
+                self.generic_functions[i].pretty_print(&self.full_name_map);
             }
-
         }
     }
-
-    /*pub(crate) fn new_resolve_generic_functions(&mut self) {
-        let max_mono_per_function=10;
-        //
-        for function in self.generic_functions.iter() {
-            function.pretty_print(&self.full_name_map, self.cache());
-        }
-
-        let all_solutions:Vec<Option<Solution>>=Vec::new();
-        let all_monos:Vec<Vec<ApiFunction>>=Vec::new();
-        let all_visits:Vec<DefSet>=Vec::new();
-        for function in self.generic_functions.iter() {
-            let solution=self.get_generic_params_solutions(function);
-            if solution.is_some(){
-                statistic::inc("DEGENERIC");
-            } else {
-                println!("no solution: {}",function.get_full_signature());
-            }
-            all_solutions.push(solution);
-            all_monos.push(Vec::new());
-        }
-        // iterative
-        loop{
-            let last_num=self.api_functions.len();
-            let monos=Vec<ApiFunction>::new();
-            for solutions in &all_solutions{
-                if let Some(solution)=solutions{
-
-                }
-            }
-        }
-        for api_fun in self.monomorphise(function) {
-            if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
-                self.functions_with_unsupported_fuzzable_types
-                    .insert(api_fun.full_name.clone());
-            } else {
-                self.api_functions.push(api_fun);
-            }
-        }
-    }*/
 
     pub(crate) fn add_api_function(&mut self, api_fun: ApiFunction) {
         if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
@@ -436,26 +507,38 @@ impl<'tcx> ApiGraph<'tcx> {
 
         let mut new_api_functions = Vec::new();
         for api_func in &self.api_functions {
-            let api_func_name = &api_func.full_name;
-            let trait_name = &api_func._trait_full_path;
-            let mut invisible_flag = false;
-            for invisible_mod in &invisible_mods {
-                if api_func_name.as_str().starts_with(invisible_mod.as_str()) {
-                    invisible_flag = true;
-                    break;
-                }
-                if let Some(trait_name_) = trait_name {
-                    if trait_name_.as_str().starts_with(invisible_mod) {
-                        invisible_flag = true;
-                        break;
-                    }
-                }
-            }
-            if !invisible_flag {
+            if !Self::is_invisible_function(&api_func, &invisible_mods) {
                 new_api_functions.push(api_func.clone());
             }
         }
         self.api_functions = new_api_functions;
+
+        let mut new_generic_functions = Vec::new();
+        for api_func in &self.generic_functions {
+            if !Self::is_invisible_function(&api_func.api_function, &invisible_mods) {
+                new_generic_functions.push(api_func.clone());
+            }
+        }
+        self.generic_functions = new_generic_functions;
+    }
+
+    pub(crate) fn is_invisible_function(
+        api_func: &ApiFunction,
+        invisible_mods: &Vec<String>,
+    ) -> bool {
+        let api_func_name = &api_func.full_name;
+        let trait_name = &api_func._trait_full_path;
+        for invisible_mod in invisible_mods {
+            if api_func_name.as_str().starts_with(invisible_mod.as_str()) {
+                return true;
+            }
+            if let Some(trait_name_) = trait_name {
+                if trait_name_.as_str().starts_with(invisible_mod) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     pub(crate) fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {

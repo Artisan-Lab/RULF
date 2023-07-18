@@ -1,3 +1,5 @@
+use std::f32::consts::E;
+
 use crate::formats::cache::Cache;
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
@@ -56,6 +58,7 @@ pub(crate) struct ApiSequence {
     pub(crate) _function_mut_tag: FxHashSet<usize>, //表示哪些function的返回值需要带上mut标记
     pub(crate) _covered_dependencies: FxHashSet<usize>, //表示用到了哪些dependency,即边覆盖率
     pub(crate) mono: bool,                          // have any mono function in sequence
+                                                    // pub(crate) return_mark: Vec<Option<Type>>,
 }
 
 impl ApiSequence {
@@ -68,6 +71,7 @@ impl ApiSequence {
         let _fuzzable_mut_tag = FxHashSet::default();
         let _function_mut_tag = FxHashSet::default();
         let _covered_dependencies = FxHashSet::default();
+        // let return_mark=Vec::new();
         ApiSequence {
             functions,
             fuzzable_params,
@@ -78,22 +82,13 @@ impl ApiSequence {
             _function_mut_tag,
             _covered_dependencies,
             mono: false,
+            // return_mark
         }
     }
 
     pub(crate) fn has_mono(&self) -> bool {
         self.mono
     }
-
-    /* pub(crate) fn _add_fn_without_params(
-        &mut self,
-        api_type: &ApiType,
-        index: usize,
-        is_mono: bool,
-    ) {
-        let api_call = ApiCall::_new_without_params(api_type, index);
-        self._add_fn(api_call, is_mono);
-    } */
 
     pub(crate) fn _add_dependency(&mut self, dependency: usize) {
         self._covered_dependencies.insert(dependency);
@@ -697,7 +692,7 @@ impl ApiSequence {
 
     pub(crate) fn _generate_function_body_string(
         &self,
-        _api_graph: &ApiGraph<'_>,
+        api_graph: &ApiGraph<'_>,
         cache: &Cache,
         outer_indent: usize,
         param_prefix: &str,
@@ -707,11 +702,11 @@ impl ApiSequence {
         let mut res = String::new();
         let body_indent = _generate_indent(outer_indent + extra_indent);
 
-        let dead_code = self._dead_code(_api_graph);
+        let dead_code = self._dead_code(api_graph);
 
         //api_calls
         let api_calls_num = self.functions.len();
-        let full_name_map = &_api_graph.full_name_map;
+        let full_name_map = &api_graph.full_name_map;
         for i in 0..api_calls_num {
             let api_call = &self.functions[i];
 
@@ -778,18 +773,36 @@ impl ApiSequence {
             res.push_str(body_indent.as_str());
             //如果不是最后一个调用
             let api_function_index = api_call.func.1;
-            let api_function = &_api_graph.api_functions[api_function_index];
+            let api_function = &api_graph.api_functions[api_function_index];
             if dead_code[i] || api_function._has_no_output() {
                 res.push_str("let _ = ");
             } else {
                 let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
-                res.push_str(format!("let {}{}{} = ", mut_tag, local_param_prefix, i).as_str());
+
+                if api_function.is_mono() && !api_function._has_no_output() {
+                    res.push_str(
+                        format!(
+                            "let {}{}{}: {} = ",
+                            mut_tag,
+                            local_param_prefix,
+                            i,
+                            api_function
+                                .output
+                                .as_ref()
+                                .map(|output| api_util::_type_name(output,Some(&api_graph.full_name_map)))
+                                .unwrap()
+                        )
+                        .as_str()
+                    );
+                } else {
+                    res.push_str(format!("let {}{}{} = ", mut_tag, local_param_prefix, i).as_str());
+                }
             }
             let (api_type, function_index) = &api_call.func;
             match api_type {
                 ApiType::BareFunction => {
                     let api_function_full_name =
-                        &_api_graph.api_functions[*function_index].full_name;
+                        &api_graph.api_functions[*function_index].full_name;
                     res.push_str(api_function_full_name.as_str());
                 }
             }

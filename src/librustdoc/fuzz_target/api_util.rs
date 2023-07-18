@@ -29,6 +29,7 @@ pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
     match ty {
         clean::Type::Generic(_) => true,
         clean::Type::ImplTrait(_) => true,
+        clean::Type::Primitive(_) => false,
         clean::Type::Path { path } => {
             let segments = &path.segments;
             for segment in segments {
@@ -73,6 +74,9 @@ pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
         | clean::Type::BorrowedRef { type_, .. } => {
             let inner_type = &**type_;
             return is_generic_type(inner_type);
+        }
+        clean::Type::DynTrait(..) => {
+            return true;
         }
         _ => {
             //TODO:implTrait是否当作泛型呢？QPath是否当作泛型呢？
@@ -137,26 +141,35 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
     }
 }
 
-pub(crate) fn print_path_segment(segment: &PathSegment) -> String {
+pub(crate) fn print_path_segment(
+    full_name: Option<String>,
+    segment: &PathSegment,
+    full_name_map: Option<&FullNameMap>,
+) -> String {
     let mut res = String::new();
-    res.push_str(&segment.name.as_str());
+    if let Some(name) = full_name {
+        res.push_str(&name);
+    } else {
+        res.push_str(&segment.name.as_str());
+    }
+
     match &segment.args {
         GenericArgs::AngleBracketed { args, bindings } => {
             let mut syms = Vec::<String>::new();
             for arg in args.iter() {
                 let sym = match arg {
                     GenericArg::Lifetime(lifetime) => lifetime.0.to_string(),
-                    GenericArg::Const(constant) => _type_name(&constant.type_),
-                    GenericArg::Type(type_) => _type_name(&type_),
+                    GenericArg::Const(constant) => _type_name(&constant.type_, full_name_map),
+                    GenericArg::Type(type_) => _type_name(&type_, full_name_map),
                     GenericArg::Infer => "_".to_owned(),
                 };
                 syms.push(sym);
             }
             for binding in bindings.iter() {
-                let assoc_item = print_path_segment(&binding.assoc);
+                let assoc_item = print_path_segment(None, &binding.assoc, full_name_map);
                 let value = match binding.kind {
                     clean::TypeBindingKind::Equality { ref term } => {
-                        format!("={}", print_term(term))
+                        format!("={}", print_term(term, full_name_map))
                     }
                     clean::TypeBindingKind::Constraint { ref bounds } => format!(":{:?}", bounds),
                 };
@@ -174,26 +187,38 @@ pub(crate) fn print_path_segment(segment: &PathSegment) -> String {
     res
 }
 
-pub(crate) fn print_term(term: &types::Term) -> String {
+pub(crate) fn print_term(term: &types::Term, full_name_map: Option<&FullNameMap>) -> String {
     match term {
-        clean::Term::Type(ty) => _type_name(ty),
+        clean::Term::Type(ty) => _type_name(ty, full_name_map),
         clean::Term::Constant(constant) => "<constant>".to_string(),
     }
 }
 
-pub(crate) fn print_path(path: &Path) -> String {
+pub(crate) fn print_path(path: &Path, full_name_map: Option<&FullNameMap>) -> String {
+    // full_name_map might be empty, if the item is private
+    let full_name = if let Some(full_name) =
+        full_name_map.and_then(|full_name_map| full_name_map.get_full_name(path.def_id()))
+    {
+        Some(full_name.to_owned())
+    } else {
+        None
+    };
     let mut res = Vec::<String>::new();
-    for segment in &path.segments {
-        res.push(print_path_segment(segment));
+    if !path.segments.is_empty() {
+        res.push(print_path_segment(full_name, &path.segments[0], full_name_map));
+        for segment in path.segments.iter().skip(1) {
+            res.push(print_path_segment(None, segment, full_name_map));
+        }
     }
+
     res.join("::").to_string()
 }
 
 //get the name of a type
 pub(crate) fn _type_name(
     type_: &clean::Type,
-    /* full_name_map: &FullNameMap,
-    cache: &Cache, */
+    full_name_map: Option<&FullNameMap>,
+    /*cache: &Cache, */
 ) -> String {
     /*if let Some(def_id) = type_.def_id(cache) {
         if let Some(full_name) = full_name_map._get_full_name(def_id) {
@@ -201,22 +226,22 @@ pub(crate) fn _type_name(
         }
     }*/
     match type_ {
-        clean::Type::Path { path } => print_path(path),
+        clean::Type::Path { path } => print_path(path, full_name_map),
         clean::Type::Primitive(primitive_type) => primitive_type.as_sym().to_string(),
         clean::Type::Generic(generic) => generic.to_string(),
         clean::Type::BorrowedRef { type_, mutability, .. } => {
             let inner_type = &**type_;
-            let inner_name = _type_name(inner_type /* , full_name_map, cache */);
+            let inner_name = _type_name(inner_type, full_name_map /*, cache */);
             match mutability {
                 Mutability::Not => format!("&{}", inner_name),
                 Mutability::Mut => format!("&mut {}", inner_name),
             }
         }
         clean::Type::Slice(type_) => {
-            format!("[{}]", _type_name(type_ /* , full_name_map, cache */))
+            format!("[{}]", _type_name(type_, full_name_map /*cache */,))
         }
         clean::Type::Array(type_, str_) => {
-            format!("[{};{}]", _type_name(type_ /* , full_name_map, cache */), str_)
+            format!("[{};{}]", _type_name(type_, full_name_map /*, cache */), str_)
         }
         clean::Type::Tuple(inner_types) => {
             let inner_types_number = inner_types.len();
@@ -226,7 +251,7 @@ pub(crate) fn _type_name(
                 if i != 0 {
                     res.push_str(" ,");
                 }
-                res.push_str(_type_name(inner_type /* , full_name_map, cache */).as_str());
+                res.push_str(_type_name(inner_type, full_name_map /* , cache */).as_str());
             }
             res.push(')');
             res
@@ -239,12 +264,13 @@ pub(crate) fn _type_name(
         clean::Type::QPath(qpathdata) => {
             format!(
                 "<{} as {}>::{}",
-                _type_name(&qpathdata.self_type),
-                print_path(&qpathdata.trait_),
-                print_path_segment(&qpathdata.assoc),
+                _type_name(&qpathdata.self_type, full_name_map),
+                print_path(&qpathdata.trait_, full_name_map),
+                print_path_segment(None, &qpathdata.assoc, full_name_map),
             )
         }
-        _ => "Currently not supported".to_string(),
+        clean::Type::Infer => "_".to_string(),
+        _ => format!("Currently not supported: {:?}", type_),
     }
 }
 
@@ -274,6 +300,15 @@ pub(crate) fn _same_type_hard_mode(
     if output_type == input_type {
         return CallType::_DirectCall;
     }
+
+    if let clean::Type::Generic(_) = input_type {
+        return CallType::_DirectCall;
+    }
+
+    if let clean::Type::Generic(_) = output_type {
+        return CallType::_DirectCall;
+    }
+
     //对输入类型解引用,后面就不在考虑输入类型需要解引用的情况
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
@@ -315,8 +350,8 @@ pub(crate) fn _same_type_hard_mode(
         }
         //范型
         clean::Type::Generic(_generic) => {
-            //TODO:范型处理，暂不考虑
-            CallType::_NotCompatible
+            // generic match all type.
+            CallType::_DirectCall
         }
         //基本类型
         //TODO:暂不考虑两次转换，如char和任意宽度的数字，但考虑char和u8的转换
@@ -873,10 +908,11 @@ pub(crate) fn is_binding_match(a: &TypeBinding, b: &TypeBinding) -> bool {
     }
 }
 
-pub(crate) fn is_type_match(a: &clean::Type, b: &clean::Type) -> bool {
-    match (a, b) {
+// ty_a is concrete , ty_b 
+pub(crate) fn is_type_match(ty_a: &clean::Type, ty_b: &clean::Type) -> bool {
+    match (ty_a, ty_b) {
         (clean::Type::Generic(_), _) | (_, clean::Type::Generic(_)) => {
-            unimplemented!("is_type_match generic");
+            return true;
         }
         (clean::Type::ImplTrait(_), _) | (_, clean::Type::ImplTrait(_)) => {
             unimplemented!("is_type_match ImplTrait");
@@ -912,17 +948,7 @@ pub(crate) fn is_type_match(a: &clean::Type, b: &clean::Type) -> bool {
                         );
                     }
                 }
-                let mut match_bindings = 0;
-                for a_binding in a_bindings {
-                    for b_binding in b_bindings {
-                        if is_binding_match(a_binding, b_binding) {
-                            match_bindings += 1;
-                        }
-                    }
-                }
-                if match_bindings < a_bindings.len() {
-                    return false;
-                }
+
             }
             return true;
         }
@@ -943,9 +969,148 @@ pub(crate) fn is_type_match(a: &clean::Type, b: &clean::Type) -> bool {
         | (clean::Type::BorrowedRef { type_: a, .. }, clean::Type::BorrowedRef { type_: b, .. }) => {
             return is_type_match(a, b);
         }
+        (clean::Type::DynTrait(..), clean::Type::DynTrait(..)) => {
+            return false;
+        }
         _ => {
             unimplemented!();
+        }
+    }
+}
+
+//递归判断一个参数是否是self类型的
+//TODO：考虑在resolved path里面的括号里面可能存在self type
+pub(crate) fn is_param_self_type(ty_: &clean::Type) -> bool {
+    if ty_.is_self_type() {
+        return true;
+    }
+    match ty_ {
+        clean::Type::BorrowedRef { type_, .. } => {
+            let inner_ty = &**type_;
+            is_param_self_type(inner_ty)
+        }
+        clean::Type::Path { path, .. } => {
+            let segments = &path.segments;
+            for path_segment in segments {
+                let generic_args = &path_segment.args;
+                match generic_args {
+                    clean::GenericArgs::AngleBracketed { args, .. } => {
+                        for generic_arg in args.iter() {
+                            if let clean::GenericArg::Type(generic_ty) = generic_arg {
+                                if is_param_self_type(&generic_ty) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    clean::GenericArgs::Parenthesized { inputs, output } => {
+                        for input_type in inputs.iter() {
+                            if is_param_self_type(input_type) {
+                                return true;
+                            }
+                        }
+                        if let Some(output_type) = output {
+                            if is_param_self_type(output_type) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
             return false;
+        }
+        _ => {
+            return false;
+        }
+    }
+}
+
+//将self类型替换为相应的结构体类型
+pub(crate) fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type) -> clean::Type {
+    if self_type.is_self_type() {
+        return impl_type.clone();
+    }
+    match self_type {
+        clean::Type::BorrowedRef { lifetime, mutability, type_ } => {
+            let inner_type = &**type_;
+            if is_param_self_type(inner_type) {
+                let replaced_type = replace_self_type(inner_type, impl_type);
+                return clean::Type::BorrowedRef {
+                    lifetime: lifetime.clone(),
+                    mutability: *mutability,
+                    type_: Box::new(replaced_type),
+                };
+            } else {
+                return self_type.clone();
+            }
+        }
+        clean::Type::Path { path } => {
+            if !is_param_self_type(self_type) {
+                return self_type.clone();
+            }
+            let clean::Path { res, segments } = path;
+            let mut new_segments = Vec::new();
+            for path_segment in segments {
+                let clean::PathSegment { name, args: generic_args } = path_segment;
+                match generic_args {
+                    clean::GenericArgs::AngleBracketed { args, bindings } => {
+                        let mut new_args = Vec::new();
+                        for generic_arg in args.iter() {
+                            if let clean::GenericArg::Type(generic_type) = generic_arg {
+                                if is_param_self_type(&generic_type) {
+                                    let replaced_type = replace_self_type(&generic_type, impl_type);
+                                    let new_generic_arg = clean::GenericArg::Type(replaced_type);
+                                    new_args.push(new_generic_arg);
+                                } else {
+                                    new_args.push(generic_arg.clone());
+                                }
+                            } else {
+                                new_args.push(generic_arg.clone());
+                            }
+                        }
+                        let new_generic_args = clean::GenericArgs::AngleBracketed {
+                            args: new_args.into(),
+                            bindings: bindings.clone(),
+                        };
+                        let new_path_segment =
+                            clean::PathSegment { name: name.clone(), args: new_generic_args };
+                        new_segments.push(new_path_segment);
+                    }
+                    clean::GenericArgs::Parenthesized { inputs, output } => {
+                        let mut new_inputs = Vec::new();
+                        for input_type in inputs.iter() {
+                            if is_param_self_type(input_type) {
+                                let replaced_type = replace_self_type(input_type, impl_type);
+                                new_inputs.push(replaced_type);
+                            } else {
+                                new_inputs.push(input_type.clone());
+                            }
+                        }
+                        let new_output = output.clone().map(|output_type| {
+                            if is_param_self_type(&output_type) {
+                                Box::new(replace_self_type(&output_type, impl_type))
+                            //replace type
+                            } else {
+                                output_type
+                            }
+                        });
+
+                        let new_generic_args = clean::GenericArgs::Parenthesized {
+                            inputs: new_inputs.into(),
+                            output: new_output,
+                        };
+                        let new_path_segment =
+                            clean::PathSegment { name: name.clone(), args: new_generic_args };
+                        new_segments.push(new_path_segment);
+                    }
+                }
+            }
+            let new_path = clean::Path { res: res.clone(), segments: new_segments };
+            let new_type = clean::Type::Path { path: new_path };
+            return new_type;
+        }
+        _ => {
+            return self_type.clone();
         }
     }
 }
