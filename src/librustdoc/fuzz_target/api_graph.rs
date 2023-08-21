@@ -216,7 +216,7 @@ impl TypeContext {
                 }
             }
         }*/
-        return false; 
+        return false;
     }
 
     pub(crate) fn add_type_candidates(&mut self, api_functions: &Vec<ApiFunction>, cache: &Cache) {
@@ -382,8 +382,8 @@ impl<'tcx> ApiGraph<'tcx> {
                 println!(
                     "{:?}: impl {} for {}\nbounds: {:?}",
                     impl_id,
-                    _type_name(&ty, Some(&self.full_name_map)),
-                    _type_name(&trait_impl.for_, Some(&self.full_name_map)),
+                    _type_name(&ty, Some(self.cache())),
+                    _type_name(&trait_impl.for_, Some(self.cache())),
                     bounds
                 );
             }
@@ -415,7 +415,7 @@ impl<'tcx> ApiGraph<'tcx> {
         let num_function = self.generic_functions.len();
         let mut counts: Vec<usize> = vec![0; num_function];
         for function in self.generic_functions.iter() {
-            function.pretty_print(&self.full_name_map);
+            function.pretty_print(&self.cx.cache);
             solvers.push(GenericSolver::new(
                 &self.cx.cache,
                 &self.full_name_map,
@@ -462,7 +462,7 @@ impl<'tcx> ApiGraph<'tcx> {
             if counts[i] > 0 {
                 statistic::inc("DEGENERIC");
             } else {
-                self.generic_functions[i].pretty_print(&self.full_name_map);
+                self.generic_functions[i].pretty_print(&self.cx.cache);
             }
         }
     }
@@ -539,6 +539,20 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
         return false;
+    }
+
+    pub(crate) fn print_all_functions(&self) {
+        println!("======= all functions =======");
+        println!("num of normal functions: {}", self.api_functions.len());
+        println!("num of generic functions: {}", self.generic_functions.len());
+        for function in self.api_functions.iter() {
+            println!("{}", function._pretty_print());
+        }
+
+        for function in self.generic_functions.iter() {
+            function.pretty_print(&self.cx.cache);
+        }
+        println!("======= !all functions =======\n");
     }
 
     pub(crate) fn set_full_name_map(&mut self, full_name_map: &FullNameMap) {

@@ -1,5 +1,5 @@
 use crate::clean::Visibility;
-use rustc_data_structures::fx::{FxHashMap};
+use rustc_data_structures::fx::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ModVisibity {
@@ -37,7 +37,7 @@ impl ModVisibity {
                 }
                 let parent_visibility = new_mod_visibility.get(&parent_mod_name).unwrap();
 
-                if let (Visibility::Public, true)=(*visibility, *parent_visibility){
+                if let (Visibility::Public, true) = (*visibility, *parent_visibility) {
                     new_mod_visibility.insert(mod_name.clone(), true);
                 } else {
                     new_mod_visibility.insert(mod_name.clone(), false);

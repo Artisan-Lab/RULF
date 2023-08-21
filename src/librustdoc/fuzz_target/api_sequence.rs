@@ -21,6 +21,8 @@ pub(crate) struct ApiCall {
     pub(crate) params: Vec<(ParamType, usize, CallType)>, //参数类型(表示是使用之前的返回值，还是使用fuzzable的变量)，在当前的调用序列中参数所在的位置，以及如何调用
 }
 
+
+
 impl ApiCall {
     pub(crate) fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
         let func = (api_type.clone(), index);
@@ -774,30 +776,27 @@ impl ApiSequence {
             //如果不是最后一个调用
             let api_function_index = api_call.func.1;
             let api_function = &api_graph.api_functions[api_function_index];
-            if dead_code[i] || api_function._has_no_output() {
-                res.push_str("let _ = ");
-            } else {
-                let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
 
-                if api_function.is_mono() && !api_function._has_no_output() {
-                    res.push_str(
-                        format!(
-                            "let {}{}{}: {} = ",
-                            mut_tag,
-                            local_param_prefix,
-                            i,
-                            api_function
-                                .output
-                                .as_ref()
-                                .map(|output| api_util::_type_name(output,Some(&api_graph.full_name_map)))
-                                .unwrap()
-                        )
-                        .as_str()
-                    );
-                } else {
-                    res.push_str(format!("let {}{}{} = ", mut_tag, local_param_prefix, i).as_str());
-                }
+            let variable_name = if dead_code[i] || api_function._has_no_output() {
+                "_".to_string()
+            } else {
+                format!("{}{}", local_param_prefix, i)
+            };
+
+            let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
+            res.push_str(&format!("let {}{}", mut_tag, variable_name));
+            if api_function.is_mono() {
+                res.push_str(&format!(
+                    ": {}",
+                    api_function
+                        .output
+                        .as_ref()
+                        .map(|output| api_util::_type_name(output, Some(api_graph.cache())))
+                        .unwrap()
+                ));
             }
+            res.push_str(" = ");
+
             let (api_type, function_index) = &api_call.func;
             match api_type {
                 ApiType::BareFunction => {

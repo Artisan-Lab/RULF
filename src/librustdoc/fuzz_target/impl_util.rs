@@ -9,6 +9,7 @@ use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
+use crate::fuzz_target::api_util::is_external_type;
 use crate::fuzz_target::api_util::{self, is_param_self_type, replace_self_type};
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
@@ -185,7 +186,9 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
     }
 
     if (is_trait_impl && !is_crate_trait_impl && !is_prelude_trait(&impl_.trait_.as_ref().unwrap()))
+        || (!is_trait_impl && !is_external_type(impl_for_def_id.unwrap(), api_graph.cache()))
     {
+        println!("ignore this impl");
         return;
     }
 

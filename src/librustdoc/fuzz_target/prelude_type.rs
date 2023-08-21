@@ -101,14 +101,14 @@ impl PreludeType {
 
     pub(crate) fn _to_type_name(&self, full_name_map: &FullNameMap, cache: &Cache) -> String {
         match self {
-            PreludeType::NotPrelude(type_) => api_util::_type_name(type_, Some(full_name_map)),
+            PreludeType::NotPrelude(type_) => api_util::_type_name(type_, Some(cache)),
             PreludeType::PreludeOption(type_) => {
-                let inner_type_name = api_util::_type_name(type_, Some(full_name_map));
+                let inner_type_name = api_util::_type_name(type_, Some(cache));
                 format!("Option<{}>", inner_type_name)
             }
             PreludeType::PreludeResult { ok_type, err_type } => {
-                let ok_type_name = api_util::_type_name(ok_type, Some(full_name_map));
-                let err_type_name = api_util::_type_name(err_type, Some(full_name_map));
+                let ok_type_name = api_util::_type_name(ok_type, Some(cache));
+                let err_type_name = api_util::_type_name(err_type, Some(cache));
                 format!("Result<{}, {}>", ok_type_name, err_type_name)
             }
         }

@@ -1,5 +1,4 @@
-use crate::clean::types::Path;
-use crate::clean::types::Type;
+use crate::clean::types::{GenericArgs, Path, Type};
 use crate::clean::{self, GenericBound, Generics, PolyTrait, WherePredicate};
 use crate::clean::{GenericParamDefKind, Trait};
 use crate::formats::cache::Cache;
@@ -10,12 +9,19 @@ use std::collections::hash_map::Iter;
 use std::f32::consts::E;
 use std::ops::{Deref, DerefMut};
 
-/// DefSet is a struct to record generic environment
-/// it contains a mapping from generic param name to its bounds
 #[derive(Debug, Clone)]
 pub(crate) struct GenericParamMap {
     pub inner: FxHashMap<String, Vec<Path>>, // generic param => bounds(a set of trait path)
     pub type_pred: Vec<(Type, Vec<Path>)>,
+}
+
+fn is_solvable_bound(bound: &Path) -> bool {
+    for segment in &bound.segments {
+        if let GenericArgs::Parenthesized { .. } = segment.args {
+            return false;
+        }
+    }
+    return true;
 }
 
 impl GenericParamMap {
@@ -23,11 +29,27 @@ impl GenericParamMap {
         self.inner.iter()
     }
 
-    pub fn new() -> GenericParamMap {
-        GenericParamMap {
-            inner: FxHashMap::<String, Vec<Path>>::default(),
-            type_pred: Vec::new(),
+    pub fn is_solvable(&self) -> bool {
+        for (name, bounds) in self.inner.iter() {
+            for bound in bounds {
+                if !is_solvable_bound(bound) {
+                    return false;
+                }
+            }
         }
+
+        for (type_, bounds) in self.type_pred.iter() {
+            for bound in bounds {
+                if !is_solvable_bound(bound) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    pub fn new() -> GenericParamMap {
+        GenericParamMap { inner: FxHashMap::<String, Vec<Path>>::default(), type_pred: Vec::new() }
     }
 
     pub fn get_bounds(&self, name: &str) -> &Vec<Path> {
@@ -52,23 +74,6 @@ impl GenericParamMap {
             match param {
                 WherePredicate::BoundPredicate { ty, bounds, bound_params } => {
                     self.type_pred.push((ty.clone(), self.bounds_to_vec(bounds)));
-                    /* match ty {
-                        Type::Generic(sym) => {
-                            self.add_generic_bounds(sym.as_str(), bounds);
-                            if !bound_params.is_empty() {
-                                println!("{:?}", param);
-                                unreachable!("we miss some bound params!");
-                            }
-                        }
-                        Type::QPath(qpathdata) => {
-                            // FIXME: currently we ignore assoc item
-                            self.type_pred.push((ty.clone(), self.bounds_to_vec(bounds)));
-                            println!("ignore assoc item {:?}", param);
-                        }
-                        _ => {
-                            println!("[GenericParamMap] ignore item: {:?}", param);
-                        }
-                    } */
                 }
                 WherePredicate::RegionPredicate { lifetime, bounds } => {
                     println!("ignore RegionPredicate: {:?}", param);

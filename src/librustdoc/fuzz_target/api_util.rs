@@ -8,6 +8,7 @@ use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use crate::html::format::join_with_double_colon;
+use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
 
 use super::generic_function::GenericFunction;
@@ -21,6 +22,24 @@ pub(crate) fn extract_output_type(output: &clean::FnRetTy) -> Option<clean::Type
     match output {
         clean::FnRetTy::Return(ty) => Some(ty.clone()),
         clean::FnRetTy::DefaultReturn => None,
+    }
+}
+
+pub(crate) fn is_external_type(did: DefId, cache: &Cache) -> bool {
+    if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
+        return false;
+    } else if let Some(&(ref syms, item_type)) = cache.external_paths.get(&did) {
+        return true;
+    } else {
+        panic!("did could not be found in cache");
+    }
+}
+
+fn get_internal_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
+    if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
+        Some(join_with_double_colon(syms))
+    } else {
+        None
     }
 }
 
@@ -144,7 +163,7 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
 pub(crate) fn print_path_segment(
     full_name: Option<String>,
     segment: &PathSegment,
-    full_name_map: Option<&FullNameMap>,
+    cache: Option<&Cache>,
 ) -> String {
     let mut res = String::new();
     if let Some(name) = full_name {
@@ -158,18 +177,18 @@ pub(crate) fn print_path_segment(
             let mut syms = Vec::<String>::new();
             for arg in args.iter() {
                 let sym = match arg {
-                    GenericArg::Lifetime(lifetime) => lifetime.0.to_string(),
-                    GenericArg::Const(constant) => _type_name(&constant.type_, full_name_map),
-                    GenericArg::Type(type_) => _type_name(&type_, full_name_map),
+                    GenericArg::Lifetime(lifetime) => /* lifetime.0.to_string() */"'_".to_string(),
+                    GenericArg::Const(constant) => _type_name(&constant.type_, cache),
+                    GenericArg::Type(type_) => _type_name(&type_, cache),
                     GenericArg::Infer => "_".to_owned(),
                 };
                 syms.push(sym);
             }
             for binding in bindings.iter() {
-                let assoc_item = print_path_segment(None, &binding.assoc, full_name_map);
+                let assoc_item = print_path_segment(None, &binding.assoc, cache);
                 let value = match binding.kind {
                     clean::TypeBindingKind::Equality { ref term } => {
-                        format!("={}", print_term(term, full_name_map))
+                        format!("={}", print_term(term, cache))
                     }
                     clean::TypeBindingKind::Constraint { ref bounds } => format!(":{:?}", bounds),
                 };
@@ -187,27 +206,22 @@ pub(crate) fn print_path_segment(
     res
 }
 
-pub(crate) fn print_term(term: &types::Term, full_name_map: Option<&FullNameMap>) -> String {
+pub(crate) fn print_term(term: &types::Term, cache: Option<&Cache>) -> String {
     match term {
-        clean::Term::Type(ty) => _type_name(ty, full_name_map),
+        clean::Term::Type(ty) => _type_name(ty, cache),
         clean::Term::Constant(constant) => "<constant>".to_string(),
     }
 }
 
-pub(crate) fn print_path(path: &Path, full_name_map: Option<&FullNameMap>) -> String {
+pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
     // full_name_map might be empty, if the item is private
-    let full_name = if let Some(full_name) =
-        full_name_map.and_then(|full_name_map| full_name_map.get_full_name(path.def_id()))
-    {
-        Some(full_name.to_owned())
-    } else {
-        None
-    };
+    let full_name = cache.and_then(|cache| get_internal_type_name_from_did(path.def_id(), cache));
+
     let mut res = Vec::<String>::new();
     if !path.segments.is_empty() {
-        res.push(print_path_segment(full_name, &path.segments[0], full_name_map));
+        res.push(print_path_segment(full_name, &path.segments[0], cache));
         for segment in path.segments.iter().skip(1) {
-            res.push(print_path_segment(None, segment, full_name_map));
+            res.push(print_path_segment(None, segment, cache));
         }
     }
 
@@ -215,33 +229,24 @@ pub(crate) fn print_path(path: &Path, full_name_map: Option<&FullNameMap>) -> St
 }
 
 //get the name of a type
-pub(crate) fn _type_name(
-    type_: &clean::Type,
-    full_name_map: Option<&FullNameMap>,
-    /*cache: &Cache, */
-) -> String {
-    /*if let Some(def_id) = type_.def_id(cache) {
-        if let Some(full_name) = full_name_map._get_full_name(def_id) {
-            return full_name.clone();
-        }
-    }*/
+pub(crate) fn _type_name(type_: &clean::Type, cache: Option<&Cache>) -> String {
     match type_ {
-        clean::Type::Path { path } => print_path(path, full_name_map),
+        clean::Type::Path { path } => print_path(path, cache),
         clean::Type::Primitive(primitive_type) => primitive_type.as_sym().to_string(),
         clean::Type::Generic(generic) => generic.to_string(),
         clean::Type::BorrowedRef { type_, mutability, .. } => {
             let inner_type = &**type_;
-            let inner_name = _type_name(inner_type, full_name_map /*, cache */);
+            let inner_name = _type_name(inner_type, cache);
             match mutability {
                 Mutability::Not => format!("&{}", inner_name),
                 Mutability::Mut => format!("&mut {}", inner_name),
             }
         }
         clean::Type::Slice(type_) => {
-            format!("[{}]", _type_name(type_, full_name_map /*cache */,))
+            format!("[{}]", _type_name(type_, cache))
         }
         clean::Type::Array(type_, str_) => {
-            format!("[{};{}]", _type_name(type_, full_name_map /*, cache */), str_)
+            format!("[{};{}]", _type_name(type_, cache), str_)
         }
         clean::Type::Tuple(inner_types) => {
             let inner_types_number = inner_types.len();
@@ -251,7 +256,7 @@ pub(crate) fn _type_name(
                 if i != 0 {
                     res.push_str(" ,");
                 }
-                res.push_str(_type_name(inner_type, full_name_map /* , cache */).as_str());
+                res.push_str(_type_name(inner_type, cache).as_str());
             }
             res.push(')');
             res
@@ -264,12 +269,16 @@ pub(crate) fn _type_name(
         clean::Type::QPath(qpathdata) => {
             format!(
                 "<{} as {}>::{}",
-                _type_name(&qpathdata.self_type, full_name_map),
-                print_path(&qpathdata.trait_, full_name_map),
-                print_path_segment(None, &qpathdata.assoc, full_name_map),
+                _type_name(&qpathdata.self_type, cache),
+                print_path(&qpathdata.trait_, cache),
+                print_path_segment(None, &qpathdata.assoc, cache),
             )
         }
         clean::Type::Infer => "_".to_string(),
+        clean::Type::RawPointer(mutability, type_) => match mutability {
+            Mutability::Not => format!("*const {}", _type_name(type_, cache)),
+            Mutability::Mut => format!("*{}", _type_name(type_, cache)),
+        },
         _ => format!("Currently not supported: {:?}", type_),
     }
 }
@@ -908,7 +917,7 @@ pub(crate) fn is_binding_match(a: &TypeBinding, b: &TypeBinding) -> bool {
     }
 }
 
-// ty_a is concrete , ty_b 
+// ty_a is concrete , ty_b
 pub(crate) fn is_type_match(ty_a: &clean::Type, ty_b: &clean::Type) -> bool {
     match (ty_a, ty_b) {
         (clean::Type::Generic(_), _) | (_, clean::Type::Generic(_)) => {
@@ -948,7 +957,6 @@ pub(crate) fn is_type_match(ty_a: &clean::Type, ty_b: &clean::Type) -> bool {
                         );
                     }
                 }
-
             }
             return true;
         }

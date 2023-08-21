@@ -40,34 +40,33 @@ fn print_fact(facts: &Vec<Path>) -> String {
 }
 
 impl GenericFunction {
-    pub(crate) fn get_full_signature(&self, full_name_map: &FullNameMap) -> String {
+    pub(crate) fn get_full_signature(&self, cache: &Cache) -> String {
         let mut signature = String::from("[G] fn ");
         let mut inputs = Vec::<String>::new();
         signature.push_str(&self.api_function.full_name);
         for ty in self.api_function.inputs.iter() {
-            inputs.push(api_util::_type_name(ty, Some(full_name_map)));
+            inputs.push(api_util::_type_name(ty, Some(cache)));
         }
         signature.push_str("(");
         signature.push_str(inputs.join(", ").as_str());
         signature.push_str(") -> ");
         if let Some(ref ty) = self.api_function.output {
-            signature.push_str(api_util::_type_name(ty, Some(full_name_map)).as_str());
+            signature.push_str(api_util::_type_name(ty, Some(cache)).as_str());
         } else {
             signature.push_str("void");
         }
         signature
     }
 
-    pub(crate) fn pretty_print(&self, full_name_map: &FullNameMap) {
-        println!("{}", self.get_full_signature(full_name_map));
-        print!("\nWhere: \n");
+    pub(crate) fn pretty_print(&self, cache: &Cache) {
+        println!("{}", self.get_full_signature(cache));
+        println!("Where:");
         for (name, fact) in self.generic_map.iter() {
             println!("{}: {}, ", name, print_fact(fact));
         }
-
         println!("Type Pred:");
         for (type_, fact) in self.generic_map.type_pred.iter() {
-            println!("{}: {}", _type_name(type_, Some(full_name_map)), print_fact(fact));
+            println!("{}: {}", _type_name(type_, Some(cache)), print_fact(fact));
         }
         print!("bounded Params: ");
         for sym in &self.bounded_symbols {

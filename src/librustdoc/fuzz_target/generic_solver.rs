@@ -24,6 +24,7 @@ fn set_union<T: Eq + Hash + Copy>(a: &mut FxHashSet<T>, b: &FxHashSet<T>) {
         a.insert(*id);
     }
 }
+
 pub(crate) struct GenericSolver<'a> {
     generic_param: Vec<String>,
     current: Vec<usize>,
@@ -36,12 +37,10 @@ pub(crate) struct GenericSolver<'a> {
     full_name_map: &'a FullNameMap,
     solutions: Vec<ApiFunction>,
     solution_count: usize,
+    solvable: bool,
+    try_count:usize,
 }
 
-/* #[derive(Clone)]
-pub(crate) struct TypeContext<'a> {
-    pub(crate) type_candidates: &'a Vec<Type>,
-} */
 
 impl<'a> GenericSolver<'a> {
     pub(crate) fn new(
@@ -53,6 +52,7 @@ impl<'a> GenericSolver<'a> {
     ) -> GenericSolver<'a> {
         let len = generic_function.bounded_symbols.len();
         let mut generic_param = Vec::new();
+        let solvable = generic_function.generic_map.is_solvable();
         for param in generic_function.bounded_symbols.iter() {
             generic_param.push(param.to_string());
         }
@@ -68,7 +68,9 @@ impl<'a> GenericSolver<'a> {
             solutions: Vec::new(),
             cache,
             full_name_map,
+            solvable,
             solution_count: 0,
+            try_count:0
         }
     }
 
@@ -142,7 +144,7 @@ impl<'a> GenericSolver<'a> {
                 let vec_traits = self.get_type_impls(trait_);
                 println!(
                     "[Solver] Check if {} fit {} : {:?}",
-                    _type_name(trait_, Some(self.full_name_map)),
+                    _type_name(trait_, Some(self.cache)),
                     sym.as_str(),
                     bounds
                 );
@@ -322,7 +324,7 @@ impl<'a> GenericSolver<'a> {
                 param,
                 _type_name(
                     &(self.type_context.borrow().get_sorted_type()[self.current[i]]),
-                    Some(self.full_name_map)
+                    Some(self.cache)
                 )
             ));
         }
@@ -395,6 +397,7 @@ impl<'a> GenericSolver<'a> {
     fn search(&mut self, param_no: usize) {
         let len = self.type_context.borrow().get_sorted_type().len();
         if param_no >= self.generic_param.len() {
+            self.try_count+=1;
             if !self.is_num_enough() && self.check_pred() {
                 self.solution_count += 1;
                 let func = self.make_function();
@@ -407,17 +410,12 @@ impl<'a> GenericSolver<'a> {
         // dfs searching
         for i in 0..len {
             self.current[param_no] = i;
-            self.search(param_no + 1);
+            if self.try_count<500000 && !self.is_num_enough(){
+                self.search(param_no + 1);
+            }
+            
         }
     }
-
-    /* fn print_all_candidates(&self) {
-        println!("=======Type=======");
-        for type_ in self.type_context.borrow().get_sorted_type().iter() {
-            println!("{}", _type_name(type_,Some(self.full_name_map)));
-        }
-        println!("==================");
-    } */
 
     pub(crate) fn solve(&mut self) {
         println!(
@@ -425,20 +423,34 @@ impl<'a> GenericSolver<'a> {
             self.current_function.api_function._pretty_print(),
             self.solution_count
         );
-        println!("[Solver] generic params: {:?}",self.generic_param);
-        let now = Instant::now();
-        let len = self.generic_param.len();
-        self.current.resize(len, 0);
+        println!("[Solver] generic params: {:?}", self.generic_param);
         //self.print_all_candidates();
-        if self.generic_param.len() >= 4{
-            println!("[Solver] Too many generic params! This might be slow.");
+        if self.generic_param.len() >= 4 {
+            println!("[Solver] Skip it. Too many generic params! This might be slow.");
         }
-        if !self.is_num_enough() /* && self.generic_param.len() < 4 */ {
+        if !self.solvable {
+            println!("[Solver] Skip it. it is unsolvable.");
+        }
+        if self.is_num_enough() {
+            println!("[Solver] Skip it. it have enough solutions.");
+        }
+        if self.generic_param.len()==0{
+            println!("[Solver] Skip it. no bounded parameter.");
+        }
+
+        if !self.is_num_enough() && self.solvable && self.generic_param.len() < 4 && self.generic_param.len() >0
+        {
+            let now = Instant::now();
+            let len = self.generic_param.len();
+            self.current.resize(len, 0);
+            self.try_count=0;
+
             println!("[Solver] Start solve()");
             self.search(0);
+            let elapsed_time = now.elapsed();
+            println!("[Solver] try {} combinations",self.try_count);
+            println!("[Solver] Running solve() took {} ms.", elapsed_time.as_millis());
         }
-        let elapsed_time = now.elapsed();
-        println!("[Solver] Running solve() took {} ms.", elapsed_time.as_millis());
     }
 
     pub(crate) fn take_solutions(&mut self) -> Vec<ApiFunction> {

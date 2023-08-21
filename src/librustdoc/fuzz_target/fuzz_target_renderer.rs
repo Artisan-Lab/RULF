@@ -156,9 +156,10 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         api_dependency_graph.print_full_name_map();
         api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.print_type_candidates();
-
+        
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.filter_functions();
+        api_dependency_graph.print_all_functions();
         // Resolve all visible generic functions to normal function
         api_dependency_graph.resolve_generic_functions();
         //寻找所有依赖，并且构建序列
