@@ -37,6 +37,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use super::api_util::is_fuzzable_type;
 use super::api_util::replace_type_with;
+use super::trait_impl::TraitImplMap;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: FxHashMap<&'static str, usize> = {
@@ -222,9 +223,9 @@ impl TypeContext {
     pub(crate) fn add_type_candidates(&mut self, api_functions: &Vec<ApiFunction>, cache: &Cache) {
         for function in api_functions.iter() {
             self.functions.push(function.clone());
-            for input in &function.inputs {
+            /* for input in &function.inputs {
                 self.add_canonical_types(input);
-            }
+            } */
 
             if let Some(output) = &function.output {
                 self.add_canonical_types(output);
@@ -243,7 +244,7 @@ pub(crate) struct ApiGraph<'tcx> {
     pub(crate) api_functions_visited: Vec<bool>,
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
-    pub(crate) type_trait_impls: FxHashMap<DefId, Vec<TraitImpl>>, // type defid => {(trait path, generics, impl id)}
+    pub(crate) trait_impl_map: TraitImplMap, // type defid => {(trait path, generics, impl id)}
     pub(crate) type_generics: FxHashMap<DefId, Generics>,
     pub(crate) full_name_map: FullNameMap,  //did to full_name
     pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
@@ -289,7 +290,6 @@ pub(crate) struct ApiDependency {
 
 impl<'tcx> ApiGraph<'tcx> {
     pub(crate) fn new(_crate_name: String, cx: Rc<FuzzTargetContext<'tcx>>) -> Self {
-        //let _sequences_of_all_algorithm = FxHashMap::default();
         ApiGraph {
             api_functions: Vec::new(),
             api_functions_visited: Vec::new(),
@@ -297,8 +297,7 @@ impl<'tcx> ApiGraph<'tcx> {
             api_sequences: Vec::new(),
             type_context: Rc::new(RefCell::new(TypeContext::new())),
             type_generics: FxHashMap::default(),
-            // type_map: FxHashMap::default(),
-            type_trait_impls: FxHashMap::default(),
+            trait_impl_map: TraitImplMap::new(),
             full_name_map: FullNameMap::new(),
             mod_visibility: ModVisibity::new(&_crate_name),
             generic_functions: Vec::new(),
@@ -307,31 +306,6 @@ impl<'tcx> ApiGraph<'tcx> {
             cx,
         }
     }
-
-    pub(crate) fn add_type_trait_impl(
-        &mut self,
-        ty_did: DefId,
-        trait_: Path,
-        for_: Type,
-        generic_map: GenericParamMap,
-        impl_did: DefId,
-    ) {
-        self.type_trait_impls.entry(ty_did).or_default().push(TraitImpl::new(
-            trait_,
-            for_,
-            generic_map,
-            impl_did,
-        ));
-    }
-    /*
-       pub(crate) fn add_type(&mut self, did: DefId, type_: Type) {
-           self.type_map.insert(did, type_);
-       }
-
-       pub(crate) fn get_type(&self, did: DefId) -> Type {
-           self.type_map.get(&did).expect(&format!("type did should exist: {:?}", did)).clone()
-       }
-    */
 
     pub fn get_full_path_from_def_id(&self, did: DefId) -> String {
         if let Some(&(ref syms, item_type)) = self.cache().paths.get(&did) {
@@ -368,7 +342,7 @@ impl<'tcx> ApiGraph<'tcx> {
     }
 
     pub(crate) fn print_type_trait_impls(&self) {
-        for (did, vec_trait_impls) in &self.type_trait_impls {
+        for (did, vec_trait_impls) in &self.trait_impl_map.inner {
             println!(
                 "\ntype {} implement {} traits: ",
                 &self.full_name_map.get_full_name(*did).unwrap(),
@@ -390,25 +364,6 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    /* fn prune_solutions(&self, sol_with_impl: Vec<(Type, FxHashSet<DefId>)>) -> Vec<Type> {
-        //return sol_with_impl.into_iter().map(|x|{x.0}).collect();
-        let mut res = Vec::new();
-        let mut visited = FxHashSet::<DefId>::default();
-        let union = |a: &mut FxHashSet<DefId>, b: &FxHashSet<DefId>| {
-            for id in b {
-                a.insert(*id);
-            }
-        };
-        for (ty, impl_set) in sol_with_impl.iter() {
-            if (!impl_set.is_subset(&visited)) {
-                union(&mut visited, impl_set);
-                res.push(ty.clone());
-                println!("{} is selected", _type_name(&ty));
-            }
-        }
-        res
-    } */
-
     pub(crate) fn resolve_generic_functions(&mut self) {
         self.type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
         let mut solvers = Vec::new();
@@ -420,7 +375,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 &self.cx.cache,
                 &self.full_name_map,
                 Rc::clone(&self.type_context),
-                &self.type_trait_impls,
+                &self.trait_impl_map,
                 function,
             ));
         }

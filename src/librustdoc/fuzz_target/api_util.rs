@@ -1,5 +1,5 @@
 use crate::clean::Path;
-use crate::clean::{self, types::PrimitiveType};
+use crate::clean::{self, types::PrimitiveType, Type};
 use crate::clean::{types, GenericArg, GenericArgs, PathSegment, TypeBinding};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::call_type::CallType;
@@ -8,8 +8,10 @@ use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use crate::html::format::join_with_double_colon;
+use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
+use std::cmp::max;
 
 use super::generic_function::GenericFunction;
 use super::{api_function, generic_function};
@@ -43,12 +45,23 @@ fn get_internal_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> 
     }
 }
 
+fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
+    if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
+        Some(join_with_double_colon(syms))
+    } else if let Some(&(ref syms, item_type)) = cache.external_paths.get(&did) {
+        Some(join_with_double_colon(syms))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
         clean::Type::Generic(_) => true,
         clean::Type::ImplTrait(_) => true,
         clean::Type::Primitive(_) => false,
+        clean::Type::QPath(qpathdata) => is_generic_type(&qpathdata.self_type), // associate item
         clean::Type::Path { path } => {
             let segments = &path.segments;
             for segment in segments {
@@ -177,7 +190,11 @@ pub(crate) fn print_path_segment(
             let mut syms = Vec::<String>::new();
             for arg in args.iter() {
                 let sym = match arg {
-                    GenericArg::Lifetime(lifetime) => /* lifetime.0.to_string() */"'_".to_string(),
+                    GenericArg::Lifetime(lifetime) =>
+                    /* lifetime.0.to_string() */
+                    {
+                        "'_".to_string()
+                    }
                     GenericArg::Const(constant) => _type_name(&constant.type_, cache),
                     GenericArg::Type(type_) => _type_name(&type_, cache),
                     GenericArg::Infer => "_".to_owned(),
@@ -215,7 +232,7 @@ pub(crate) fn print_term(term: &types::Term, cache: Option<&Cache>) -> String {
 
 pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
     // full_name_map might be empty, if the item is private
-    let full_name = cache.and_then(|cache| get_internal_type_name_from_did(path.def_id(), cache));
+    let full_name = cache.and_then(|cache| get_type_name_from_did(path.def_id(), cache));
 
     let mut res = Vec::<String>::new();
     if !path.segments.is_empty() {
@@ -1119,6 +1136,43 @@ pub(crate) fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type
         }
         _ => {
             return self_type.clone();
+        }
+    }
+}
+
+pub(crate) fn type_depth(type_: &Type) -> usize {
+    1 + match type_ {
+        _ => 0, // Primitive, Generic, ImplTrait, DynTrait, QPath, Infer
+        Type::Tuple(types) => {
+            let mut depth = 0usize;
+            for inner in types.iter() {
+                depth = max(depth, type_depth(inner));
+            }
+            depth
+        }
+        Type::Slice(type_)
+        | Type::Array(type_, ..)
+        | Type::RawPointer(_, type_)
+        | Type::BorrowedRef { type_, .. } => type_depth(&type_),
+        clean::Type::Path { path } => {
+            let clean::Path { res, segments } = path;
+            let mut depth = 0usize;
+            for path_segment in segments {
+                let clean::PathSegment { name, args: generic_args } = path_segment;
+                match generic_args {
+                    clean::GenericArgs::AngleBracketed { args, bindings } => {
+                        for generic_arg in args.iter() {
+                            if let clean::GenericArg::Type(inner_type) = generic_arg {
+                                depth = max(depth, type_depth(inner_type));
+                            }
+                        }
+                    }
+                    clean::GenericArgs::Parenthesized { inputs, output } => {
+                        depth = max(1, depth);
+                    }
+                }
+            }
+            depth
         }
     }
 }

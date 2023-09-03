@@ -1,7 +1,7 @@
 use crate::clean::Function;
 use crate::clean::WherePredicate;
 use crate::clean::{self, ItemKind, Struct};
-use crate::clean::{GenericBound, Generics, Impl, Item, Path, Type};
+use crate::clean::{GenericBound, Generics, Impl, ImplKind, Item, Path, Type};
 use crate::error::Error;
 use crate::formats;
 use crate::formats::cache::Cache;
@@ -13,6 +13,7 @@ use crate::fuzz_target::api_util::is_external_type;
 use crate::fuzz_target::api_util::{self, is_param_self_type, replace_self_type};
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
+use crate::fuzz_target::trait_impl::TraitImpl;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::statistic;
 use crate::html::format::join_with_double_colon;
@@ -68,6 +69,7 @@ pub(crate) fn extract_full_name_from_cache(
 
 pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
     let impls_ = api_graph.cache().impls.clone();
+    // TODO: ??
     let mut available_type_set = FxHashSet::<DefId>::default();
 
     let paths = &api_graph.cache().paths;
@@ -163,6 +165,11 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
     println!("trait_def_id: {:?}", impl_.trait_.as_ref().map(|tr| tr.def_id()));
     println!("impl_def_id: {:?}", impl_did);
 
+    let blanket_type = match impl_.kind {
+        ImplKind::Blanket(ref type_) => Some(*type_.clone()),
+        _ => None,
+    };
+
     if let Some(ty_did) = impl_for_def_id {
         // add type map
         // id => type
@@ -170,23 +177,27 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         if let Some(ref trait_path) = impl_.trait_ {
             let mut generic_map = GenericParamMap::new();
             generic_map.add_generics(&impl_.generics);
-            api_graph.add_type_trait_impl(
-                ty_did,
+            let trait_impl = TraitImpl::new(
                 trait_path.clone(),
                 impl_for.clone(),
+                blanket_type,
                 generic_map,
+                
                 impl_did,
             );
+            api_graph.trait_impl_map.add_type_trait_impl(ty_did, trait_impl);
             //api_graph.add_type_trait(ty_did, trait_did);
         }
     }
 
     if is_trait_impl && !api_util::is_generic_type(impl_for) {
-        api_graph.type_context.borrow_mut().add_type_candidate(impl_for);
+        // api_graph.type_context.borrow_mut().add_type_candidate(impl_for);
     }
 
-    if (is_trait_impl && !is_crate_trait_impl && !is_prelude_trait(&impl_.trait_.as_ref().unwrap()))
-        || (!is_trait_impl && !is_external_type(impl_for_def_id.unwrap(), api_graph.cache()))
+    // only analyse local trait for any type, and external trait for local type
+    // ignore external trait impl for external type
+    if is_trait_impl && !is_crate_trait_impl && !is_prelude_trait(&impl_.trait_.as_ref().unwrap())
+    /* || (!is_trait_impl && !is_external_type(impl_for_def_id.unwrap(), api_graph.cache()) */
     {
         println!("ignore this impl");
         return;

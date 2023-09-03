@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-
 use crate::formats::cache::Cache;
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
 use crate::fuzz_target::api_graph::{ApiGraph, ApiType};
@@ -21,7 +19,9 @@ pub(crate) struct ApiCall {
     pub(crate) params: Vec<(ParamType, usize, CallType)>, //参数类型(表示是使用之前的返回值，还是使用fuzzable的变量)，在当前的调用序列中参数所在的位置，以及如何调用
 }
 
-
+fn map_std_type_name(name: &str) -> String {
+    if name.starts_with("alloc::") { "std::".to_owned() + &name[7..] } else { name.to_string() }
+}
 
 impl ApiCall {
     pub(crate) fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
@@ -692,6 +692,10 @@ impl ApiSequence {
         res
     }
 
+    /*     pub(crate) fn generate_function_line(&self) -> String{
+
+    } */
+
     pub(crate) fn _generate_function_body_string(
         &self,
         api_graph: &ApiGraph<'_>,
@@ -732,9 +736,10 @@ impl ApiSequence {
                     }
                 };
                 let call_type_array_len = call_type_array.len();
-                if call_type_array_len == 1 {
+                if call_type_array_len == 0 {
                     let call_type = &call_type_array[0];
                     let param_string = call_type._to_call_string(&param_name, full_name_map, cache);
+                    // println!("#0#param string: {}", param_string);
                     param_strings.push(param_string);
                 } else {
                     let mut former_param_name = param_name.clone();
@@ -769,6 +774,8 @@ impl ApiSequence {
                     res.push_str(former_helper_line.as_str());
                     let param_string =
                         last_call_type._to_call_string(&former_param_name, full_name_map, cache);
+                    // println!("#1#param string: {}", param_string);
+
                     param_strings.push(param_string);
                 }
             }
@@ -785,13 +792,17 @@ impl ApiSequence {
 
             let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
             res.push_str(&format!("let {}{}", mut_tag, variable_name));
+            // if function is a generic API, we need annotate return type.
             if api_function.is_mono() {
                 res.push_str(&format!(
                     ": {}",
                     api_function
                         .output
                         .as_ref()
-                        .map(|output| api_util::_type_name(output, Some(api_graph.cache())))
+                        .map(|output| map_std_type_name(&api_util::_type_name(
+                            output,
+                            Some(api_graph.cache())
+                        )))
                         .unwrap()
                 ));
             }
@@ -807,7 +818,7 @@ impl ApiSequence {
             }
             res.push('(');
 
-            let param_size = param_strings.len();
+            /* let param_size = param_strings.len();
             for k in 0..param_size {
                 if k != 0 {
                     res.push_str(" ,");
@@ -815,7 +826,8 @@ impl ApiSequence {
 
                 let param_string = &param_strings[k];
                 res.push_str(param_string.as_str());
-            }
+            } */
+            res.push_str(&param_strings.join(", "));
             res.push_str(");\n");
         }
         res
@@ -823,9 +835,5 @@ impl ApiSequence {
 }
 
 pub(crate) fn _generate_indent(indent_size: usize) -> String {
-    let mut indent = String::new();
-    for _ in 0..indent_size {
-        indent.push(' ');
-    }
-    indent
+    " ".repeat(indent_size).to_string()
 }

@@ -117,12 +117,18 @@ impl CallType {
     }
 
     pub(crate) fn _is_unwrap_call_type(&self) -> bool {
+        match self{
+            CallType::_DirectCall => return false,
+            _ => return true,
+        }
+
         match self {
             CallType::_UnwrapOption(..) | CallType::_UnwrapResult(..) => true,
             _ => false,
         }
     }
     pub(crate) fn _contains_unwrap_call_type(&self) -> bool {
+        return true;
         match self {
             CallType::_NotCompatible | CallType::_DirectCall | CallType::_AsConvert(..) => false,
             CallType::_UnwrapOption(..) | CallType::_UnwrapResult(..) => true,
@@ -165,7 +171,7 @@ impl CallType {
             return vec![self.clone()];
         }
         let raw_array = self._call_type_to_array();
-        //println!("raw array = {:?}", raw_array);
+        // println!("raw array = {:?}", raw_array);
         let mut res = Vec::new();
         let raw_array_len = raw_array.len();
         let mut one_split = Vec::new();
@@ -190,13 +196,13 @@ impl CallType {
         }
         let mut call_types = Vec::new();
         for call_type_array in &res {
-            //println!("before concat: {:?}", call_type_array);
+            // println!("before concat: {:?}", call_type_array);
             let call_type = CallType::_array_to_call_type(call_type_array);
-            //println!("after concat: {:?}", call_type);
+            // println!("after concat: {:?}", call_type);
             call_types.push(call_type);
         }
         call_types.reverse();
-        //println!("call_type_array = {:?}",call_types);
+        // println!("call_type_array = {:?}",call_types);
         let last_call_type = call_types.last().unwrap();
         if last_call_type._is_unwrap_call_type() {
             call_types.push(CallType::_DirectCall);
@@ -206,6 +212,13 @@ impl CallType {
 
     pub(crate) fn _array_to_call_type(call_type_array: &Vec<CallType>) -> Self {
         CallType::_inner_array_to_call_type(call_type_array, 0)
+
+        /* let inner_type=CallType::_DirectCall;
+        for call_type in call_type_array.iter(){
+            match call_type{
+
+            }
+        } */
     }
 
     fn _inner_array_to_call_type(call_type_array: &Vec<CallType>, start: usize) -> Self {

@@ -152,16 +152,20 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         impl_util::analyse_impls(&mut api_dependency_graph);
 
         println!("visibility: {:?}", api_dependency_graph.mod_visibility);
+
+        // print debug info
         api_dependency_graph.print_type_generics();
         api_dependency_graph.print_full_name_map();
         api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.print_type_candidates();
         
         //根据mod可见性和预包含类型过滤function
+        api_dependency_graph.print_all_functions();
         api_dependency_graph.filter_functions();
         api_dependency_graph.print_all_functions();
         // Resolve all visible generic functions to normal function
         api_dependency_graph.resolve_generic_functions();
+        statistic::print_summary();
         //寻找所有依赖，并且构建序列
         api_dependency_graph.find_all_dependencies();
 
@@ -203,7 +207,6 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
                 file_helper.write_libfuzzer_files();
             }
         }
-        statistic::print_summary();
 
         Ok(())
     }
