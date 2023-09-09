@@ -11,14 +11,10 @@ pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
         let mut one_sequence = String::new();
         for api_call in &api_sequence.functions {
             let (api_type, index) = &api_call.func;
-            match api_type {
-                ApiType::BareFunction => {
-                    let func = &graph.api_functions[*index];
-                    let func_name = func.full_name.clone();
-                    one_sequence.push_str(func_name.as_str());
-                    one_sequence.push_str(" ");
-                }
-            }
+            let func = &graph.api_functions[*index];
+            let func_name = func.full_name.clone();
+            one_sequence.push_str(func_name.as_str());
+            one_sequence.push_str(" ");
         }
         println!("{:?}", one_sequence);
     }
@@ -32,7 +28,7 @@ pub(crate) fn _print_pretty_functions(graph: &ApiGraph<'_>, cache: &Cache, check
             continue;
         }
         let api_function = &graph.api_functions[i];
-        let fn_line = api_function._pretty_print();
+        let fn_line = api_function._pretty_print(cache);
 
         println!("{}:{}", i, fn_line);
     }
@@ -45,19 +41,15 @@ pub(crate) fn _print_pretty_dependencies(graph: &ApiGraph<'_>) {
         let (output_type, output_index) = &dependency.output_fun;
         let (input_type, input_index) = &dependency.input_fun;
         let mut res = String::new();
-        match output_type {
-            ApiType::BareFunction => {
-                let output_fun = &graph.api_functions[*output_index];
-                res.push_str(output_fun.full_name.as_str());
-            }
-        }
+
+        let output_fun = &graph.api_functions[*output_index];
+        res.push_str(output_fun.full_name.as_str());
+
         res.push_str(" ");
-        match input_type {
-            ApiType::BareFunction => {
-                let input_fun = &graph.api_functions[*input_index];
-                res.push_str(input_fun.full_name.as_str());
-            }
-        }
+
+        let input_fun = &graph.api_functions[*input_index];
+        res.push_str(input_fun.full_name.as_str());
+
         res.push_str(" ");
         res.push_str(dependency.input_param_index.to_string().as_str());
         res.push_str(" ");

@@ -1,3 +1,6 @@
+use super::api_util::is_fuzzable_type;
+use super::api_util::replace_type_with;
+use super::trait_impl::TraitImplMap;
 use crate::clean::GenericArg;
 use crate::clean::GenericArgs;
 use crate::clean::Generics;
@@ -29,15 +32,10 @@ use lazy_static::lazy_static;
 use rand::{self, Rng};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
+use rustc_hir::Mutability;
 use std::cmp::{max, min};
-use std::default;
-use std::fmt;
-use std::vec;
+use std::collections::VecDeque;
 use std::{cell::RefCell, rc::Rc};
-
-use super::api_util::is_fuzzable_type;
-use super::api_util::replace_type_with;
-use super::trait_impl::TraitImplMap;
 
 lazy_static! {
     static ref RANDOM_WALK_STEPS: FxHashMap<&'static str, usize> = {
@@ -68,22 +66,33 @@ pub(crate) struct TypeContext {
 
 impl TypeContext {
     pub(crate) fn new() -> TypeContext {
-        TypeContext {
+        let mut tc = TypeContext {
             type_candidates: FxHashMap::<Type, usize>::default(),
             type_sorted: Vec::new(),
             functions: Vec::new(),
             functions_with_param: Vec::new(),
-        }
+        };
+        tc.add_prelude_type();
+        tc
+    }
+
+    fn add_prelude_type(&mut self) {
+        // add &mut u8
+        self.add_type_candidate(&Type::BorrowedRef {
+            lifetime: None,
+            mutability: Mutability::Mut,
+            type_: Box::new(Type::Slice(Box::new(Type::Primitive(PrimitiveType::U8)))),
+        });
     }
 
     pub(crate) fn get_sorted_type(&self) -> &Vec<Type> {
         &self.type_sorted
     }
 
-    pub(crate) fn print_all_candidates(&self) {
+    pub(crate) fn print_all_candidates(&self, cache: &Cache) {
         let mut count = 0;
         for (ty, freq) in self.type_candidates.iter() {
-            println!("Type Candidate #{}: ({}){} => {:?}", count, freq, _type_name(ty, None), ty);
+            println!("Type Candidate #{}: ({}){}", count, freq, _type_name(ty, Some(cache)));
             count += 1;
         }
     }
@@ -186,38 +195,16 @@ impl TypeContext {
         if is_fuzzable_type(type_, full_name_map, cache) {
             return true;
         }
-        for i in 0..self.functions.len() {
-            let function = &self.functions[i];
-            if let Some(ref output) = function.output {
-                if api_util::_same_type(&output, type_, true, full_name_map, cache).is_compatible()
-                {
-                    return true;
-                }
+
+        for (reachable_type, num) in self.type_candidates.iter() {
+            if api_util::_same_type(reachable_type, type_, true, full_name_map, cache)
+                .is_compatible()
+            {
+                return true;
             }
         }
 
-        /* if !search_in_generic {
-            return false;
-        }
-
-        for i in 0..self.functions_with_param.len() {
-            let function = &self.functions_with_param[i];
-            if let Some(ref output) = function.output {
-                if api_util::_same_type(&output, type_, true, full_name_map, cache){
-                    let mut generic_sols=FxHashMap::<String,Vec<Type>>::default();
-                    let mut get_generic_sols=|type_:&Type| -> Option<Type>{
-                        if let Type::Generic(sym) = type_{
-                            generic_sols.entry(sym.to_string()).or_default().push(Type);
-                        }
-                        None
-                    };
-                    replace_type_with(output, &mut get_generic_sols);
-
-                    return true;
-                }
-            }
-        }*/
-        return false;
+        false
     }
 
     pub(crate) fn add_type_candidates(&mut self, api_functions: &Vec<ApiFunction>, cache: &Cache) {
@@ -232,6 +219,10 @@ impl TypeContext {
             }
         }
 
+        self.update_sorted_type();
+    }
+
+    pub(crate) fn update_sorted_type(&mut self) {
         let mut vec = self.type_candidates.iter().collect::<Vec<_>>();
         vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         self.type_sorted = vec.into_iter().map(|a| a.0.clone()).collect();
@@ -241,6 +232,9 @@ impl TypeContext {
 pub(crate) struct ApiGraph<'tcx> {
     pub(crate) _crate_name: String,
     pub(crate) api_functions: Vec<ApiFunction>,
+    pub(crate) reachable: Vec<bool>,
+    pub(crate) reachable_input: Vec<Vec<bool>>,
+    pub(crate) unreachable_num: Vec<usize>,
     pub(crate) api_functions_visited: Vec<bool>,
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
@@ -276,6 +270,7 @@ pub(crate) enum GraphTraverseAlgorithm {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Copy)]
 pub(crate) enum ApiType {
     BareFunction,
+    // MonoFunction,
 }
 
 type Solution = FxHashMap<String, Vec<Type>>; // TODO: Type or DefId?
@@ -295,6 +290,9 @@ impl<'tcx> ApiGraph<'tcx> {
             api_functions_visited: Vec::new(),
             api_dependencies: Vec::new(),
             api_sequences: Vec::new(),
+            reachable: Vec::new(),
+            reachable_input: Vec::new(),
+            unreachable_num: Vec::new(),
             type_context: Rc::new(RefCell::new(TypeContext::new())),
             type_generics: FxHashMap::default(),
             trait_impl_map: TraitImplMap::new(),
@@ -304,6 +302,13 @@ impl<'tcx> ApiGraph<'tcx> {
             functions_with_unsupported_fuzzable_types: FxHashSet::default(),
             _crate_name,
             cx,
+        }
+    }
+
+    pub fn print_unsupport_function(&self) {
+        println!("unsupport function:");
+        for name in self.functions_with_unsupported_fuzzable_types.iter() {
+            println!("{}", name);
         }
     }
 
@@ -332,7 +337,7 @@ impl<'tcx> ApiGraph<'tcx> {
     }
 
     pub(crate) fn print_type_candidates(&self) {
-        self.type_context.borrow().print_all_candidates();
+        self.type_context.borrow().print_all_candidates(self.cache());
     }
 
     pub(crate) fn print_type_generics(&self) {
@@ -364,20 +369,95 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
+    pub(crate) fn update_candidate_types(&mut self) {
+        let num_func = self.api_functions.len();
+        println!("num of func: {}", num_func);
+        println!("num of reachable: {}", self.reachable.len());
+        println!("num of reachable type: {}", self.reachable_input.len());
+        let mut que = VecDeque::<usize>::new();
+        for i in 0..num_func {
+            if !self.reachable[i] {
+                for j in 0..self.api_functions[i].inputs.len() {
+                    let input = &self.api_functions[i].inputs[j];
+                    if !self.reachable_input[i][j]
+                        && self.type_context.borrow().is_callable(
+                            input,
+                            &self.full_name_map,
+                            self.cache(),
+                        )
+                    {
+                        self.reachable_input[i][j] = true;
+                        self.unreachable_num[i] -= 1;
+                    }
+                }
+                if self.unreachable_num[i] == 0 {
+                    que.push_back(i);
+                    self.reachable[i] = true;
+                    println!(
+                        "[Reachable]{} is reachable",
+                        self.api_functions[i]._pretty_print(self.cache())
+                    );
+                }
+            }
+        }
+
+        while let Some(id) = que.pop_front() {
+            if let Some(ref output) = self.api_functions[id].output {
+                self.type_context.borrow_mut().add_type_candidate(output);
+
+                for i in 0..num_func {
+                    if !self.reachable[i] {
+                        for j in 0..self.api_functions[i].inputs.len() {
+                            let input = &self.api_functions[i].inputs[j];
+                            if api_util::_same_type(
+                                output,
+                                input,
+                                true,
+                                &self.full_name_map,
+                                self.cache(),
+                            )
+                            .is_compatible()
+                            {
+                                self.reachable_input[i][j] = true;
+                                self.unreachable_num[i] -= 1;
+                            }
+                        }
+                        if self.unreachable_num[i] == 0 {
+                            que.push_back(i);
+                            println!(
+                                "[Reachable]{} is reachable",
+                                self.api_functions[i]._pretty_print(self.cache())
+                            );
+                            self.reachable[i] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        self.type_context.borrow_mut().update_sorted_type();
+    }
+
+    pub(crate) fn update_reachable_info(&mut self) {
+        let start = self.reachable.len();
+        let end = self.api_functions.len();
+        for i in start..end {
+            let api_fun = &self.api_functions[i];
+            self.reachable.push(false);
+            self.reachable_input.push(vec![false; api_fun.inputs.len()]);
+            self.unreachable_num.push(api_fun.inputs.len());
+        }
+    }
+
     pub(crate) fn resolve_generic_functions(&mut self) {
-        self.type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
+        // self.type_context.borrow_mut().add_type_candidates(&self.api_functions, self.cache());
         let mut solvers = Vec::new();
         let num_function = self.generic_functions.len();
         let mut counts: Vec<usize> = vec![0; num_function];
         for function in self.generic_functions.iter() {
+            println!("[ApiGraph] Resolve this function");
             function.pretty_print(&self.cx.cache);
-            solvers.push(GenericSolver::new(
-                &self.cx.cache,
-                &self.full_name_map,
-                Rc::clone(&self.type_context),
-                &self.trait_impl_map,
-                function,
-            ));
+            solvers.push(GenericSolver::new(Rc::clone(&self.type_context), function.clone()));
         }
 
         let mut num_iter = 0;
@@ -385,36 +465,44 @@ impl<'tcx> ApiGraph<'tcx> {
             statistic::inc("ITERS");
             println!("=====Iteration #{}=====", num_iter);
             num_iter += 1;
-            let mut new_candidates = Vec::new();
+
+            // Add reachable type to type candidates
+            self.update_reachable_info();
+            self.update_candidate_types();
+            println!("===== Candidates =====");
+            self.print_type_candidates();
+            println!("===== !Candidates =====");
+
+            let mut update = false;
             for i in 0..num_function {
-                solvers[i].solve();
-                for api_fun in solvers[i].take_solutions() {
-                    print!("monofun#{}:", counts[i]);
-                    statistic::inc("MONO_FUNS");
-                    counts[i] += 1;
-                    println!("{}", api_fun._pretty_print());
-                    new_candidates.push(api_fun);
+                let last = solvers[i].num_solution();
+                solvers[i].solve(self.cache(), &self.trait_impl_map, &self.full_name_map);
+                if last != solvers[i].num_solution() {
+                    update = true;
                 }
             }
 
-            if new_candidates.is_empty() {
+            if !update {
                 break;
             }
+        }
 
-            self.type_context.borrow_mut().add_type_candidates(&new_candidates, self.cache());
-            for api_fun in new_candidates {
-                //self.add_api_function(api_fun);
-                if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
-                    self.functions_with_unsupported_fuzzable_types
-                        .insert(api_fun.full_name.clone());
-                } else {
-                    self.api_functions.push(api_fun);
-                }
+        for i in 0..num_function {
+            for api_fun in solvers[i].take_solutions() {
+                print!("monofun#{}:", counts[i]);
+                statistic::inc("MONO_FUNS");
+                counts[i] += 1;
+                println!("{}", api_fun._pretty_print(self.cache()));
+                self.add_api_function(api_fun);
             }
         }
+
         println!("unsolve generic function:");
         for i in 0..num_function {
-            if counts[i] > 0 {
+            if !solvers[i].is_solvable() {
+                statistic::inc("UNSOLVABLE");
+            }
+            if counts[i] > 0 && self.generic_functions[i].api_function.is_local() {
                 statistic::inc("DEGENERIC");
             } else {
                 self.generic_functions[i].pretty_print(&self.cx.cache);
@@ -501,7 +589,7 @@ impl<'tcx> ApiGraph<'tcx> {
         println!("num of normal functions: {}", self.api_functions.len());
         println!("num of generic functions: {}", self.generic_functions.len());
         for function in self.api_functions.iter() {
-            println!("{}", function._pretty_print());
+            println!("{}", function._pretty_print(self.cache()));
         }
 
         for function in self.generic_functions.iter() {
@@ -1201,6 +1289,7 @@ impl<'tcx> ApiGraph<'tcx> {
             return res;
         }
 
+        //let mut already_covered_monos = FxHashSet::default();
         let mut already_covered_nodes = FxHashSet::default();
         let mut already_covered_edges = FxHashSet::default();
         let mut already_chosen_sequences = FxHashSet::default();
@@ -1306,6 +1395,11 @@ impl<'tcx> ApiGraph<'tcx> {
 
             let chosen_sequence = &self.api_sequences[current_chosen_sequence_index];
 
+            /* let cover_monos=chosen_sequence.get_mono_nodes_no();
+            for mono_no in cover_monos {
+                already_covered_monos.insert(mono_no);
+            } */
+
             let covered_nodes = chosen_sequence._get_contained_api_functions();
             for cover_node in covered_nodes {
                 already_covered_nodes.insert(cover_node);
@@ -1343,9 +1437,7 @@ impl<'tcx> ApiGraph<'tcx> {
             if !api_function_.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache())
             {
                 valid_api_number = valid_api_number + 1;
-            } //else {
-            //    println!("{}", api_function_._pretty_print(&self.full_name_map));
-            //}
+            }
         }
         //println!("total valid nodes: {}", valid_api_number);
 
@@ -1354,7 +1446,14 @@ impl<'tcx> ApiGraph<'tcx> {
 
         let covered_node_num = already_covered_nodes.len();
         let covered_edges_num = already_covered_edges.len();
+        let mut covered_mono_num = 0;
+        for no in already_covered_nodes.iter() {
+            if self.api_functions[*no].is_mono() {
+                covered_mono_num += 1;
+            }
+        }
         println!("covered nodes: {}", covered_node_num);
+        println!("covered monos: {}", covered_mono_num);
         println!("covered edges: {}", covered_edges_num);
 
         let node_coverage = (already_covered_nodes.len() as f64) / (valid_api_number as f64);
@@ -1607,7 +1706,7 @@ impl<'tcx> ApiGraph<'tcx> {
             Some(api_call) => {
                 let (api_type, index) = &api_call.func;
                 match api_type {
-                    ApiType::BareFunction => {
+                    _ => {
                         let last_func = &self.api_functions[*index];
                         if last_func._is_end_function(&self.full_name_map, cache) {
                             return true;

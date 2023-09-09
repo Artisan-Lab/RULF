@@ -2,7 +2,7 @@ use crate::clean::{self, GenericBound, WherePredicate};
 use crate::clean::{GenericParamDefKind, Generics};
 use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
-use crate::fuzz_target::api_util::_type_name;
+use crate::fuzz_target::api_util::{print_path,_type_name};
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::{api_function::ApiFunction, api_util};
@@ -35,8 +35,8 @@ impl From<ApiFunction> for GenericFunction {
     }
 }
 
-fn print_fact(facts: &Vec<Path>) -> String {
-    facts.iter().map(|path| _type_name(&Type::Path { path: path.clone() }, None)).join(" + ")
+fn print_fact(facts: &Vec<Path>, cache:Option<&Cache>) -> String {
+    facts.iter().map(|path| print_path(path, cache)).join(" + ")
 }
 
 impl GenericFunction {
@@ -62,11 +62,11 @@ impl GenericFunction {
         println!("{}", self.get_full_signature(cache));
         println!("Where:");
         for (name, fact) in self.generic_map.iter() {
-            println!("{}: {}, ", name, print_fact(fact));
+            println!("{}: {}, ", name, print_fact(fact,Some(cache)));
         }
         println!("Type Pred:");
         for (type_, fact) in self.generic_map.type_pred.iter() {
-            println!("{}: {}", _type_name(type_, Some(cache)), print_fact(fact));
+            println!("{}: {}", _type_name(type_, Some(cache)), print_fact(fact, Some(cache)));
         }
         print!("bounded Params: ");
         for sym in &self.bounded_symbols {
@@ -88,7 +88,7 @@ impl GenericFunction {
     }
 
     pub(crate) fn resolve_bounded_symbol(&mut self) {
-        println!("resolve bounded symbol: {}",self.api_function._pretty_print());
+        // println!("resolve bounded symbol: {}",self.api_function._pretty_print());
         for (key, bounds) in self.generic_map.iter() {
             if !bounds.is_empty() {
                 self.bounded_symbols.insert(key.to_owned());
@@ -106,13 +106,13 @@ impl GenericFunction {
         };
 
         for (type_, bounds) in self.generic_map.type_pred.iter() {
-            println!("{:?} : {:?}",type_,bounds);
+            // println!("{:?} : {:?}",type_,bounds);
             replace_type_with(type_, &mut find_generic);
             for bound in bounds.iter() {
                 replace_type_with(&Type::Path { path: bound.clone() }, &mut find_generic);
             }
         }
-        println!("{:?}",self.bounded_symbols);
+        // println!("{:?}",self.bounded_symbols);
     }
 
     fn resolve_impl_trait(&mut self) {

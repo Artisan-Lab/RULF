@@ -14,6 +14,8 @@ use crate::fuzz_target::fuzzable_type;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
+use crate::fuzz_target::generic_solution::match_type;
+use crate::fuzz_target::generic_solution::merge_solution_set;
 use crate::fuzz_target::generic_solution::{merge_solution, solution_string};
 use crate::fuzz_target::generic_solver::GenericSolver;
 use crate::fuzz_target::impl_util::FullNameMap;
@@ -26,11 +28,9 @@ use lazy_static::lazy_static;
 use rand::{self, Rng};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
+use rustc_hir::{self, Mutability};
 use std::cmp::{max, min};
 use std::{cell::RefCell, rc::Rc};
-
-use super::generic_solution::match_type;
-use super::generic_solution::merge_solution_set;
 pub(crate) struct TraitImpl {
     pub(crate) trait_: Path,
     pub(crate) for_: Type,
@@ -56,6 +56,48 @@ static EMPTY_IMPLS: Vec<TraitImpl> = Vec::new();
 
 pub(crate) struct TraitImplMap {
     pub(crate) inner: FxHashMap<DefId, Vec<TraitImpl>>,
+}
+
+fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
+    match _type_name(trait_, Some(cache)).as_str() {
+        "std::io::Write::Write"|"std::io::Write" => {
+            println!("[Weapon] Detect io::Write");
+            match _type_name(type_, Some(cache)).as_str() {
+                "&mut [u8]" => return true,
+                "alloc::vec::Vec<u8>" => return true,
+                _ => {}
+            };
+            match type_ {
+                Type::BorrowedRef { lifetime, mutability, type_ } => {
+                    if matches!(mutability, Mutability::Mut) {
+                        //impl<W: Write + ?Sized> Write for &mut W
+                        return is_impl_in_std(type_, trait_, cache); // TODO: replace with extract_trait_id for better precision.
+                    }
+                }
+                _ => {}
+            }
+            false
+        }
+        "std::io::Read::Read"|"std::io::Read" => {
+            println!("[Weapon] Detect io::Read");
+            match _type_name(type_, Some(cache)).as_str() {
+                "&[u8]"|"&mut [u8]" => return true,
+                _ => {}
+            }
+            match type_ {
+                Type::BorrowedRef { lifetime, mutability, type_ } => {
+                    if matches!(mutability, Mutability::Mut) {
+                        //impl<R: Read + ?Sized> Read for &mut R
+                        return is_impl_in_std(type_, trait_, cache);
+                    }
+                }
+                _ => {}
+            }
+            false
+        }
+        "core::marker::Sized" => true,
+        _ => false,
+    }
 }
 
 impl TraitImplMap {
@@ -84,12 +126,7 @@ impl TraitImplMap {
         let mut res = FxHashSet::default();
         let trait_impls = self.get_type_impls(type_, cache); //trait, generic, impl_id
 
-        for trait_ in bounds.iter() {
-            let trait_ = Type::Path { path: trait_.clone() };
-            if _type_name(&trait_, None) == "Sized" {
-                continue;
-            }
-            let mut success = false;
+        let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<DefId> {
             for trait_impl in trait_impls {
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
                 /* if trait_impl.generic_map.generic_defs.len()>0{
@@ -137,18 +174,29 @@ impl TraitImplMap {
                                     cache,
                                 )
                             {
-                                res.insert(trait_impl.impl_id);
-                                success = true;
-                                break;
+                                return Some(trait_impl.impl_id);
                             }
                         }
                     }
                 }
             }
-            if !success {
-                println!("[TraitImpl] Check trait {} fail", _type_name(&trait_, None));
-                return None;
+            None
+        };
+
+        for trait_ in bounds.iter() {
+            let trait_ = Type::Path { path: trait_.clone() };
+
+            if is_impl_in_std(&type_, &trait_, cache) {
+                continue;
             }
+
+            if let Some(impl_id) = extract_trait_id(&type_, &trait_) {
+                res.insert(impl_id);
+                continue;
+            }
+
+            println!("[TraitImpl] Check trait {} fail", _type_name(&trait_, Some(cache)));
+            return None;
         }
 
         /* for trait_ in bounds.iter() {

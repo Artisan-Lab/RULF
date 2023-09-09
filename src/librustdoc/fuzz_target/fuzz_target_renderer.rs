@@ -61,8 +61,9 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     _trait_full_path: None,
                     _unsafe_tag: api_unsafety,
                     mono: false,
+                    local: true, 
                 };
-                println!("Add function: {}", api_fun._pretty_print());
+                println!("Add function: {}", api_fun._pretty_print(&self.context.cache));
                 println!("visibility: {:?}", item.visibility);
                 if !func.generics.is_empty() {
                     let mut generic_function = GenericFunction::from(api_fun);
@@ -155,12 +156,12 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
 
         // print debug info
         api_dependency_graph.print_type_generics();
-        api_dependency_graph.print_full_name_map();
+        // api_dependency_graph.print_full_name_map();
         api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.print_type_candidates();
+        api_dependency_graph.print_unsupport_function();
         
         //根据mod可见性和预包含类型过滤function
-        api_dependency_graph.print_all_functions();
         api_dependency_graph.filter_functions();
         api_dependency_graph.print_all_functions();
         // Resolve all visible generic functions to normal function

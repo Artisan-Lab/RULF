@@ -13,6 +13,7 @@ pub static mut STATISTIC_MAP:Lazy<Mutex<FxHashMap<String,usize>>>=Lazy::new(||{
     map.insert("MONO_FUNS".to_string(),0);
     map.insert("ITERS".to_string(),0);
     map.insert("CANDIDATES".to_string(),0);
+    map.insert("UNSOLVABLE".to_string(),0);
     map.into()
 });
 
@@ -25,37 +26,6 @@ pub fn inc(key: &str) {
             panic!("invalid statistic field");
         }
     }
-    /* unsafe {
-        match key {
-            "FUNCTIONS" => {
-                FUNCTIONS += 1;
-            }
-            "GENERIC_FUNCTIONS" => {
-                GENERIC_FUNCTIONS += 1;
-            }
-            "TRAIT_IMPLS" => {
-                TRAIT_IMPLS += 1;
-            }
-            "BLANKET_IMPLS" => {
-                BLANKET_IMPLS += 1;
-            }
-            "DEGENERIC" => {
-                DEGENERIC += 1;
-            }
-            "MONO_FUNS" => {
-                MONO_FUNS += 1;
-            }
-            "ITERS" => {
-                ITERS+=1;
-            }
-            "CANDIDATES" => {
-                CANDIDATES+=1;
-            }
-            _ => {
-                panic!("invalid statistic field");
-            }
-        }
-    } */
 }
 pub fn print_summary() {
     unsafe{
@@ -63,6 +33,7 @@ pub fn print_summary() {
         for (key,value) in STATISTIC_MAP.lock().unwrap().iter(){
             println!("{}: {}",key,value);
         }
+        println!("======  advance  ======");
         let mono_funs=*STATISTIC_MAP.lock().unwrap().get("MONO_FUNS").unwrap();
         let degeneric=*STATISTIC_MAP.lock().unwrap().get("DEGENERIC").unwrap();
         println!("MONO_PER_FUNCS: {}", mono_funs as f32/ degeneric as f32);

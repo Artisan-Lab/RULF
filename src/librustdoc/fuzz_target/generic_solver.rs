@@ -15,6 +15,7 @@ use crate::fuzz_target::trait_impl::TraitImpl;
 use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
+use std::borrow::BorrowMut;
 use std::cmp::Eq;
 use std::hash::Hash;
 use std::time::Instant;
@@ -23,65 +24,55 @@ use std::{cell::RefCell, rc::Rc};
 use super::trait_impl::TraitImplMap;
 
 static MAX_MONO_PER_FUNC: usize = 3;
-static MAX_TYPE_DEPTH: usize = 3;
+static MAX_TYPE_DEPTH: usize = 5;
 
-pub(crate) struct GenericSolver<'a> {
+pub(crate) struct GenericSolver {
     current: Vec<usize>,
-    current_type: Vec<Type>,
-    current_function: &'a GenericFunction,
+    current_function: GenericFunction,
     all_visited: FxHashSet<DefId>, // set of impl id
     all_callable: FxHashSet<(i32, i32)>,
+    reachable_inputs: Vec<bool>,
+    contain_generic: Vec<bool>,
     type_context: Rc<RefCell<TypeContext>>,
-    trait_impl_map: &'a TraitImplMap,
-    cache: &'a Cache,
-    full_name_map: &'a FullNameMap,
     solutions: Vec<ApiFunction>,
+    solution_set: FxHashSet<Solution>,
     solution_count: usize,
     solvable: bool,
     try_count: usize,
 }
 
-impl<'a> GenericSolver<'a> {
+impl GenericSolver {
     pub(crate) fn new(
-        cache: &'a Cache,
-        full_name_map: &'a FullNameMap,
         type_context: Rc<RefCell<TypeContext>>,
-        trait_impl_map: &'a TraitImplMap,
-        generic_function: &'a GenericFunction,
-    ) -> GenericSolver<'a> {
-        let len = generic_function.bounded_symbols.len();
+        generic_function: GenericFunction,
+    ) -> GenericSolver {
         let solvable = generic_function.generic_map.is_solvable();
+        let len = generic_function.api_function.inputs.len();
+        let mut contain_generic = vec![false; len];
 
+        for (i, input) in generic_function.api_function.inputs.iter().enumerate() {
+            contain_generic[i] = is_generic_type(input);
+        }
         // println!("[Solver] generic_param: {:?}", generic_param);
         GenericSolver {
             all_callable: FxHashSet::<(i32, i32)>::default(),
             type_context,
-            trait_impl_map,
             current: Vec::new(),
-            current_type: Vec::new(),
             current_function: generic_function,
+            reachable_inputs: vec![false; len],
+            contain_generic,
             all_visited: FxHashSet::<DefId>::default(),
             solutions: Vec::new(),
-            cache,
-            full_name_map,
+            solution_set: FxHashSet::<Solution>::default(),
             solvable,
             solution_count: 0,
             try_count: 0,
         }
     }
 
-    /* fn make_function(&self) -> ApiFunction {
-        let mut func = self.current_function.api_function.clone();
-        func.mono = true;
-
-        for type_ in &mut func.inputs {
-            *type_ = self.replace_generic(type_);
-        }
-        if let Some(ref output) = func.output {
-            func.output = Some(self.replace_generic(output));
-        }
-        func
-    } */
+    pub(crate) fn num_solution(&self) -> usize {
+        self.solutions.len()
+    }
 
     fn make_function_with(&self, solution: &Solution) -> ApiFunction {
         let mut func = self.current_function.api_function.clone();
@@ -98,55 +89,35 @@ impl<'a> GenericSolver<'a> {
     }
 
     fn is_num_enough(&self) -> bool {
-        // return false;
+        return false; // never enough
         return self.solution_count >= MAX_MONO_PER_FUNC;
     }
 
-    /* fn dfs(&mut self, param_no: usize) {
-        let len = self.type_context.borrow().get_sorted_type().len();
-        if param_no >= self.generic_param.len() {
-            self.try_count += 1;
-            if !self.is_num_enough() && self.check_pred() {
-                self.solution_count += 1;
-                let func = self.make_function();
-                println!("[Solver] find solutions: {}", func._pretty_print());
-                self.solutions.push(func);
-            }
-            return;
-        }
-
-        // dfs searching
-        for i in 0..len {
-            self.current[param_no] = i; // TODO: workaround
-            if self.try_count < 500000 && !self.is_num_enough() {
-                self.dfs(param_no + 1);
-            }
-        }
-    } */
-
-    fn search(&mut self) {
+    fn search(&mut self, cache: &Cache, trait_impl_map: &TraitImplMap) -> bool {
+        let mut success = false;
         let mut solution_set = Vec::<Solution>::new();
         solution_set.push(vec![Type::Infer; self.current_function.generic_map.generic_defs.len()]);
         // get reachable solution set
-        for pat in self.current_function.api_function.inputs.iter() {
-            if !is_generic_type(pat) {
+        for (i, pat) in self.current_function.api_function.inputs.iter().enumerate() {
+            if !self.contain_generic[i] {
                 continue;
             }
             println!("[Solver] search for input argument {}:", _type_name(pat, None));
             let mut sols = FxHashSet::<Solution>::default();
-            for src in self.type_context.borrow().get_sorted_type().iter() {
-                if let Some(sol) =
-                    match_call_type(src, pat, &self.current_function.generic_map.generic_defs)
-                {
+            for src in self.type_context.borrow().type_candidates.keys() {
+                if let Some(sol) = match_call_type(
+                    src,
+                    pat,
+                    &self.current_function.generic_map.generic_defs,
+                    cache,
+                ) {
                     /* println!(
                         "{} and {} is matched: {:?}",
                         _type_name(src, None),
                         _type_name(pat, None),
                         sol
                     ); */
-                    if check_solution_depth(&sol, MAX_TYPE_DEPTH) {
-                        sols.insert(sol);
-                    }
+                    sols.insert(sol);
                 }
             }
             let sols = sols.into_iter().collect();
@@ -165,32 +136,74 @@ impl<'a> GenericSolver<'a> {
             for i in 0..self.current.len() {
                 if let Type::Infer = solution[i] {
                     self.solvable = false;
-                    println!("[Solver] solution mark as unsolvable",);
-                    return;
+                    println!("[Solver] solution mark as unsolvable");
+                    return false;
                 }
             }
+            if self.solution_set.get(&solution).is_some() {
+                continue;
+            }
+            self.solution_set.insert(solution.clone());
+
             println!("[Solver] Check Solution: {}", solution_string(&solution));
-            if self.current_function.generic_map.check_solution(
-                &solution,
-                self.trait_impl_map,
-                self.cache,
-            ) {
+            if self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache) {
                 valid_solution_set.push(solution);
             }
         }
 
         for solution in valid_solution_set {
-            self.solution_count += 1;
             let func = self.make_function_with(&solution);
-            println!("[Solver] find solutions: {}", func._pretty_print());
+            println!("[Solver] find mono function: {}", func._pretty_print(cache));
+            if let Some(ref output) = func.output {
+                let depth = type_depth(output);
+                println!("[Solver] output depth = {}", depth);
+                if depth > MAX_TYPE_DEPTH {
+                    println!("[Solver] solution is refused because output is too deep.");
+                    continue;
+                }
+            }
+            if let Some(ref output) = func.output {
+                RefCell::borrow_mut(&self.type_context).add_type_candidate(output);
+            }
+
+            self.solution_count += 1;
             self.solutions.push(func);
+            success = true;
         }
+        success
+    }
+    pub(crate) fn is_solvable(&self) -> bool {
+        self.solvable
     }
 
-    pub(crate) fn solve(&mut self) {
+    pub(crate) fn check_reachable(&mut self, full_name_map: &FullNameMap, cache: &Cache) -> bool {
+        let mut success = true;
+        for (i, type_) in self.current_function.api_function.inputs.iter().enumerate() {
+            if !self.contain_generic[i] && !self.reachable_inputs[i] {
+                self.reachable_inputs[i] =
+                    self.type_context.borrow().is_callable(type_, full_name_map, cache);
+                if !self.reachable_inputs[i] {
+                    println!(
+                        "[Solver] input#{}: {} is unreachable",
+                        i,
+                        _type_name(type_, Some(cache))
+                    );
+                    success = false;
+                }
+            }
+        }
+        success
+    }
+
+    pub(crate) fn solve(
+        &mut self,
+        cache: &Cache,
+        trait_impl_map: &TraitImplMap,
+        full_name_map: &FullNameMap,
+    ) {
         println!(
             "[Solver] find solution for {}, already have {} solutions",
-            self.current_function.api_function._pretty_print(),
+            self.current_function.api_function._pretty_print(cache),
             self.solution_count
         );
         println!("[Solver] generic params: {:?}", self.current_function.generic_map.generic_defs);
@@ -200,13 +213,18 @@ impl<'a> GenericSolver<'a> {
             return;
         } */
         if !self.solvable {
-            println!("[Solver] Skip it. it is unsolvable.");
+            println!("[Solver] Skip it. It is unsolvable.");
             return;
         }
         if self.is_num_enough() {
-            println!("[Solver] Skip it. it have enough solutions.");
+            println!("[Solver] Skip it. It have enough solutions.");
             return;
         }
+        if !self.check_reachable(full_name_map, cache) {
+            println!("[Solver] Skip it. It is currently unreachable.");
+            return;
+        }
+
         let len = self.current_function.generic_map.generic_defs.len();
         if len == 0 {
             println!("[Solver] Skip it. no bounded parameter.");
@@ -216,11 +234,10 @@ impl<'a> GenericSolver<'a> {
         let now = Instant::now();
 
         self.current.resize(len, 0);
-        self.current_type.resize(len, Type::Infer);
         self.try_count = 0;
 
         println!("[Solver] Start solve()");
-        self.search();
+        self.search(cache, trait_impl_map);
         let elapsed_time = now.elapsed();
         // println!("[Solver] try {} combinations", self.try_count);
         println!("[Solver] Running solve() took {} ms.", elapsed_time.as_millis());

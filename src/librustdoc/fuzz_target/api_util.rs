@@ -45,7 +45,7 @@ fn get_internal_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> 
     }
 }
 
-fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
+pub(crate) fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
     if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
         Some(join_with_double_colon(syms))
     } else if let Some(&(ref syms, item_type)) = cache.external_paths.get(&did) {
@@ -1142,7 +1142,6 @@ pub(crate) fn replace_self_type(self_type: &clean::Type, impl_type: &clean::Type
 
 pub(crate) fn type_depth(type_: &Type) -> usize {
     1 + match type_ {
-        _ => 0, // Primitive, Generic, ImplTrait, DynTrait, QPath, Infer
         Type::Tuple(types) => {
             let mut depth = 0usize;
             for inner in types.iter() {
@@ -1174,5 +1173,6 @@ pub(crate) fn type_depth(type_: &Type) -> usize {
             }
             depth
         }
+        _ => 0, // Primitive, Generic, ImplTrait, DynTrait, QPath, Infer
     }
 }

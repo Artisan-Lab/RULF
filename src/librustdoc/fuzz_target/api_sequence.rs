@@ -31,8 +31,7 @@ impl ApiCall {
     }
 
     pub(crate) fn _new(fun_index: usize) -> Self {
-        let api_type = ApiType::BareFunction;
-        let func = (api_type, fun_index);
+        let func = (ApiType::BareFunction, fun_index);
         let params = Vec::new();
         ApiCall { func, params }
     }
@@ -114,9 +113,7 @@ impl ApiSequence {
         } else {
             let last_api_call = self.functions.last().unwrap();
             let (api_type, index) = &last_api_call.func;
-            match api_type {
-                ApiType::BareFunction => Some(*index),
-            }
+            Some(*index)
         }
     }
 
@@ -306,9 +303,8 @@ impl ApiSequence {
             if param_len <= 0 {
                 continue;
             }
-            let api_function_index = match api_call.func.0 {
-                ApiType::BareFunction => api_call.func.1,
-            };
+            let api_function_index = api_call.func.1;
+
             let api_function = &_api_graph.api_functions[api_function_index];
             for param_index in 0..param_len {
                 let input_type = &api_function.inputs[param_index];
@@ -809,13 +805,10 @@ impl ApiSequence {
             res.push_str(" = ");
 
             let (api_type, function_index) = &api_call.func;
-            match api_type {
-                ApiType::BareFunction => {
-                    let api_function_full_name =
-                        &api_graph.api_functions[*function_index].full_name;
-                    res.push_str(api_function_full_name.as_str());
-                }
-            }
+
+            let api_function_full_name = &api_graph.api_functions[*function_index].full_name;
+            res.push_str(api_function_full_name.as_str());
+
             res.push('(');
 
             /* let param_size = param_strings.len();

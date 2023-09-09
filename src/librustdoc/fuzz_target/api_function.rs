@@ -23,6 +23,7 @@ pub(crate) struct ApiFunction {
     pub(crate) output: Option<clean::Type>,
     pub(crate) _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
     pub(crate) _unsafe_tag: ApiUnsafety,
+    pub(crate) local: bool,
     pub(crate) mono: bool,
 }
 
@@ -45,6 +46,10 @@ impl ApiUnsafety {
 impl ApiFunction {
     pub(crate) fn is_mono(&self) -> bool {
         self.mono
+    }
+
+    pub(crate) fn is_local(&self) -> bool {
+        self.local
     }
 
     pub(crate) fn _is_end_function(&self, full_name_map: &FullNameMap, cache: &Cache) -> bool {
@@ -118,7 +123,7 @@ impl ApiFunction {
         }
     }
 
-    pub(crate) fn _pretty_print(&self) -> String {
+    pub(crate) fn _pretty_print(&self, cache: &Cache) -> String {
         let mut fn_line =
             format!("fn {}{}(", self.full_name, if self.is_mono() { "#mono" } else { "" });
         let input_len = self.inputs.len();
@@ -127,13 +132,13 @@ impl ApiFunction {
             if i != 0 {
                 fn_line.push_str(", ");
             }
-            fn_line.push_str(api_util::_type_name(input_type, None).as_str());
+            fn_line.push_str(api_util::_type_name(input_type, Some(cache)).as_str());
         }
         fn_line.push_str(")");
 
         if let Some(ref ty_) = self.output {
             fn_line.push_str(" -> ");
-            fn_line.push_str(api_util::_type_name(ty_, None).as_str());
+            fn_line.push_str(api_util::_type_name(ty_, Some(cache)).as_str());
         }
         fn_line
     }

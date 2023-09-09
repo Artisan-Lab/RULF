@@ -96,7 +96,10 @@ impl GenericParamMap {
     pub fn add_generics(&mut self, generics: &Generics) {
         for param in generics.params.iter() {
             match &param.kind {
-                GenericParamDefKind::Type { did, bounds, .. } => {
+                GenericParamDefKind::Type { did, bounds, default, .. } => {
+                    if default.is_some(){ // if generic param has default value, we ignore it.
+                        continue;
+                    }
                     self.add_generic_bounds(param.name.as_str(), &bounds);
                 }
                 GenericParamDefKind::Const { .. } => {
