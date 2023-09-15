@@ -282,7 +282,16 @@ impl FuzzableType {
                     }
                     inner_numbers
                 }
-                _ => 0,
+                FuzzableType::Struct(_,_,inner_fuzzables) => {
+                    let mut inner_numbers = 0;
+                    for (_,inner_fuzzable) in inner_fuzzables {
+                        let inner_number = inner_fuzzable._dynamic_length_param_number();
+                        inner_numbers = inner_numbers + inner_number;
+                    }
+                    inner_numbers
+                }
+                FuzzableType::Primitive(_) => 0,
+                _ => unreachable!(),
             }
         }
     }

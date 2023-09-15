@@ -57,6 +57,10 @@ pub(crate) fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String
     }
 }
 
+fn map_std_type_name(name: &str) -> String {
+    if name.starts_with("alloc::") { "std::".to_owned() + &name[7..] } else { name.to_string() }
+}
+
 pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
     //TODO：self不需要考虑，因为在产生api function的时候就已经完成转换，但需要考虑类型嵌套的情况
     match ty {
@@ -233,9 +237,7 @@ pub(crate) fn print_term(term: &types::Term, cache: Option<&Cache>) -> String {
 }
 
 pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
-    // full_name_map might be empty, if the item is private
-    let full_name = cache.and_then(|cache| get_type_name_from_did(path.def_id(), cache));
-
+    let full_name = cache.and_then(|cache| get_type_name_from_did(path.def_id(), cache)).as_ref().map(|x| map_std_type_name(x));
     let mut res = Vec::<String>::new();
     if !path.segments.is_empty() {
         res.push(print_path_segment(full_name, &path.segments[0], cache));

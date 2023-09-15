@@ -19,9 +19,7 @@ pub(crate) struct ApiCall {
     pub(crate) params: Vec<(ParamType, usize, CallType)>, //参数类型(表示是使用之前的返回值，还是使用fuzzable的变量)，在当前的调用序列中参数所在的位置，以及如何调用
 }
 
-fn map_std_type_name(name: &str) -> String {
-    if name.starts_with("alloc::") { "std::".to_owned() + &name[7..] } else { name.to_string() }
-}
+
 
 impl ApiCall {
     pub(crate) fn _new_without_params(api_type: &ApiType, index: usize) -> Self {
@@ -795,9 +793,9 @@ impl ApiSequence {
                     api_function
                         .output
                         .as_ref()
-                        .map(|output| map_std_type_name(&api_util::_type_name(
+                        .map(|output| api_util::_type_name(
                             output,
-                            Some(api_graph.cache())
+                            Some(api_graph.cache()
                         )))
                         .unwrap()
                 ));

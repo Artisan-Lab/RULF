@@ -18,6 +18,7 @@ use crate::fuzz_target::generic_solution::match_type;
 use crate::fuzz_target::generic_solution::merge_solution_set;
 use crate::fuzz_target::generic_solution::{merge_solution, solution_string};
 use crate::fuzz_target::generic_solver::GenericSolver;
+use crate::fuzz_target::impl_id::ImplId;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
@@ -31,8 +32,6 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
 use std::cmp::{max, min};
 use std::{cell::RefCell, rc::Rc};
-use crate::fuzz_target::impl_id::ImplId;
-
 
 pub(crate) struct TraitImpl {
     pub(crate) trait_: Path,
@@ -63,7 +62,7 @@ pub(crate) struct TraitImplMap {
 
 fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
     match _type_name(trait_, Some(cache)).as_str() {
-        "std::io::Write::Write"|"std::io::Write" => {
+        "std::io::Write::Write" | "std::io::Write" => {
             println!("[Weapon] Detect io::Write");
             match _type_name(type_, Some(cache)).as_str() {
                 "&mut [u8]" => return true,
@@ -81,10 +80,10 @@ fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
             }
             false
         }
-        "std::io::Read::Read"|"std::io::Read" => {
+        "std::io::Read::Read" | "std::io::Read" => {
             println!("[Weapon] Detect io::Read");
             match _type_name(type_, Some(cache)).as_str() {
-                "&[u8]"|"&mut [u8]" => return true,
+                "&[u8]" | "&mut [u8]" => return true,
                 _ => {}
             }
             match type_ {
@@ -132,9 +131,11 @@ impl TraitImplMap {
         let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<ImplId> {
             for trait_impl in trait_impls {
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
-                if trait_impl.generic_map.generic_defs.len()>0{ // ignore blanket impl
+                // TODO: should we consider blanket impl? 
+                /* if trait_impl.generic_map.generic_defs.len() > 0 {
+                    // ignore blanket impl
                     continue;
-                }
+                } */
                 if let Some(sol_for_trait) =
                     match_type(&trait_, &impl_trait, &trait_impl.generic_map.generic_defs)
                 {
@@ -146,8 +147,6 @@ impl TraitImplMap {
                     if let Some(sol_for_type) =
                         match_type(type_, &for_type, &trait_impl.generic_map.generic_defs)
                     {
-                        // FIXME: add type pred checking
-
                         println!(
                             "[TraitImpl] {} match {}, {} match {}",
                             _type_name(&trait_, None),
@@ -155,27 +154,28 @@ impl TraitImplMap {
                             _type_name(type_, None),
                             _type_name(&trait_impl.for_, None)
                         );
-                        println!(
-                            "sol for trait: {}, sol for type: {}, generic_defs: {:?}",
-                            solution_string(&sol_for_trait),
-                            solution_string(&sol_for_type),
-                            trait_impl.generic_map.generic_defs
-                        );
+
                         if let Some(solution) = merge_solution(
                             &sol_for_type,
                             &sol_for_trait,
                             &trait_impl.generic_map.generic_defs,
                         ) {
                             println!(
-                                "[TraitImpl] Recursively check solution: {}",
-                                solution_string(&solution)
+                                "[TraitImpl] Recursively check: do we have impl {} for {}?",
+                                _type_name(&impl_trait, Some(cache)),
+                                _type_name(&for_type, Some(cache))
                             );
+                            println!(
+                                "[TraitImpl] solution: {}, generic_defs: {:?}",
+                                solution_string(&solution),
+                                trait_impl.generic_map.generic_defs
+                            );
+
                             if solution.is_empty()
-                                || trait_impl.generic_map.check_solution(
-                                    &solution,
-                                    trait_impl_map,
-                                    cache,
-                                ).is_some() 
+                                || trait_impl
+                                    .generic_map
+                                    .check_solution(&solution, trait_impl_map, cache)
+                                    .is_some()
                             {
                                 return Some(ImplId::Id(trait_impl.impl_id));
                             }
@@ -189,7 +189,8 @@ impl TraitImplMap {
         for trait_ in bounds.iter() {
             let trait_ = Type::Path { path: trait_.clone() };
 
-            if is_impl_in_std(&type_, &trait_, cache) { //TODO: Merge into extract id for better acc
+            if is_impl_in_std(&type_, &trait_, cache) {
+                //TODO: Merge into extract id for better acc
                 continue;
             }
 
