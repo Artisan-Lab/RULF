@@ -1,7 +1,11 @@
 use crate::clean::Function;
+use crate::clean::GenericParamDefKind;
+use crate::clean::Visibility;
 use crate::clean::WherePredicate;
 use crate::clean::{self, ItemKind, Struct};
-use crate::clean::{GenericBound, Generics, Impl, ImplKind, Item, Path, Type};
+use crate::clean::{
+    GenericArg, GenericArgs, GenericBound, Generics, Impl, ImplKind, Item, Lifetime, Path, Type,
+};
 use crate::error::Error;
 use crate::formats;
 use crate::formats::cache::Cache;
@@ -9,8 +13,12 @@ use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
+use crate::fuzz_target::api_util::{_type_name,replace_type_lifetime};
 use crate::fuzz_target::api_util::is_external_type;
-use crate::fuzz_target::api_util::{self, is_param_self_type, replace_self_type};
+use crate::fuzz_target::api_util::print_path_segment;
+use crate::fuzz_target::api_util::replace_type_with;
+use crate::fuzz_target::api_util::{self, is_param_self_type, replace_self_type, replace_lifetime};
+use crate::fuzz_target::fuzzable_type::fuzzable_call_type;
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::prelude_type;
@@ -18,20 +26,18 @@ use crate::fuzz_target::statistic;
 use crate::fuzz_target::trait_impl::TraitImpl;
 use crate::html::format::join_with_double_colon;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_hir::def::CtorKind;
 use rustc_hir::def_id::DefId;
 use rustc_span::Symbol;
-
-use super::api_util::print_path_segment;
-use super::api_util::replace_type_with;
 #[derive(Debug, Clone)]
 pub(crate) struct FullNameMap {
     pub(crate) map: FxHashMap<DefId, (String, ItemType)>,
+    pub(crate) structs: FxHashMap<DefId, Struct>,
 }
 
 impl FullNameMap {
     pub(crate) fn new() -> Self {
-        let map = FxHashMap::default();
-        FullNameMap { map }
+        FullNameMap { map: FxHashMap::default(), structs: FxHashMap::default() }
     }
 
     pub(crate) fn push_mapping(&mut self, def_id: DefId, full_name: &String, item_type: ItemType) {
@@ -177,6 +183,10 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         None
     };
 
+    if is_trait_impl {
+        statistic::inc("TRAIT_IMPLS");
+    }
+
     // print some debug info
     println!("\n>>>>> IMPL BLOCK INFO <<<<<");
     // println!("process impl: {:?}", impl_);
@@ -207,22 +217,33 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         return;
     }
 
-    if is_trait_impl &&  !is_crate_trait_impl{
+    if is_trait_impl && !is_crate_trait_impl {
         println!("ignore this external trait");
         return;
     }
     // only analyse local trait for any type, and external trait for local type
     // ignore external trait impl for external type
     if is_external_type(impl_for_def_id.unwrap(), api_graph.cache()) {
-        if !is_trait_impl {
+        /* if !is_trait_impl {
             println!("ignore this impl");
             return;
-        }
+        } */
         // if trait neither prelude nor crate trait
-        if !is_prelude_trait(&impl_.trait_.as_ref().unwrap()) && !is_crate_trait_impl {
+        if is_trait_impl
+            && !is_prelude_trait(&impl_.trait_.as_ref().unwrap())
+            && !is_crate_trait_impl
+        {
             println!("ignore this trait impl");
             return;
         }
+    }
+
+    if fuzzable_call_type(&impl_.for_, &api_graph.full_name_map, api_graph.cache()).is_fuzzable() {
+        let mut ty=impl_.for_.clone();
+        replace_type_lifetime(&mut ty);
+        api_graph.type_context.borrow_mut().add_canonical_types(&ty, api_graph.cache());
+    } else {
+        println!("{} is not fuzzable", _type_name(&impl_.for_, Some(api_graph.cache())));
     }
 
     let mut assoc_items = FxHashMap::<String, Type>::default();
@@ -230,10 +251,17 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         if let ItemKind::AssocTypeItem(ref typedef, _) = *item.kind {
             let name = item.name.unwrap().to_string();
             match typedef.item_type {
-                Some(ref ty) => {assoc_items.insert(name, ty.clone());},
+                Some(ref ty) => {
+                    assoc_items.insert(name, ty.clone());
+                }
                 None => unreachable!(),
             }
         }
+    }
+
+    println!("assoc types:");
+    for (k, v) in assoc_items.iter() {
+        println!("{}: {}", k, _type_name(v, Some(api_graph.cache())));
     }
 
     let mut implemented = FxHashSet::<Symbol>::default();
@@ -315,15 +343,21 @@ pub(crate) fn analyse_impl_inner_item(
             let mut output = api_util::extract_output_type(&output);
             let mut contains_self_type = false;
             let input_len = inputs.len();
-            let mut replace_assoc_item = |type_: &Type| -> Option<Type> {
+            /* let mut replace_assoc_item = |type_: &Type| -> Option<Type> {
                 match type_ {
                     Type::QPath(qpathdata) => {
                         let name = print_path_segment(None, &qpathdata.assoc, None);
-                        Some(assoc_items.get(&name).expect(&format!("can not find {} from {:?}",name, assoc_items)).clone())
+                        Some(
+                            assoc_items
+                                .get(&name)
+                                .expect(&format!("can not find {} from {:?}", name, assoc_items))
+                                .clone(),
+                        )
                     }
                     _ => None,
                 }
-            };
+            }; */
+            
 
             for ty_ in inputs.iter_mut() {
                 if is_param_self_type(ty_) {
@@ -331,30 +365,19 @@ pub(crate) fn analyse_impl_inner_item(
                     let raplaced_ty = replace_self_type(ty_, &impl_.for_);
                     *ty_ = raplaced_ty;
                 }
-                *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
+                
+                // *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
             }
             //println!("after replace, input = {:?}", inputs);
             let mut contains_self_output = false;
-            /* let output = match output {
-                           None => None,
-                           Some(ref mut ty_) => {
-                               if is_param_self_type(&ty_) {
-                                   let replaced_type = replace_self_type(&ty_, &impl_.for_);
-                                   contains_self_output = true;
-                                   *ty_
-                               }
-
-                           }
-                       };
-
-            */
             if let Some(ref mut ty_) = output {
                 if is_param_self_type(&ty_) {
                     let replaced_type = replace_self_type(&ty_, &impl_.for_);
                     contains_self_output = true;
                     *ty_ = replaced_type
                 }
-                *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
+
+                // *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
             }
 
             let mut method_name = String::new();
@@ -432,7 +455,7 @@ pub(crate) fn analyse_impl_inner_item(
                 generic_function.add_generics(&function.generics);
                 generic_function.add_generics(&impl_.generics);
                 // generic_function.add_generics(&type_generics);
-                generic_function.resolve_bounded_symbol();
+                // generic_function.resolve_bounded_symbol();
                 // if there is no generic, regard it as a normal function
                 if generic_function.generic_map.is_empty() {
                     api_graph.add_api_function(generic_function.api_function);
@@ -453,24 +476,35 @@ pub(crate) fn analyse_impl_inner_item(
 }
 
 pub(crate) fn analyse_type(item: &Item, api_graph: &mut ApiGraph<'_>) {
-    println!("analyse struct: {:?}", item);
-
-    let generics = match *item.kind {
+    //
+    let did = item.item_id.expect_def_id();
+    match *item.kind {
         ItemKind::StructItem(ref struct_) => {
-            println!("generics: {:?}", &struct_.generics);
-            struct_.generics.clone()
+            println!("analyse struct: {:?}", item);
+            println!("analyse struct: {:?}", item.kind);
+
+            for param in struct_.generics.params.iter() {
+                match param.kind {
+                    GenericParamDefKind::Lifetime { .. } => {}
+                    _ => {
+                        return;
+                    }
+                }
+            }
+            if let CtorKind::Fictive = struct_.struct_type {
+                for field in struct_.fields.iter() {
+                    if let Visibility::Restricted(_) = field.visibility {
+                        return;
+                    }
+                }
+            }
+            api_graph.full_name_map.structs.insert(did, struct_.clone());
         }
-        ItemKind::EnumItem(ref enum_) => {
-            println!("generics: {:?}", &enum_.generics);
-            enum_.generics.clone()
-        }
+        ItemKind::EnumItem(ref enum_) => {}
         _ => {
             unreachable!("unexpected type: {:?}", item);
         }
-    };
-
-    let did = item.item_id.expect_def_id();
-    api_graph.type_generics.insert(did, generics.clone());
+    }
 }
 /*
 pub(crate) fn analyse_trait(api_graph: &mut ApiGraph<'_>) {

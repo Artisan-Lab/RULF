@@ -6,6 +6,7 @@ use crate::formats::cache::Cache;
 use crate::fuzz_target::generic_solution::{
     replace_generic_with_solution, solution_string, solution_string_with_param_name, Solution,
 };
+use crate::fuzz_target::impl_id::ImplId;
 use crate::fuzz_target::{api_function::ApiFunction, api_util, impl_util::FullNameMap};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
@@ -97,7 +98,8 @@ impl GenericParamMap {
         for param in generics.params.iter() {
             match &param.kind {
                 GenericParamDefKind::Type { did, bounds, default, .. } => {
-                    if default.is_some(){ // if generic param has default value, we ignore it.
+                    if default.is_some() {
+                        // if generic param has default value, we ignore it.
                         continue;
                     }
                     self.add_generic_bounds(param.name.as_str(), &bounds);
@@ -130,10 +132,10 @@ impl GenericParamMap {
         solution: &Solution,
         trait_impl_map: &TraitImplMap,
         cache: &Cache,
-    ) -> bool {
+    ) -> Option<FxHashSet<ImplId>> {
         assert!(solution.len() == self.generic_defs.len());
 
-        let mut visited = FxHashSet::<DefId>::default();
+        let mut visited = FxHashSet::<ImplId>::default();
         for i in 0..solution.len() {
             let bounds = self.get_bounds(&self.generic_defs[i]);
             if bounds.is_empty() {
@@ -149,22 +151,20 @@ impl GenericParamMap {
                 set_union(&mut visited, &impl_set);
             } else {
                 println!("[GenericParam] Check Pred Fail #1");
-                return false;
+                return None;
             }
         }
 
         for (type_, bounds) in self.type_pred.iter() {
-            if matches!(type_,Type::QPath(_)){
+            if matches!(type_, Type::QPath(_)) {
                 continue; // FIXME: We currently ignore associate item
             }
-            let complete_type = replace_generic_with_solution(type_, solution, &self.generic_defs);
+            let mut complete_type = type_.clone();
+            replace_generic_with_solution(&mut complete_type, solution, &self.generic_defs);
             let mut complete_bounds = Vec::<Path>::new();
             for bound in bounds {
-                let ty = replace_generic_with_solution(
-                    &Type::Path { path: bound.clone() },
-                    solution,
-                    &self.generic_defs,
-                );
+                let mut ty = Type::Path { path: bound.clone() };
+                replace_generic_with_solution(&mut ty, solution, &self.generic_defs);
                 match ty {
                     Type::Path { path } => complete_bounds.push(path),
                     _ => unreachable!(),
@@ -179,7 +179,7 @@ impl GenericParamMap {
                 set_union(&mut visited, &impl_set);
             } else {
                 println!("[GenericParam] Check Pred Fail #2");
-                return false;
+                return None;
             }
         }
 
@@ -188,7 +188,7 @@ impl GenericParamMap {
             solution_string_with_param_name(solution, &self.generic_defs)
         );
         println!("[GenericParam] visited={:?}", visited);
-        true
+        Some(visited)
     }
 
     pub fn add_generic_bounds(&mut self, name: &str, bounds: &[GenericBound]) {

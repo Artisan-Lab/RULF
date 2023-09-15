@@ -1,13 +1,15 @@
 use crate::clean::Path;
 use crate::clean::{self, types::PrimitiveType, Type};
-use crate::clean::{types, GenericArg, GenericArgs, PathSegment, TypeBinding};
+use crate::clean::{types, GenericArg, GenericArgs, PathSegment, TypeBinding, Lifetime};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableCallType};
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
+use rustc_span::Symbol;
 use crate::fuzz_target::prelude_type::{self, PreludeType};
 use crate::html::format::join_with_double_colon;
+use crate::fuzz_target::api_function::ApiFunction;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
@@ -193,7 +195,7 @@ pub(crate) fn print_path_segment(
                     GenericArg::Lifetime(lifetime) =>
                     /* lifetime.0.to_string() */
                     {
-                        "'_".to_string()
+                        lifetime.0.to_string()
                     }
                     GenericArg::Const(constant) => _type_name(&constant.type_, cache),
                     GenericArg::Type(type_) => _type_name(&type_, cache),
@@ -251,13 +253,18 @@ pub(crate) fn _type_name(type_: &clean::Type, cache: Option<&Cache>) -> String {
         clean::Type::Path { path } => print_path(path, cache),
         clean::Type::Primitive(primitive_type) => primitive_type.as_sym().to_string(),
         clean::Type::Generic(generic) => generic.to_string(),
-        clean::Type::BorrowedRef { type_, mutability, .. } => {
+        clean::Type::BorrowedRef { type_, mutability, lifetime } => {
             let inner_type = &**type_;
             let inner_name = _type_name(inner_type, cache);
-            match mutability {
-                Mutability::Not => format!("&{}", inner_name),
-                Mutability::Mut => format!("&mut {}", inner_name),
-            }
+            let mut_tag= match mutability {
+                Mutability::Not => "",
+                Mutability::Mut => "mut "
+            };
+            let life_str=match lifetime{
+                Some(lifetime)=>lifetime.0.to_string()+" ",
+                None => "".to_string()
+            };
+            format!("&{}{}{}",life_str,mut_tag,inner_name)
         }
         clean::Type::Slice(type_) => {
             format!("[{}]", _type_name(type_, cache))
@@ -327,14 +334,6 @@ pub(crate) fn _same_type_hard_mode(
         return CallType::_DirectCall;
     }
 
-    if let clean::Type::Generic(_) = input_type {
-        return CallType::_DirectCall;
-    }
-
-    if let clean::Type::Generic(_) = output_type {
-        return CallType::_DirectCall;
-    }
-
     //对输入类型解引用,后面就不在考虑输入类型需要解引用的情况
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
@@ -377,7 +376,7 @@ pub(crate) fn _same_type_hard_mode(
         //范型
         clean::Type::Generic(_generic) => {
             // generic match all type.
-            CallType::_DirectCall
+            unreachable!("should not occur generic here");
         }
         //基本类型
         //TODO:暂不考虑两次转换，如char和任意宽度的数字，但考虑char和u8的转换
@@ -878,52 +877,86 @@ fn new_segments_without_lifetime(
     new_segments_without_lifetime
 }
 
-pub(crate) fn replace_type_with<F: FnMut(&clean::Type) -> Option<clean::Type>>(
-    ty: &clean::Type,
-    f: &mut F,
-) -> clean::Type {
-    if let Some(new_ty) = f(ty) {
-        new_ty
-    } else {
-        let mut new_ty = ty.clone();
-        // If we meet nested type, travel all type
-        match new_ty {
-            clean::Type::Path { ref mut path } => {
+pub(crate) fn replace_type_lifetime(type_: &mut Type){
+    let mut replace_lifetime = |type_: &mut Type| -> bool {
+        match type_ {
+            Type::Path { ref mut path } => {
                 for segment in path.segments.iter_mut() {
-                    match segment.args {
-                        clean::GenericArgs::AngleBracketed { ref mut args, .. } => {
-                            for generic_arg in args.iter_mut() {
-                                if let clean::GenericArg::Type(ref mut inner_ty) = generic_arg {
-                                    *inner_ty = replace_type_with(inner_ty, f);
+                    if let GenericArgs::AngleBracketed { ref mut args, .. } = segment.args {
+                        for arg in args.iter_mut() {
+                            match arg {
+                                GenericArg::Lifetime(lifetime) => {
+                                    *lifetime = Lifetime(Symbol::intern("'_"))
                                 }
-                            }
-                        }
-                        clean::GenericArgs::Parenthesized { ref mut inputs, ref mut output } => {
-                            for input_ty in inputs.iter_mut() {
-                                *input_ty = replace_type_with(input_ty, f);
-                            }
-                            if let Some(output_ty) = output {
-                                **output_ty = replace_type_with(&output_ty, f);
+                                _ => {}
                             }
                         }
                     }
                 }
             }
-            clean::Type::Tuple(ref mut types) => {
-                for ty_ in types {
-                    *ty_ = replace_type_with(ty_, f);
-                }
-            }
-            clean::Type::Slice(ref mut type_)
-            | clean::Type::Array(ref mut type_, ..)
-            | clean::Type::RawPointer(_, ref mut type_)
-            | clean::Type::BorrowedRef { ref mut type_, .. } => {
-                *type_ = Box::new(replace_type_with(type_, f));
-            }
+            Type::BorrowedRef { ref mut lifetime, type_, mutability } => {
+                *lifetime=None;
+            },
             _ => {}
         }
-        new_ty
+        true
+    };
+    replace_type_with(type_, &mut replace_lifetime);
+}
+
+pub(crate) fn replace_lifetime(api_fun: &mut ApiFunction){
+    for input in api_fun.inputs.iter_mut(){
+        replace_type_lifetime(input);
     }
+    if let Some(ref mut output) = api_fun.output{
+        replace_type_lifetime(output);
+    }
+}
+
+pub(crate) fn replace_type_with<F: FnMut(&mut clean::Type) -> bool>(
+    ty: &mut clean::Type,
+    f: &mut F,
+){
+    if !f(ty){
+        return;
+    }
+    // If we meet nested type, travel all type
+    match ty {
+        clean::Type::Path { ref mut path } => {
+            for segment in path.segments.iter_mut() {
+                match segment.args {
+                    clean::GenericArgs::AngleBracketed { ref mut args, .. } => {
+                        for generic_arg in args.iter_mut() {
+                            if let clean::GenericArg::Type(ref mut inner_ty) = generic_arg {
+                                replace_type_with(inner_ty, f);
+                            }
+                        }
+                    }
+                    clean::GenericArgs::Parenthesized { ref mut inputs, ref mut output } => {
+                        for input_ty in inputs.iter_mut() {
+                            replace_type_with(input_ty, f);
+                        }
+                        if let Some(ref mut output_ty) = output {
+                            replace_type_with(output_ty, f);
+                        }
+                    }
+                }
+            }
+        }
+        clean::Type::Tuple(ref mut types) => {
+            for ty_ in types {
+                replace_type_with(ty_, f);
+            }
+        }
+        clean::Type::Slice(ref mut type_)
+        | clean::Type::Array(ref mut type_, ..)
+        | clean::Type::RawPointer(_, ref mut type_)
+        | clean::Type::BorrowedRef { ref mut type_, .. } => {
+            replace_type_with(type_, f);
+        }
+        _ => {}
+    }
+
 }
 
 pub(crate) fn is_binding_match(a: &TypeBinding, b: &TypeBinding) -> bool {

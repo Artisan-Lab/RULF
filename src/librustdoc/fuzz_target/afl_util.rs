@@ -1,6 +1,9 @@
 use crate::clean::PrimitiveType;
+use crate::fuzz_target::api_util::get_type_name_from_did;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
 use rustc_data_structures::fx::FxHashSet;
+use rustc_hir::def::CtorKind;
+
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum _AflHelpers {
     _NoHelper,
@@ -23,12 +26,13 @@ pub(crate) enum _AflHelpers {
     _Str,
     _Slice(Box<_AflHelpers>),
     _Tuple(Vec<Box<_AflHelpers>>),
+    _Struct(String, i32, Vec<(String, _AflHelpers)>)
 }
 
 impl _AflHelpers {
     pub(crate) fn _new_from_fuzzable(fuzzable: &FuzzableType) -> Self {
         match fuzzable {
-            FuzzableType::NoFuzzable => unreachable!("reach no fuzzable type: {:?}",fuzzable),
+            FuzzableType::NoFuzzable => unreachable!("reach no fuzzable type: {:?}", fuzzable),
             FuzzableType::RefStr => _AflHelpers::_Str,
             FuzzableType::Primitive(primitive_type) => match primitive_type {
                 PrimitiveType::U8 => _AflHelpers::_U8,
@@ -60,6 +64,15 @@ impl _AflHelpers {
                     .collect();
                 _AflHelpers::_Tuple(inner_afl_helpers)
             }
+            FuzzableType::Struct(name, kind, inner) => {
+                let inner = inner
+                    .into_iter()
+                    .map(|x| (x.0.to_string(), _AflHelpers::_new_from_fuzzable(&x.1)))
+                    .collect();
+                let ret=_AflHelpers::_Struct(name.to_string(), *kind, inner);
+                ret
+                
+            }
         }
     }
 
@@ -72,6 +85,11 @@ impl _AflHelpers {
         if let _AflHelpers::_Tuple(inner_helpers) = self {
             for afl_helper in inner_helpers {
                 let mut inner_dependent = afl_helper._get_all_dependent_afl_helpers();
+                helpers.append(&mut inner_dependent);
+            }
+        } else if let _AflHelpers::_Struct(_, _, inner_helpers) = self {
+            for inner in inner_helpers.iter() {
+                let mut inner_dependent = inner.1._get_all_dependent_afl_helpers();
                 helpers.append(&mut inner_dependent);
             }
         } else {
@@ -133,33 +151,35 @@ impl _AflHelpers {
                     helpers.append(&mut u32_dependency);
                 }
                 _AflHelpers::_Tuple(..) => {}
+                _AflHelpers::_Struct(..) => {}
             }
         }
         helpers
     }
 
-    pub(crate) fn _to_full_function(&self) -> &'static str {
+    pub(crate) fn _to_full_function(&self) -> String {
         match self {
             _AflHelpers::_NoHelper => unreachable!("afl no helper"),
-            _AflHelpers::_U8 => _data_to_u8(),
-            _AflHelpers::_I8 => _data_to_i8(),
-            _AflHelpers::_U16 => _data_to_u16(),
-            _AflHelpers::_I16 => _data_to_i16(),
-            _AflHelpers::_U32 => _data_to_u32(),
-            _AflHelpers::_I32 => _data_to_i32(),
-            _AflHelpers::_F32 => _data_to_f32(),
-            _AflHelpers::_U64 => _data_to_u64(),
-            _AflHelpers::_I64 => _data_to_i64(),
-            _AflHelpers::_F64 => _data_to_f64(),
-            _AflHelpers::_U128 => _data_to_u128(),
-            _AflHelpers::_I128 => _data_to_i128(),
-            _AflHelpers::_Usize => _data_to_usize(),
-            _AflHelpers::_Isize => _data_to_isize(),
-            _AflHelpers::_Char => _data_to_char(),
-            _AflHelpers::_Bool => _data_to_bool(),
-            _AflHelpers::_Str => _data_to_str(),
-            _AflHelpers::_Slice(..) => _data_to_slice(),
-            _AflHelpers::_Tuple(..) => "",
+            _AflHelpers::_U8 => _data_to_u8().to_string(),
+            _AflHelpers::_I8 => _data_to_i8().to_string(),
+            _AflHelpers::_U16 => _data_to_u16().to_string(),
+            _AflHelpers::_I16 => _data_to_i16().to_string(),
+            _AflHelpers::_U32 => _data_to_u32().to_string(),
+            _AflHelpers::_I32 => _data_to_i32().to_string(),
+            _AflHelpers::_F32 => _data_to_f32().to_string(),
+            _AflHelpers::_U64 => _data_to_u64().to_string(),
+            _AflHelpers::_I64 => _data_to_i64().to_string(),
+            _AflHelpers::_F64 => _data_to_f64().to_string(),
+            _AflHelpers::_U128 => _data_to_u128().to_string(),
+            _AflHelpers::_I128 => _data_to_i128().to_string(),
+            _AflHelpers::_Usize => _data_to_usize().to_string(),
+            _AflHelpers::_Isize => _data_to_isize().to_string(),
+            _AflHelpers::_Char => _data_to_char().to_string(),
+            _AflHelpers::_Bool => _data_to_bool().to_string(),
+            _AflHelpers::_Str => _data_to_str().to_string(),
+            _AflHelpers::_Slice(..) => _data_to_slice().to_string(),
+            _AflHelpers::_Tuple(..) => "".to_string(),
+            _AflHelpers::_Struct(..) => "".to_string(),
         }
     }
 
@@ -198,6 +218,7 @@ impl _AflHelpers {
                 type_name.push_str(")");
                 return type_name;
             }
+            _AflHelpers::_Struct(name, _, _ ) => name.to_string(),
         }
     }
 
@@ -214,6 +235,7 @@ impl _AflHelpers {
                 )
             }
             _AflHelpers::_Tuple(..) => String::new(),
+            _AflHelpers::_Struct(..) => String::new(),
             _ => {
                 format!("_to_{type_name}", type_name = self._type_name())
             }
@@ -380,6 +402,55 @@ impl _AflHelpers {
                     "Type not match in afl_util".to_string()
                 }
             }
+            _AflHelpers::_Struct(name, kind, inner) => {
+                // println!("{:?}",self);
+                let mut res=String::new();
+                let mut item_string=Vec::<String>::new();
+                
+                res.push_str(&name);
+                match kind{
+                    0 => { //Fn
+                        for inner_item in inner.iter(){
+                            item_string.push(format!("{}",inner_item.1._generate_param_initial_rhs(
+                                fixed_start_index,
+                                dynamic_start_index,
+                                dynamic_param_index,
+                                total_dynamic_param_numbers,
+                                dynamic_param_length,
+                                origin_fuzzable_type,
+                            )));
+                        }
+                        res.push('(');
+                        res.push_str(&item_string.join(", "));
+                        res.push(')');
+                    }
+                    1 => { //Const
+                        res.push('{');
+                        res.push('}');
+                    }
+                    2 => { //Fictive
+                        for inner_item in inner.iter(){
+                            item_string.push(format!("{}: {}",inner_item.0, inner_item.1._generate_param_initial_rhs(
+                                fixed_start_index,
+                                dynamic_start_index,
+                                dynamic_param_index,
+                                total_dynamic_param_numbers,
+                                dynamic_param_length,
+                                origin_fuzzable_type,
+                            )));
+                        }
+                        res.push('{');
+                        res.push_str(&item_string.join(", "));
+                        res.push('}');
+                    }
+                    _ => {
+                        unreachable!();
+                    }
+                }
+
+                res
+            }
+
             _AflHelpers::_NoHelper => {
                 format!("No helper")
             }
@@ -417,16 +488,18 @@ pub(crate) fn _get_afl_helpers_functions_of_sequence(
     for afl_helper in afl_helpers {
         if !contains_slice_flag && afl_helper._is_slice() {
             contains_slice_flag = true;
-            afl_helper_functions.push(afl_helper._to_full_function().to_string());
+            afl_helper_functions.push(afl_helper._to_full_function());
             continue;
         }
-        afl_helper_functions.push(afl_helper._to_full_function().to_string())
+        afl_helper_functions.push(afl_helper._to_full_function())
     }
     Some(afl_helper_functions)
 }
 
 //获得可能的feature gate,
-pub(crate) fn _get_feature_gates_of_sequence(fuzzable_params: &Vec<FuzzableType>) -> Option<Vec<String>> {
+pub(crate) fn _get_feature_gates_of_sequence(
+    fuzzable_params: &Vec<FuzzableType>,
+) -> Option<Vec<String>> {
     let all_afl_helpers = _get_all_dependent_afl_helpers_of_sequence(fuzzable_params);
     let mut feature_gates = FxHashSet::default();
     for afl_helper in all_afl_helpers {

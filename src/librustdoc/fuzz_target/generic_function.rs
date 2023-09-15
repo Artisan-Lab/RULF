@@ -6,6 +6,7 @@ use crate::fuzz_target::api_util::{print_path,_type_name};
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::{api_function::ApiFunction, api_util};
+use crate::fuzz_target::api_util::replace_lifetime;
 use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
@@ -23,7 +24,8 @@ pub(crate) struct GenericFunction {
 }
 
 impl From<ApiFunction> for GenericFunction {
-    fn from(api_function: ApiFunction) -> Self {
+    fn from(mut api_function: ApiFunction) -> Self {
+        replace_lifetime(&mut api_function);
         let mut gf = GenericFunction {
             api_function,
             generic_map: GenericParamMap::new(),
@@ -87,7 +89,7 @@ impl GenericFunction {
         self.resolve_impl_trait();
     }
 
-    pub(crate) fn resolve_bounded_symbol(&mut self) {
+    /* pub(crate) fn resolve_bounded_symbol(&mut self) {
         // println!("resolve bounded symbol: {}",self.api_function._pretty_print());
         for (key, bounds) in self.generic_map.iter() {
             if !bounds.is_empty() {
@@ -113,7 +115,7 @@ impl GenericFunction {
             }
         }
         // println!("{:?}",self.bounded_symbols);
-    }
+    } */
 
     fn resolve_impl_trait(&mut self) {
         // replace impl

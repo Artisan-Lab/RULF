@@ -28,6 +28,14 @@ impl CallType {
             _ => true,
         }
     }
+    
+    pub(crate) fn is_direct(&self) -> bool{
+        match *self {
+            CallType::_DirectCall => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn _to_call_string(
         &self,
         variable_name: &String,

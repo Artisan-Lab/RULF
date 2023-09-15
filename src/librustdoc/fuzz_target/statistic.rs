@@ -1,47 +1,57 @@
-use rustc_data_structures::fx::FxHashMap;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
+use rustc_data_structures::fx::FxHashMap;
 use std::sync::Mutex;
 
-pub static mut STATISTIC_MAP:Lazy<Mutex<FxHashMap<String,usize>>>=Lazy::new(||{
-    let mut map=FxHashMap::<String,usize>::default();
-    map.insert("FUNCTIONS".to_string(),0);
-    map.insert("GENERIC_FUNCTIONS".to_string(),0);
-    map.insert("TRAIT_IMPLS".to_string(),0);
-    map.insert("BLANKET_IMPLS".to_string(),0);
-    map.insert("DEGENERIC".to_string(),0);
-    map.insert("MONO_FUNS".to_string(),0);
-    map.insert("ITERS".to_string(),0);
-    map.insert("CANDIDATES".to_string(),0);
-    map.insert("UNSOLVABLE".to_string(),0);
+pub static mut STATISTIC_MAP: Lazy<Mutex<FxHashMap<String, usize>>> = Lazy::new(|| {
+    let mut map = FxHashMap::<String, usize>::default();
+    map.insert("FUNCTIONS".to_string(), 0);
+    map.insert("GENERIC_FUNCTIONS".to_string(), 0);
+    map.insert("TRAIT_IMPLS".to_string(), 0);
+    map.insert("BLANKET_IMPLS".to_string(), 0);
+    map.insert("DEGENERIC".to_string(), 0);
+    map.insert("MONO_FUNS".to_string(), 0);
+    map.insert("ITERS".to_string(), 0);
+    map.insert("CANDIDATES".to_string(), 0);
+    map.insert("UNSOLVABLE".to_string(), 0);
+    map.insert("RESERVE".to_string(), 0);
+    map.insert("PRUNE_ITERS".to_string(), 0);
     map.into()
 });
 
+pub fn add(key: &str, val: usize) {
+    unsafe {
+        if let Some(value) = STATISTIC_MAP.lock().unwrap().get_mut(key) {
+            *value += val;
+        } else {
+            panic!("invalid statistic field");
+        }
+    }
+}
 
 pub fn inc(key: &str) {
-    unsafe{
-        if let Some(value)=STATISTIC_MAP.lock().unwrap().get_mut(key){
-            *value+=1;
+    unsafe {
+        if let Some(value) = STATISTIC_MAP.lock().unwrap().get_mut(key) {
+            *value += 1;
         } else {
             panic!("invalid statistic field");
         }
     }
 }
 pub fn print_summary() {
-    unsafe{
+    unsafe {
         println!("====== statistic ======");
-        for (key,value) in STATISTIC_MAP.lock().unwrap().iter(){
-            println!("{}: {}",key,value);
+        for (key, value) in STATISTIC_MAP.lock().unwrap().iter() {
+            println!("{}: {}", key, value);
         }
         println!("======  advance  ======");
-        let mono_funs=*STATISTIC_MAP.lock().unwrap().get("MONO_FUNS").unwrap();
-        let degeneric=*STATISTIC_MAP.lock().unwrap().get("DEGENERIC").unwrap();
-        println!("MONO_PER_FUNCS: {}", mono_funs as f32/ degeneric as f32);
+        let mono_funs = *STATISTIC_MAP.lock().unwrap().get("MONO_FUNS").unwrap();
+        let degeneric = *STATISTIC_MAP.lock().unwrap().get("DEGENERIC").unwrap();
+        println!("MONO_PER_FUNCS: {}", mono_funs as f32 / degeneric as f32);
         println!("=======================");
-        
     }
 
-        /* unsafe {
+    /* unsafe {
         println!("====== statistic ======");
         println!("functions: {}", FUNCTIONS);
         println!("trait impl: {}", TRAIT_IMPLS);

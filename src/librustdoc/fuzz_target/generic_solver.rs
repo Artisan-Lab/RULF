@@ -2,13 +2,15 @@ use crate::clean::{GenericArg, GenericArgs};
 use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
-use crate::fuzz_target::api_graph::{ApiGraph, TypeContext};
+use crate::fuzz_target::api_graph::{any_type_match, ApiGraph, TypeContext};
 use crate::fuzz_target::api_util::{
     self, _type_name, is_generic_type, replace_type_with, type_depth,
 };
 use crate::fuzz_target::generic_function::GenericFunction;
+use crate::fuzz_target::generic_param_map::set_union;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::generic_solution::*;
+use crate::fuzz_target::impl_id::ImplId;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::statistic;
 use crate::fuzz_target::trait_impl::TraitImpl;
@@ -24,17 +26,17 @@ use std::{cell::RefCell, rc::Rc};
 use super::trait_impl::TraitImplMap;
 
 static MAX_MONO_PER_FUNC: usize = 3;
-static MAX_TYPE_DEPTH: usize = 5;
+pub static MAX_TYPE_DEPTH: usize = 5;
 
 pub(crate) struct GenericSolver {
     current: Vec<usize>,
     current_function: GenericFunction,
-    all_visited: FxHashSet<DefId>, // set of impl id
-    all_callable: FxHashSet<(i32, i32)>,
+    diverse_set: FxHashSet<ImplId>,
+    reserved: Vec<bool>,
     reachable_inputs: Vec<bool>,
     contain_generic: Vec<bool>,
     type_context: Rc<RefCell<TypeContext>>,
-    solutions: Vec<ApiFunction>,
+    solutions: Vec<(Solution, ApiFunction, FxHashSet<ImplId>)>,
     solution_set: FxHashSet<Solution>,
     solution_count: usize,
     solvable: bool,
@@ -55,13 +57,13 @@ impl GenericSolver {
         }
         // println!("[Solver] generic_param: {:?}", generic_param);
         GenericSolver {
-            all_callable: FxHashSet::<(i32, i32)>::default(),
             type_context,
             current: Vec::new(),
             current_function: generic_function,
             reachable_inputs: vec![false; len],
             contain_generic,
-            all_visited: FxHashSet::<DefId>::default(),
+            diverse_set: FxHashSet::<ImplId>::default(),
+            reserved: Vec::new(),
             solutions: Vec::new(),
             solution_set: FxHashSet::<Solution>::default(),
             solvable,
@@ -80,10 +82,10 @@ impl GenericSolver {
         func.mono = true;
 
         for type_ in &mut func.inputs {
-            *type_ = replace_generic_with_solution(type_, solution, generic_defs);
+            replace_generic_with_solution(type_, solution, generic_defs);
         }
-        if let Some(ref output) = func.output {
-            func.output = Some(replace_generic_with_solution(output, solution, generic_defs));
+        if let Some(ref mut output) = func.output {
+            replace_generic_with_solution(output, solution, generic_defs);
         }
         func
     }
@@ -131,8 +133,15 @@ impl GenericSolver {
         println!("[Solver] Solution Set = {}", solution_set_string(&solution_set));
 
         // check type predicate
-        let mut valid_solution_set = Vec::<Solution>::new();
+        // let mut valid_solution_set = Vec::<Solution>::new();
         for solution in solution_set.into_iter() {
+            // prevent duplicate
+            if self.solution_set.get(&solution).is_some() {
+                continue;
+            }
+            self.solution_set.insert(solution.clone());
+
+            // check unsolvable
             for i in 0..self.current.len() {
                 if let Type::Infer = solution[i] {
                     self.solvable = false;
@@ -140,35 +149,31 @@ impl GenericSolver {
                     return false;
                 }
             }
-            if self.solution_set.get(&solution).is_some() {
-                continue;
-            }
-            self.solution_set.insert(solution.clone());
 
             println!("[Solver] Check Solution: {}", solution_string(&solution));
-            if self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache) {
-                valid_solution_set.push(solution);
-            }
-        }
-
-        for solution in valid_solution_set {
-            let func = self.make_function_with(&solution);
-            println!("[Solver] find mono function: {}", func._pretty_print(cache));
-            if let Some(ref output) = func.output {
-                let depth = type_depth(output);
-                println!("[Solver] output depth = {}", depth);
-                if depth > MAX_TYPE_DEPTH {
-                    println!("[Solver] solution is refused because output is too deep.");
-                    continue;
+            if let Some(impl_set) =
+                self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache)
+            {
+                //valid_solution_set.push(solution);
+                let func = self.make_function_with(&solution);
+                println!("[Solver] find mono function: {}", func._pretty_print(cache));
+                println!("[Solver] mono solution: {:?}", solution);
+                if let Some(ref output) = func.output {
+                    let depth = type_depth(output);
+                    println!("[Solver] output depth = {}", depth);
+                    if depth > MAX_TYPE_DEPTH {
+                        println!("[Solver] solution is refused because output is too deep.");
+                        continue;
+                    }
                 }
+                if let Some(ref output) = func.output {
+                    RefCell::borrow_mut(&self.type_context).add_canonical_types(output, cache);
+                }
+                self.solution_count += 1;
+                self.solutions.push((solution, func, impl_set));
+                self.reserved.push(false);
+                success = true;
             }
-            if let Some(ref output) = func.output {
-                RefCell::borrow_mut(&self.type_context).add_type_candidate(output);
-            }
-
-            self.solution_count += 1;
-            self.solutions.push(func);
-            success = true;
         }
         success
     }
@@ -243,10 +248,107 @@ impl GenericSolver {
         println!("[Solver] Running solve() took {} ms.", elapsed_time.as_millis());
     }
 
-    pub(crate) fn take_solutions(&mut self) -> Vec<ApiFunction> {
+    pub(crate) fn propagate_reserve(
+        &mut self,
+        diverse_types: &mut FxHashMap<Type, bool>,
+        full_name_map: &FullNameMap,
+        cache: &Cache,
+    ) -> bool {
+        let mut success = false;
+        for i in 0..self.num_solution() {
+            if self.reserved[i] {
+                continue;
+            }
+            let impl_set = &self.solutions[i].2;
+            if let Some(ref output) = self.solutions[i].1.output {
+                if any_type_match(diverse_types, output, full_name_map, cache, true) {
+                    println!(
+                        "[Propagate] reserve solution:{} ({:?})",
+                        self.solutions[i].1._pretty_print(cache),
+                        impl_set
+                    );
+                    self.reserved[i] = true;
+                    success = true;
+                    for input in self.solutions[i].1.inputs.iter() {
+                        if diverse_types.get(input).is_none() {
+                            diverse_types.insert(input.clone(), false);
+                        }
+                    }
+                    set_union(&mut self.diverse_set, impl_set);
+                }
+            }
+        }
+        success
+    }
+
+    pub(crate) fn init_diverse_set(
+        &mut self,
+        diverse_types: &mut FxHashMap<Type, bool>,
+        cache: &Cache,
+    ) {
+        println!(
+            "[Solver] init diverse solution for {}",
+            self.current_function.api_function._pretty_print(cache)
+        );
+        let diverse_count = |a: &FxHashSet<ImplId>, b: &FxHashSet<ImplId>| -> usize {
+            let mut cnt = 0;
+            for id in a.iter() {
+                if b.get(id).is_none() {
+                    cnt += 1;
+                }
+            }
+            cnt
+        };
+
+        loop {
+            let mut max_id = 0;
+            let mut max_num = 0;
+            for i in 0..self.num_solution() {
+                if !self.reserved[i] {
+                    let num = diverse_count(&self.solutions[i].2, &self.diverse_set);
+                    if num > max_num {
+                        max_id = i;
+                        max_num = num;
+                    }
+                }
+            }
+
+            if max_num == 0 {
+                break;
+            }
+
+            println!(
+                "[Solver] reserve mono: {}, {:?}, all={:?}",
+                &self.solutions[max_id].1._pretty_print(cache),
+                self.solutions[max_id].2,
+                self.diverse_set
+            );
+            set_union(&mut self.diverse_set, &self.solutions[max_id].2);
+            self.reserved[max_id] = true;
+            for input in self.solutions[max_id].1.inputs.iter() {
+                if diverse_types.get(input).is_none() {
+                    diverse_types.insert(input.clone(), false);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn reserve_solutions(&self) -> Vec<ApiFunction> {
         let mut res = Vec::new();
-        while let Some(func) = self.solutions.pop() {
-            res.push(func);
+        for i in 0..self.num_solution() {
+            if self.reserved[i] {
+                res.push(self.solutions[i].1.clone());
+            }
+        }
+        res
+    }
+
+    pub(crate) fn take_solutions(&mut self) -> Vec<(ApiFunction, bool, FxHashSet<ImplId>)> {
+        let mut res = Vec::new(); 
+        let mut ind = self.solutions.len()-1;
+        while let Some((_, func, impl_set)) = self.solutions.pop() {
+            res.push((func, self.reserved[ind], impl_set));
+            ind-=1;
         }
         res
     }

@@ -68,7 +68,6 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                 if !func.generics.is_empty() {
                     let mut generic_function = GenericFunction::from(api_fun);
                     generic_function.add_generics(&func.generics);
-                    generic_function.resolve_bounded_symbol();
                     self.api_dependency_graph.borrow_mut().generic_functions.push(generic_function);
                 } else {
                     self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
@@ -155,7 +154,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         println!("visibility: {:?}", api_dependency_graph.mod_visibility);
 
         // print debug info
-        api_dependency_graph.print_type_generics();
+        // api_dependency_graph.print_type_generics();
         // api_dependency_graph.print_full_name_map();
         api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.print_type_candidates();
@@ -177,6 +176,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
             use crate::fuzz_target::api_graph::GraphTraverseAlgorithm::_RandomWalk;
             api_dependency_graph.generate_all_possoble_sequences(_RandomWalk);
         }
+        // api_dependency_graph._
         //api_dependency_graph._print_generated_libfuzzer_file();
         //api_dependency_graph._print_pretty_functions(false);
         //api_dependency_graph._print_generated_test_functions();
@@ -195,7 +195,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         //print_message::_print_pretty_functions(&api_dependency_graph, true);
         // print_message::_print_generated_afl_file(&api_dependency_graph);
 
-        //println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
+        println!("total test sequences : {:?}", api_dependency_graph.api_sequences.len());
         //use crate::html::afl_util;
         //afl_util::_AflHelpers::_print_all();
         if file_util::can_write_to_file(&api_dependency_graph._crate_name, random_strategy) {

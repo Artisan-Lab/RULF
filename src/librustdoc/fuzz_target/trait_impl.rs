@@ -31,6 +31,9 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
 use std::cmp::{max, min};
 use std::{cell::RefCell, rc::Rc};
+use crate::fuzz_target::impl_id::ImplId;
+
+
 pub(crate) struct TraitImpl {
     pub(crate) trait_: Path,
     pub(crate) for_: Type,
@@ -122,16 +125,16 @@ impl TraitImplMap {
         bounds: &Vec<Path>,
         cache: &Cache,
         trait_impl_map: &TraitImplMap,
-    ) -> Option<FxHashSet<DefId>> {
+    ) -> Option<FxHashSet<ImplId>> {
         let mut res = FxHashSet::default();
         let trait_impls = self.get_type_impls(type_, cache); //trait, generic, impl_id
 
-        let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<DefId> {
+        let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<ImplId> {
             for trait_impl in trait_impls {
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
-                /* if trait_impl.generic_map.generic_defs.len()>0{
+                if trait_impl.generic_map.generic_defs.len()>0{ // ignore blanket impl
                     continue;
-                } */
+                }
                 if let Some(sol_for_trait) =
                     match_type(&trait_, &impl_trait, &trait_impl.generic_map.generic_defs)
                 {
@@ -172,9 +175,9 @@ impl TraitImplMap {
                                     &solution,
                                     trait_impl_map,
                                     cache,
-                                )
+                                ).is_some() 
                             {
-                                return Some(trait_impl.impl_id);
+                                return Some(ImplId::Id(trait_impl.impl_id));
                             }
                         }
                     }
@@ -186,7 +189,7 @@ impl TraitImplMap {
         for trait_ in bounds.iter() {
             let trait_ = Type::Path { path: trait_.clone() };
 
-            if is_impl_in_std(&type_, &trait_, cache) {
+            if is_impl_in_std(&type_, &trait_, cache) { //TODO: Merge into extract id for better acc
                 continue;
             }
 

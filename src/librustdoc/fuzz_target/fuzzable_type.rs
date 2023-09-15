@@ -1,10 +1,16 @@
-use crate::clean::{self, PrimitiveType};
+use crate::clean::types::ItemKind;
+use crate::clean::{self, PrimitiveType, Struct, Type};
 use crate::formats::cache::Cache;
-use rustc_hir::Mutability;
-
+use crate::formats::item_type::ItemType;
+use crate::fuzz_target::api_util::_type_name;
+use crate::fuzz_target::api_util::get_type_name_from_did;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::prelude_type::PreludeType;
+use rustc_data_structures::fx::FxHashMap;
+use rustc_hir::def::CtorKind;
+use rustc_hir::def_id::DefId;
+use rustc_hir::Mutability;
 
 //如果构造一个fuzzable的变量
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -20,6 +26,7 @@ pub(crate) enum FuzzableCallType {
     BorrowedRef(Box<FuzzableCallType>),
     MutBorrowedRef(Box<FuzzableCallType>),
     ToOption(Box<FuzzableCallType>),
+    Struct(String, i32, Vec<(String, FuzzableCallType)>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -28,13 +35,40 @@ pub(crate) enum FuzzableType {
     Primitive(PrimitiveType),
     RefSlice(Box<FuzzableType>),
     RefStr,
+    Struct(String, i32, Vec<(String, FuzzableType)>),
     Tuple(Vec<Box<FuzzableType>>),
 }
 
+impl FuzzableType {
+    pub(crate) fn is_fuzzable(&self) -> bool {
+        match self {
+            FuzzableType::NoFuzzable => false,
+            _ => true,
+        }
+    }
+}
+
 impl FuzzableCallType {
+    pub(crate) fn is_fuzzable(&self) -> bool {
+        match self {
+            FuzzableCallType::NoFuzzable => false,
+            _ => true,
+        }
+    }
     pub(crate) fn generate_fuzzable_type_and_call_type(&self) -> (FuzzableType, CallType) {
         //println!("fuzzable call type: {:?}", self);
         match self {
+            FuzzableCallType::Struct(full_name, kind, vec) => {
+                let mut res = Vec::new();
+                for (name, inner) in vec.iter() {
+                    let (fuzzable, call) = inner.generate_fuzzable_type_and_call_type();
+                    if !call.is_direct() || !fuzzable.is_fuzzable() {
+                        return (FuzzableType::NoFuzzable, CallType::_NotCompatible);
+                    }
+                    res.push((name.to_owned(), fuzzable));
+                }
+                (FuzzableType::Struct(full_name.to_string(), *kind, res), CallType::_DirectCall)
+            }
             FuzzableCallType::NoFuzzable => (FuzzableType::NoFuzzable, CallType::_NotCompatible),
             FuzzableCallType::Primitive(primitive) => {
                 (FuzzableType::Primitive(primitive.clone()), CallType::_DirectCall)
@@ -156,6 +190,14 @@ impl FuzzableType {
                 }
                 return true;
             }
+            FuzzableType::Struct(_, _, inner) => {
+                for (_, inner_fuzzable) in inner {
+                    if !inner_fuzzable._is_fixed_length() {
+                        return false;
+                    }
+                }
+                return true;
+            }
         }
     }
 
@@ -189,6 +231,13 @@ impl FuzzableType {
             FuzzableType::Tuple(inner_fuzzables) => {
                 let mut total_length = 0;
                 for inner_fuzzable in inner_fuzzables {
+                    total_length = total_length + inner_fuzzable._min_length();
+                }
+                total_length
+            }
+            FuzzableType::Struct(_, _, inner) => {
+                let mut total_length = 0;
+                for (_, inner_fuzzable) in inner {
                     total_length = total_length + inner_fuzzable._min_length();
                 }
                 total_length
@@ -256,6 +305,14 @@ impl FuzzableType {
                 }
                 return false;
             }
+            FuzzableType::Struct(_, _, inner) => {
+                for (_, inner_fuzzable) in inner {
+                    if inner_fuzzable._is_multiple_dynamic_length() {
+                        return true;
+                    }
+                }
+                return false;
+            }
             _ => false,
         }
     }
@@ -291,14 +348,85 @@ impl FuzzableType {
                 res.push_str(")");
                 res
             }
+            FuzzableType::Struct(name, _, _) => name.to_string(),
         }
     }
 }
 
+
+fn is_fuzzable_struct(
+    ty: &clean::Type,
+    cache: &Cache,
+    full_name_map: &FullNameMap,
+) -> FuzzableCallType {
+    let structs = &full_name_map.structs;
+
+
+    if let Type::Path { path } = ty {
+        if let Some(struct_) = structs.get(&path.def_id()) {
+            let name = get_type_name_from_did(path.def_id(), cache).unwrap();
+            let mut res = Vec::new();
+
+            for field in struct_.fields.iter() {
+                match *field.kind {
+                    ItemKind::StructFieldItem(ref type_) => {
+                        let r = fuzzable_call_type(type_, full_name_map, cache);
+
+                        match r {
+                            FuzzableCallType::NoFuzzable => return FuzzableCallType::NoFuzzable,
+                            _ => {
+                                res.push((field.name.unwrap().to_string(), r));
+                            }
+                        }
+                    }
+                    ItemKind::StrippedItem(ref kind) => {
+                        if let ItemKind::StructFieldItem(ref type_) = **kind{
+                            let r = fuzzable_call_type(type_, full_name_map, cache);
+
+                            match r {
+                                FuzzableCallType::NoFuzzable => return FuzzableCallType::NoFuzzable,
+                                _ => {
+                                    res.push((field.name.unwrap().to_string(), r));
+                                }
+                            }
+                        } else {
+                            unreachable!("unreachable item: {:?}", field)
+                        }
+                    }
+                    _ => {
+                        println!("unknown item: {:?}", field);
+                        println!("kind: {:?}", field.kind);
+                    }
+                }
+            }
+
+            let kind = match struct_.struct_type {
+                CtorKind::Fn => 0,
+                CtorKind::Const => 1,
+                CtorKind::Fictive => 2,
+            };
+            let ret = FuzzableCallType::Struct(name, kind, res);
+            return ret;
+        }
+        return FuzzableCallType::NoFuzzable;
+    }
+    unreachable!();
+}
 //判断一个类型是不是fuzzable的，以及如何调用相应的fuzzable变量
-pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap, cache: &Cache) -> FuzzableCallType {
+pub(crate) fn fuzzable_call_type(
+    ty_: &clean::Type,
+    full_name_map: &FullNameMap,
+    cache: &Cache,
+) -> FuzzableCallType {
     match ty_ {
         clean::Type::Path { .. } => {
+            // Consider directly construct type
+            let res = is_fuzzable_struct(ty_, cache, full_name_map);
+
+            if res.is_fuzzable() {
+                return res;
+            }
+
             let prelude_type = PreludeType::from_type(ty_, full_name_map, cache);
             //result类型的变量不应该作为fuzzable的变量。只考虑作为别的函数的返回值
             match &prelude_type {
@@ -306,7 +434,8 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
                     FuzzableCallType::NoFuzzable
                 }
                 PreludeType::PreludeOption(inner_type_) => {
-                    let inner_fuzzable_call_type = fuzzable_call_type(inner_type_, full_name_map, cache);
+                    let inner_fuzzable_call_type =
+                        fuzzable_call_type(inner_type_, full_name_map, cache);
                     match inner_fuzzable_call_type {
                         FuzzableCallType::NoFuzzable => {
                             return FuzzableCallType::NoFuzzable;
@@ -431,7 +560,7 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
             return FuzzableCallType::NoFuzzable;
         }
         _ => {
-            println!("is this fuzzable? {:?}",ty_);
+            println!("is this fuzzable? {:?}", ty_);
             unimplemented!()
         }
     }

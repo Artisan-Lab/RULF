@@ -6,7 +6,7 @@ use crate::fuzz_target::api_util::{
 };
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 
-fn take_type_from_path(path: &Path, no: usize) -> Type {
+pub(crate) fn take_type_from_path(path: &Path, no: usize) -> Type {
     if let GenericArgs::AngleBracketed { ref args, .. } = path.segments.last().unwrap().args {
         if let GenericArg::Type(ref ty) = args[no] {
             return ty.clone();
@@ -127,7 +127,7 @@ pub(crate) fn match_type(
     pattern: &Type,
     generic_defs: &Vec<String>,
 ) -> Option<Solution> {
-    print!("[match] compare {} {}\n", _type_name(source, None), _type_name(pattern, None));
+    // print!("[match] compare {} {}\n", _type_name(source, None), _type_name(pattern, None));
     let mut map = default_solution(generic_defs.len());
     let mut merge_with_inner = |inner: Option<Vec<Type>>| -> bool {
         if let Some(inner_map) = inner {
@@ -168,8 +168,19 @@ pub(crate) fn match_type(
         }
         (Type::Slice(src), Type::Slice(pat))
         | (Type::Array(src, ..), Type::Array(pat, ..))
-        | (Type::RawPointer(_, src), Type::RawPointer(_, pat))
-        | (Type::BorrowedRef { type_: src, .. }, Type::BorrowedRef { type_: pat, .. }) => {
+        | (Type::RawPointer(_, src), Type::RawPointer(_, pat)) => {
+            let inner_map = match_type(src, pat, generic_defs);
+            if (!merge_with_inner(inner_map)) {
+                return None;
+            }
+        }
+        (
+            Type::BorrowedRef { type_: src, mutability: mut_src, .. },
+            Type::BorrowedRef { type_: pat, mutability: mut_pat, .. },
+        ) => {
+            if mut_src != mut_pat {
+                return None;
+            }
             let inner_map = match_type(src, pat, generic_defs);
             if (!merge_with_inner(inner_map)) {
                 return None;
@@ -244,27 +255,7 @@ pub(crate) fn match_call_type(
         return res;
     }
 
-    let mut unwrap_source = source.clone();
     let mut unwrap_pattern = pattern.clone();
-    // try to unwrap source: Option, Result, &, const *
-    loop {
-        unwrap_source = match unwrap_source {
-            Type::Path { ref path } => {
-                let name = get_type_name_from_did(path.def_id(), cache).unwrap();
-                // let name = path.segments.last().unwrap().name.to_string();
-                if name == "core::option::Option" {
-                    take_type_from_path(path, 0)
-                } else if name == "core::result::Result" {
-                    take_type_from_path(path, 0)
-                } else {
-                    break;
-                }
-            }
-            Type::BorrowedRef { type_: inner_source, .. } => *inner_source,
-            Type::RawPointer(_, inner_source) => *inner_source,
-            _ => break,
-        };
-    }
 
     loop {
         unwrap_pattern = match unwrap_pattern {
@@ -279,35 +270,11 @@ pub(crate) fn match_call_type(
                     break;
                 }
             }
-            Type::BorrowedRef { type_: inner_pattern, .. } => *inner_pattern,
-            Type::RawPointer(_, inner_pattern) => *inner_pattern,
             _ => break,
         };
     }
 
-    let res = match_type(&unwrap_source, &unwrap_pattern, generic_defs);
-
-    // try to wrap pattern: Option, &(mut), *(mut) const
-    /* let res = match pattern {
-        Type::Path { path } => {
-            let name = get_type_name_from_did(path.def_id(),cache).unwrap();
-            // let name = path.segments.last().unwrap().name.to_string();
-            if name == "core::option::Option" {
-                let inner_pattern = take_type_from_path(path, 0);
-                match_type(source, &inner_pattern, generic_defs)
-            } else if name == "core::result::Result" {
-                let inner_pattern = take_type_from_path(path, 0);
-                match_type(source, &inner_pattern, generic_defs)
-            } else {
-                None
-            }
-        }
-        Type::BorrowedRef { type_: inner_pattnern, .. } => {
-            match_type(source, inner_pattnern, generic_defs)
-        }
-        Type::RawPointer(_, inner_pattnern) => match_type(source, inner_pattnern, generic_defs),
-        _ => None,
-    }; */
+    let res = match_type(&source, &unwrap_pattern, generic_defs);
 
     if res.is_some() {
         return res;
@@ -317,33 +284,23 @@ pub(crate) fn match_call_type(
 }
 
 pub(crate) fn replace_generic_with_solution(
-    type_: &Type,
+    type_: &mut Type,
     solution: &Solution,
     generic_defs: &Vec<String>,
-) -> Type {
-    let mut replace = |type_: &Type| -> Option<Type> {
+) {
+    let mut replace = |type_: &mut Type| -> bool {
         if let Type::Generic(sym) = type_ {
             let name = sym.as_str();
             for i in 0..generic_defs.len() {
-                return Some(solution[i].clone());
+                if generic_defs[i] == name {
+                    *type_ = solution[i].clone();
+                    // return Some(solution[i].clone());
+                    return false;
+                }
             }
             unreachable!("unknown generic param: {}", name);
-        } else {
-            None
         }
+        true
     };
-    replace_type_with(type_, &mut replace)
+    replace_type_with(type_, &mut replace);
 }
-
-/* struct SolutionSet{
-    inner:Vec<Solution>
-}
-
-impl SolutionSet{
-    fn new(len:usize) -> SolutionSet{
-
-    }
-    fn merge(&self,b:&SolutionSet) -> SolutionSet{
-
-    }
-} */

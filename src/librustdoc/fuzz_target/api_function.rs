@@ -1,5 +1,5 @@
 use rustc_data_structures::fx::FxHashSet;
-
+use crate::fuzz_target::api_util::_type_name;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util;
 use crate::fuzz_target::call_type::CallType;
@@ -149,29 +149,29 @@ impl ApiFunction {
         cache: &Cache,
     ) -> bool {
         for input_ty_ in &self.inputs {
-            if api_util::is_fuzzable_type(input_ty_, full_name_map, cache) {
-                let fuzzable_call_type =
-                    fuzzable_type::fuzzable_call_type(input_ty_, full_name_map, cache);
-                let (fuzzable_type, call_type) =
-                    fuzzable_call_type.generate_fuzzable_type_and_call_type();
+            let fuzzable_call_type =
+                fuzzable_type::fuzzable_call_type(input_ty_, full_name_map, cache);
 
-                match &fuzzable_type {
-                    FuzzableType::NoFuzzable => {
-                        return true;
-                    }
-                    _ => {}
-                }
+            if !fuzzable_call_type.is_fuzzable() {
+                continue;
+            }
 
-                if fuzzable_type._is_multiple_dynamic_length() {
-                    return true;
-                }
+            let (fuzzable_type, call_type) =
+                fuzzable_call_type.generate_fuzzable_type_and_call_type();
 
-                match &call_type {
-                    CallType::_NotCompatible => {
-                        return true;
-                    }
-                    _ => {}
-                }
+            if !fuzzable_type.is_fuzzable() {
+                println!("input fail#0: {}", _type_name(input_ty_,Some(cache)));
+                return true;
+            }
+
+            if fuzzable_type._is_multiple_dynamic_length() {
+                println!("input fail#1");
+                return true;
+            }
+
+            if !call_type.is_compatible() {
+                println!("input fail#2");
+                return true;
             }
         }
         return false;

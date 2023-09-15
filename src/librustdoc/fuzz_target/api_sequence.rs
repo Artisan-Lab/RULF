@@ -789,7 +789,7 @@ impl ApiSequence {
             let mut_tag = if self._is_function_need_mut_tag(i) { "mut " } else { "" };
             res.push_str(&format!("let {}{}", mut_tag, variable_name));
             // if function is a generic API, we need annotate return type.
-            if api_function.is_mono() {
+            if api_function.is_mono() && api_function.output.is_some(){
                 res.push_str(&format!(
                     ": {}",
                     api_function
