@@ -1,7 +1,7 @@
 use super::api_util::is_fuzzable_type;
+use super::api_util::is_support_type;
 use super::api_util::replace_type_with;
 use super::trait_impl::TraitImplMap;
-use crate::clean::{GenericArg,Lifetime};
 use crate::clean::GenericArgs;
 use crate::clean::Generics;
 use crate::clean::Path;
@@ -9,6 +9,7 @@ use crate::clean::PrimitiveType;
 use crate::clean::Struct;
 use crate::clean::Type;
 use crate::clean::Visibility;
+use crate::clean::{GenericArg, Lifetime};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
@@ -87,6 +88,7 @@ pub(crate) fn any_type_match(
 }
 
 pub(crate) struct TypeContext {
+    pub(crate) trait_type: FxHashSet<Type>,
     pub(crate) type_candidates: FxHashMap<Type, usize>,
     pub(crate) type_sorted: Vec<Type>,
     pub(crate) functions: Vec<ApiFunction>,
@@ -95,6 +97,7 @@ pub(crate) struct TypeContext {
 impl TypeContext {
     pub(crate) fn new() -> TypeContext {
         let mut tc = TypeContext {
+            trait_type: FxHashSet::default(), 
             type_candidates: FxHashMap::<Type, usize>::default(),
             type_sorted: Vec::new(),
             functions: Vec::new(),
@@ -103,8 +106,19 @@ impl TypeContext {
         tc
     }
 
+    pub(crate) fn add_trait_type(&mut self,type_:&Type) {
+        self.trait_type.insert(type_.clone());
+    }
+
     fn add_prelude_type(&mut self) {
-        // add &mut u8
+        // add u8
+        self.add_type_candidate(&Type::Primitive(PrimitiveType::U8));
+        // add &[u8]
+        self.add_type_candidate(&Type::BorrowedRef {
+            type_: Box::new(Type::Slice(Box::new(Type::Primitive(PrimitiveType::U8)))),
+            lifetime: None,
+            mutability: Mutability::Not,
+        });
         /* self.add_type_candidate(&Type::BorrowedRef {
             lifetime: None,
             mutability: Mutability::Mut,
@@ -129,7 +143,9 @@ impl TypeContext {
             *v += 1;
             false
         } else {
-            if api_util::type_depth(type_) > generic_solver::MAX_TYPE_DEPTH {
+            if api_util::type_depth(type_) > generic_solver::MAX_TYPE_DEPTH
+                || !is_support_type(type_)
+            {
                 return false;
             }
             let no = self.type_candidates.len();
@@ -462,7 +478,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 if diverse_types.get(input).is_some() {
                     continue;
                 }
-                
+
                 diverse_types.insert(input.clone(), false);
 
                 for i in 0..self.api_functions.len() {
@@ -498,6 +514,20 @@ impl<'tcx> ApiGraph<'tcx> {
         let mut solvers = Vec::new();
         let num_function = self.generic_functions.len();
 
+        //
+        for function in &self.api_functions {
+            if function.is_local() {
+                statistic::inc("API");
+            }
+        }
+
+        for function in &self.generic_functions {
+            if function.api_function.is_local() {
+                statistic::inc("API");
+                statistic::inc("GENERIC_API");
+            }
+        }
+
         for function in self.generic_functions.iter() {
             println!("[ApiGraph] Resolve this function");
             function.pretty_print(&self.cx.cache);
@@ -518,7 +548,10 @@ impl<'tcx> ApiGraph<'tcx> {
             println!("===== !Candidates =====");
 
             let mut update = false;
-            for i in 0..num_function {
+            for i in 0..solvers.len() {
+                // println!("iter={}, solve this:",num_iter);
+                // solvers[i].current_function.pretty_print(&self.cx.cache);
+
                 let last = solvers[i].num_solution();
                 solvers[i].solve(self.cache(), &self.trait_impl_map, &self.full_name_map);
                 if last != solvers[i].num_solution() {
@@ -536,6 +569,9 @@ impl<'tcx> ApiGraph<'tcx> {
         for i in 0..self.api_functions.len() {
             if self.reachable[i] {
                 println!("{}", self.api_functions[i]._pretty_print(self.cache()));
+                if self.api_functions[i].is_local() {
+                    statistic::inc("COVERED API");
+                }
             }
         }
         println!("===== !all reachable func =====");
@@ -565,11 +601,14 @@ impl<'tcx> ApiGraph<'tcx> {
 
         println!("unsolve generic function:");
         for i in 0..num_function {
-            if !solvers[i].is_solvable() {
+            if !solvers[i].is_solvable() && self.generic_functions[i].api_function.is_local() {
                 statistic::inc("UNSOLVABLE");
             }
             if solvers[i].num_solution() > 0 {
-                statistic::inc("DEGENERIC");
+                if self.generic_functions[i].api_function.is_local() {
+                    statistic::inc("COVERED API");
+                    statistic::inc("COVERED GENERIC");
+                }
             } else {
                 self.generic_functions[i].pretty_print(&self.cx.cache);
             }
@@ -578,14 +617,24 @@ impl<'tcx> ApiGraph<'tcx> {
         println!("all mono function:");
         let mut count = 0;
         for i in 0..num_function {
-            statistic::add("MONO_FUNS", solvers[i].num_solution());
+            if self.generic_functions[i].api_function.is_local() {
+                statistic::add("MONO_FUNS", solvers[i].num_solution());
+            }
             for (api_fun, is_reserved, impl_set) in solvers[i].take_solutions() {
-                print!("", );
+                print!("",);
                 count += 1;
-                let reserve_tag= if is_reserved {"[R]"} else {"[ ]"};
-                println!("{} monofun#{}:{} : {:?}",reserve_tag,count,api_fun._pretty_print(self.cache()),impl_set);
-                if is_reserved{
-                    statistic::inc("RESERVE");
+                let reserve_tag = if is_reserved { "[R]" } else { "[ ]" };
+                println!(
+                    "{} monofun#{}:{} : {:?}",
+                    reserve_tag,
+                    count,
+                    api_fun._pretty_print(self.cache()),
+                    impl_set
+                );
+                if is_reserved {
+                    if self.generic_functions[i].api_function.is_local() {
+                        statistic::inc("RESERVE");
+                    }
                     self.add_api_function(api_fun);
                 }
             }
@@ -593,9 +642,11 @@ impl<'tcx> ApiGraph<'tcx> {
     }
 
     pub(crate) fn add_api_function(&mut self, mut api_fun: ApiFunction) {
-        if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache()) {
+        if api_fun.contains_unsupported_fuzzable_type(&self.full_name_map, self.cache())
+            || !api_fun.is_unsupported()
+        {
             println!("{} contain unsupported fuzzable type", api_fun._pretty_print(self.cache()));
-            self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
+            // self.functions_with_unsupported_fuzzable_types.insert(api_fun.full_name.clone());
         } else {
             replace_lifetime(&mut api_fun);
             self.api_functions.push(api_fun);
@@ -607,13 +658,13 @@ impl<'tcx> ApiGraph<'tcx> {
     }
 
     pub(crate) fn filter_functions(&mut self) {
-        self.filter_functions_defined_on_prelude_type();
+        // self.filter_functions_defined_on_prelude_type();
         self.filter_api_functions_by_mod_visibility();
     }
 
     /// functions of prelude type. These functions are not in current crate
     /// I
-    pub(crate) fn filter_functions_defined_on_prelude_type(&mut self) {
+    /* pub(crate) fn filter_functions_defined_on_prelude_type(&mut self) {
         let prelude_types = prelude_type::get_all_preluded_type();
         if prelude_types.len() <= 0 {
             return;
@@ -623,7 +674,7 @@ impl<'tcx> ApiGraph<'tcx> {
             .drain(..)
             .filter(|api_function| api_function.is_defined_on_prelude_type(&prelude_types))
             .collect();
-    }
+    } */
 
     pub(crate) fn filter_api_functions_by_mod_visibility(&mut self) {
         let invisible_mods = self.mod_visibility.get_invisible_mods();
@@ -634,7 +685,7 @@ impl<'tcx> ApiGraph<'tcx> {
 
         let mut new_api_functions = Vec::new();
         for api_func in &self.api_functions {
-            if !Self::is_invisible_function(&api_func, &invisible_mods) {
+            if !self.is_invisible_function(&api_func, &invisible_mods) {
                 new_api_functions.push(api_func.clone());
             }
         }
@@ -642,7 +693,7 @@ impl<'tcx> ApiGraph<'tcx> {
 
         let mut new_generic_functions = Vec::new();
         for api_func in &self.generic_functions {
-            if !Self::is_invisible_function(&api_func.api_function, &invisible_mods) {
+            if !self.is_invisible_function(&api_func.api_function, &invisible_mods) {
                 new_generic_functions.push(api_func.clone());
             }
         }
@@ -650,20 +701,21 @@ impl<'tcx> ApiGraph<'tcx> {
     }
 
     pub(crate) fn is_invisible_function(
+        &self,
         api_func: &ApiFunction,
         invisible_mods: &Vec<String>,
     ) -> bool {
-        let api_func_name = &api_func.full_name;
-        let trait_name = &api_func._trait_full_path;
+        let api_func_name = &api_func.full_path;
         for invisible_mod in invisible_mods {
             if api_func_name.as_str().starts_with(invisible_mod.as_str()) {
                 return true;
             }
-            if let Some(trait_name_) = trait_name {
-                if trait_name_.as_str().starts_with(invisible_mod) {
+            if let Some(ref trait_) = api_func.trait_{
+                if self.get_full_path_from_def_id(trait_.def_id(self.cache()).unwrap()).starts_with(invisible_mod) {
                     return true;
                 }
             }
+
         }
         return false;
     }
@@ -672,13 +724,29 @@ impl<'tcx> ApiGraph<'tcx> {
         println!("======= all functions =======");
         println!("num of normal functions: {}", self.api_functions.len());
         println!("num of generic functions: {}", self.generic_functions.len());
+        let mut cnt = 0;
+        let mut apis = 0;
+        let mut generics = 0;
         for function in self.api_functions.iter() {
-            println!("{}", function._pretty_print(self.cache()));
+            let mark = if function.is_local() { "[L]" } else { "[ ]" };
+            println!("{}#{}#{}", mark, cnt, function._pretty_print(self.cache()));
+            cnt += 1;
+            if function.is_local() {
+                apis += 1;
+            }
         }
 
         for function in self.generic_functions.iter() {
+            let mark = if function.api_function.is_local() { "[L]" } else { "[ ]" };
+            print!("{}#{}#", mark, cnt);
+            cnt += 1;
             function.pretty_print(&self.cx.cache);
+            if function.api_function.is_local() {
+                apis += 1;
+                generics += 1;
+            }
         }
+        println!("apis={}\ngenerics={}", apis, generics);
         println!("======= !all functions =======\n");
     }
 
@@ -701,8 +769,6 @@ impl<'tcx> ApiGraph<'tcx> {
             if let Some(ty_) = &first_fun.output {
                 let output_type = ty_;
                 for j in 0..api_num {
-
-
                     //TODO:是否要把i=j的情况去掉？
                     let second_fun = &self.api_functions[j];
                     if second_fun._is_start_function(&self.full_name_map, self.cache()) {
@@ -733,7 +799,7 @@ impl<'tcx> ApiGraph<'tcx> {
                                     input_param_index: k,
                                     call_type: call_type.clone(),
                                 };
-                                
+
                                 self.api_dependencies.push(one_dependency);
                             }
                         }
@@ -864,12 +930,12 @@ impl<'tcx> ApiGraph<'tcx> {
         /* let api_sequence = ApiSequence::new();
         self.api_sequences.push(api_sequence); */
 
-        let mut que=VecDeque::<ApiSequence>::new();
+        let mut que = VecDeque::<ApiSequence>::new();
         que.push_back(ApiSequence::new());
-        let mut nodes=FxHashSet::<usize>::default();
+        let mut nodes = FxHashSet::<usize>::default();
         //接下来开始从长度1一直到max_len遍历
-        while let Some(seq) = que.pop_front(){
-            if (!stop_at_end_function || !self.is_sequence_ended(&seq)) && seq.len()<max_len {
+        while let Some(seq) = que.pop_front() {
+            if (!stop_at_end_function || !self.is_sequence_ended(&seq)) && seq.len() < max_len {
                 let api_type = ApiType::BareFunction;
                 for api_func_index in 0..api_function_num {
                     //bfs fast, 访问过的函数不再访问
@@ -892,10 +958,10 @@ impl<'tcx> ApiGraph<'tcx> {
             }
             self.api_sequences.push(seq);
         }
-        let mut vec=nodes.into_iter().collect::<Vec<usize>>();
+        let mut vec = nodes.into_iter().collect::<Vec<usize>>();
         vec.sort();
-        for i in vec.iter(){
-            print!("{}, ",*i);
+        for i in vec.iter() {
+            print!("{}, ", *i);
         }
         print!("\n");
         //println!("There are total {} sequences after bfs", self.api_sequences.len());
@@ -1614,8 +1680,8 @@ impl<'tcx> ApiGraph<'tcx> {
                 if input_function._unsafe_tag._is_unsafe() {
                     new_sequence.set_unsafe();
                 }
-                if let Some(ref trait_full_path) = input_function._trait_full_path{
-                    new_sequence.add_trait(trait_full_path);
+                if let Some(ref trait_) = input_function.trait_ {
+                    new_sequence.add_trait(trait_.def_id(self.cache()).unwrap());
                 }
 
                 let input_params = &input_function.inputs;
@@ -1628,17 +1694,16 @@ impl<'tcx> ApiGraph<'tcx> {
 
                 for i in 0..input_params_num {
                     let current_ty = &input_params[i];
-                    if api_util::is_fuzzable_type(current_ty, &self.full_name_map, self.cache()) {
-                        //如果当前参数是fuzzable的
+                    let fuzzable_call_type = fuzzable_type::fuzzable_call_type(
+                        current_ty,
+                        &self.full_name_map,
+                        self.cache(),
+                    );
+                    //如果当前参数是fuzzable的
+                    if fuzzable_call_type.is_fuzzable() {
                         let current_fuzzable_index = new_sequence.fuzzable_params.len();
-                        let fuzzable_call_type = fuzzable_type::fuzzable_call_type(
-                            current_ty,
-                            &self.full_name_map,
-                            self.cache(),
-                        );
                         let (fuzzable_type, call_type) =
                             fuzzable_call_type.generate_fuzzable_type_and_call_type();
-
                         //如果出现了下面这段话，说明出现了Fuzzable参数但不知道如何参数化的
                         //典型例子是tuple里面出现了引用（&usize），这种情况不再去寻找dependency，直接返回无法添加即可
                         match &fuzzable_type {
@@ -1648,6 +1713,9 @@ impl<'tcx> ApiGraph<'tcx> {
                                 //println!("fuzzable_call_type = {:?}", fuzzable_call_type);
                                 //println!("fuzzable_type = {:?}", fuzzable_type);
                                 return None;
+                            }
+                            FuzzableType::Primitive(PrimitiveType::Str) => {
+                                unreachable!("raw str! => {}, {:?}", input_fun_index, current_ty);
                             }
                             _ => {}
                         }

@@ -4,7 +4,7 @@ use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_graph::{any_type_match, ApiGraph, TypeContext};
 use crate::fuzz_target::api_util::{
-    self, _type_name, is_generic_type, replace_type_with, type_depth,
+    self, _type_name, is_generic_type, is_support_type, replace_type_with, type_depth,
 };
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::set_union;
@@ -25,12 +25,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use super::trait_impl::TraitImplMap;
 
-static MAX_MONO_PER_FUNC: usize = 3;
-pub static MAX_TYPE_DEPTH: usize = 5;
+static MAX_MONO_PER_FUNC: usize = 100;
+pub static MAX_TYPE_DEPTH: usize = 4;
 
 pub(crate) struct GenericSolver {
     current: Vec<usize>,
-    current_function: GenericFunction,
+    pub current_function: GenericFunction,
     diverse_set: FxHashSet<ImplId>,
     reserved: Vec<bool>,
     reachable_inputs: Vec<bool>,
@@ -40,6 +40,7 @@ pub(crate) struct GenericSolver {
     solution_set: FxHashSet<Solution>,
     solution_count: usize,
     solvable: bool,
+    success: bool,
     try_count: usize,
 }
 
@@ -48,11 +49,14 @@ impl GenericSolver {
         type_context: Rc<RefCell<TypeContext>>,
         generic_function: GenericFunction,
     ) -> GenericSolver {
-        let solvable = generic_function.generic_map.is_solvable();
+        let mut solvable = generic_function.is_solvable();
         let len = generic_function.api_function.inputs.len();
         let mut contain_generic = vec![false; len];
 
         for (i, input) in generic_function.api_function.inputs.iter().enumerate() {
+            if !is_support_type(input) {
+                solvable = false;
+            }
             contain_generic[i] = is_generic_type(input);
         }
         // println!("[Solver] generic_param: {:?}", generic_param);
@@ -69,6 +73,7 @@ impl GenericSolver {
             solvable,
             solution_count: 0,
             try_count: 0,
+            success: false,
         }
     }
 
@@ -80,23 +85,76 @@ impl GenericSolver {
         let mut func = self.current_function.api_function.clone();
         let generic_defs = &self.current_function.generic_map.generic_defs;
         func.mono = true;
-
         for type_ in &mut func.inputs {
             replace_generic_with_solution(type_, solution, generic_defs);
         }
         if let Some(ref mut output) = func.output {
             replace_generic_with_solution(output, solution, generic_defs);
         }
+        if let Some(ref mut self_) = func.self_{
+            replace_generic_with_solution(self_, solution, generic_defs);
+        }
+        if let Some(ref mut trait_) = func.trait_{
+            replace_generic_with_solution(trait_, solution, generic_defs);
+        }
         func
     }
 
     fn is_num_enough(&self) -> bool {
-        return false; // never enough
+        // return false; // never enough
         return self.solution_count >= MAX_MONO_PER_FUNC;
     }
 
+    fn dfs(
+        &mut self,
+        solution: &mut Solution,
+        no: usize,
+        cache: &Cache,
+        trait_impl_map: &TraitImplMap,
+    ) {
+        // check unsolvable
+        if no >= self.current.len() && !self.is_num_enough(){
+            println!("[Solver] Check Solution: {}", solution_string(&solution));
+            if let Some(impl_set) =
+                self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache)
+            {
+                //valid_solution_set.push(solution);
+                let func = self.make_function_with(&solution);
+                println!("[Solver] find mono function: {}", func._pretty_print(cache));
+                println!("[Solver] mono solution: {:?}", solution);
+                if let Some(ref output) = func.output {
+                    let depth = type_depth(output);
+                    println!("[Solver] output depth = {}", depth);
+                    if depth > MAX_TYPE_DEPTH {
+                        println!("[Solver] solution is refused because output is too deep.");
+                        return;
+                    }
+                }
+                if let Some(ref output) = func.output {
+                    RefCell::borrow_mut(&self.type_context).add_canonical_types(output, cache);
+                }
+                self.solution_count += 1;
+                self.solutions.push((solution.to_vec(), func, impl_set));
+                self.reserved.push(false);
+                self.success = true;
+            }
+            return;
+        }
+
+        if let Type::Infer = solution[no] {
+            /* for ty in RefCell::borrow(&self.type_context).trait_type.iter() {
+                solution[no] = ty.clone();
+                self.dfs(solution, no + 1, cache, trait_impl_map);
+            } */
+            self.solvable=false;
+            println!("[Solver] mark function as unsolvable");
+            return;
+        } else {
+            self.dfs(solution, no + 1, cache, trait_impl_map);
+        }
+    }
+
     fn search(&mut self, cache: &Cache, trait_impl_map: &TraitImplMap) -> bool {
-        let mut success = false;
         let mut solution_set = Vec::<Solution>::new();
         solution_set.push(vec![Type::Infer; self.current_function.generic_map.generic_defs.len()]);
         // get reachable solution set
@@ -133,49 +191,17 @@ impl GenericSolver {
         println!("[Solver] Solution Set = {}", solution_set_string(&solution_set));
 
         // check type predicate
-        // let mut valid_solution_set = Vec::<Solution>::new();
-        for solution in solution_set.into_iter() {
+        self.success = false;
+        for mut solution in solution_set.into_iter() {
             // prevent duplicate
             if self.solution_set.get(&solution).is_some() {
                 continue;
             }
             self.solution_set.insert(solution.clone());
 
-            // check unsolvable
-            for i in 0..self.current.len() {
-                if let Type::Infer = solution[i] {
-                    self.solvable = false;
-                    println!("[Solver] solution mark as unsolvable");
-                    return false;
-                }
-            }
-
-            println!("[Solver] Check Solution: {}", solution_string(&solution));
-            if let Some(impl_set) =
-                self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache)
-            {
-                //valid_solution_set.push(solution);
-                let func = self.make_function_with(&solution);
-                println!("[Solver] find mono function: {}", func._pretty_print(cache));
-                println!("[Solver] mono solution: {:?}", solution);
-                if let Some(ref output) = func.output {
-                    let depth = type_depth(output);
-                    println!("[Solver] output depth = {}", depth);
-                    if depth > MAX_TYPE_DEPTH {
-                        println!("[Solver] solution is refused because output is too deep.");
-                        continue;
-                    }
-                }
-                if let Some(ref output) = func.output {
-                    RefCell::borrow_mut(&self.type_context).add_canonical_types(output, cache);
-                }
-                self.solution_count += 1;
-                self.solutions.push((solution, func, impl_set));
-                self.reserved.push(false);
-                success = true;
-            }
+            self.dfs(&mut solution, 0, cache, trait_impl_map);
         }
-        success
+        self.success
     }
     pub(crate) fn is_solvable(&self) -> bool {
         self.solvable
@@ -212,11 +238,12 @@ impl GenericSolver {
             self.solution_count
         );
         println!("[Solver] generic params: {:?}", self.current_function.generic_map.generic_defs);
-        //self.print_all_candidates();
+
         /* if self.generic_param.len() >= 4 {
             println!("[Solver] Skip it. Too many generic params! This might be slow.");
             return;
         } */
+
         if !self.solvable {
             println!("[Solver] Skip it. It is unsolvable.");
             return;
@@ -300,6 +327,7 @@ impl GenericSolver {
             cnt
         };
 
+        // greedy algorithm. Choose solution of maximum uncovered id
         loop {
             let mut max_id = 0;
             let mut max_num = 0;
@@ -344,11 +372,11 @@ impl GenericSolver {
     }
 
     pub(crate) fn take_solutions(&mut self) -> Vec<(ApiFunction, bool, FxHashSet<ImplId>)> {
-        let mut res = Vec::new(); 
-        let mut ind = self.solutions.len()-1;
+        let mut res = Vec::new();
+        let mut ind = self.solutions.len() - 1;
         while let Some((_, func, impl_set)) = self.solutions.pop() {
             res.push((func, self.reserved[ind], impl_set));
-            ind-=1;
+            ind -= 1;
         }
         res
     }

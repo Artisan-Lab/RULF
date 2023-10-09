@@ -193,13 +193,50 @@ pub(crate) fn match_type(
         }
         (Type::Path { path: src_path }, Type::Path { path: pat_path }) => {
             if (src_path.def_id() != pat_path.def_id())
-                || (src_path.segments.len() != pat_path.segments.len())
             {
                 // println!("[match] unmatch fail#0: {:?} {:?} {} {}", src_path.def_id(), pat_path.def_id(),src_path.segments.len(),pat_path.segments.len());
                 return None;
             }
 
-            for i in 0..src_path.segments.len() {
+            if let (Some(src_segment),Some(pat_segment)) = (src_path.segments.last(), pat_path.segments.last()){
+                /* let src_segment = &src_path.segments[i];
+                let pat_segment = &pat_path.segments[i]; */
+                if src_segment.name.to_string() != pat_segment.name.to_string() {
+                    // println!("[match] unmatch fail#1");
+                    return None;
+                }
+                match (&src_segment.args, &pat_segment.args) {
+                    (
+                        GenericArgs::AngleBracketed { args: src_args, .. },
+                        GenericArgs::AngleBracketed { args: pat_args, .. },
+                    ) => {
+                        if src_args.len() != pat_args.len() {
+                            return None;
+                        }
+                        for j in 0..src_args.len() {
+                            let src_arg = &src_args[j];
+                            let pat_arg = &pat_args[j];
+                            if let (GenericArg::Type(src), GenericArg::Type(pat)) =
+                                (src_arg, pat_arg)
+                            {
+                                let inner_map = match_type(src, pat, generic_defs);
+                                if (!merge_with_inner(inner_map)) {
+                                    // println!("[match] unmatch fail#2");
+                                    return None;
+                                }
+                            } // ignore other variant of GenericArg
+                        }
+                    }
+                    (GenericArgs::Parenthesized { .. }, GenericArgs::Parenthesized { .. }) => {}
+                    _ => {
+                        // println!("[match] unmatch fail#3");
+                        return None;
+                    }
+                }
+            } else {
+                unreachable!("NO segment? {:?} {:?}",src_path,pat_path)
+            }
+            /* for i in 0..src_path.segments.len() {
                 let src_segment = &src_path.segments[i];
                 let pat_segment = &pat_path.segments[i];
                 if src_segment.name.to_string() != pat_segment.name.to_string() {
@@ -233,8 +270,7 @@ pub(crate) fn match_type(
                         // println!("[match] unmatch fail#3");
                         return None;
                     }
-                }
-            }
+                } */
         }
         _ => {
             return None;

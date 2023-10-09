@@ -41,11 +41,6 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
         }
         match *item.kind {
             ItemKind::FunctionItem(ref func) => {
-                //println!("func = {:?}", func);
-                statistic::inc("FUNCTIONS");
-                if (!func.generics.is_empty()) {
-                    statistic::inc("GENERIC_FUNCTIONS");
-                }
                 let decl = func.decl.clone();
                 let clean::FnDecl { inputs, output, .. } = decl;
                 let inputs = api_util::extract_input_types(&inputs);
@@ -55,10 +50,12 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     &item.fn_header(self.context.tcx).unwrap(),
                 );
                 let api_fun = api_function::ApiFunction {
-                    full_name,
+                    name: item.name.unwrap().to_string(),
+                    full_path: full_name,
                     inputs,
                     output,
-                    _trait_full_path: None,
+                    trait_: None,
+                    self_: None,
                     _unsafe_tag: api_unsafety,
                     mono: false,
                     local: true, 
@@ -68,6 +65,7 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                 if !func.generics.is_empty() {
                     let mut generic_function = GenericFunction::from(api_fun);
                     generic_function.add_generics(&func.generics);
+                    println!("Add to generic");
                     self.api_dependency_graph.borrow_mut().generic_functions.push(generic_function);
                 } else {
                     self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
@@ -161,7 +159,9 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         api_dependency_graph.print_unsupport_function();
         
         //根据mod可见性和预包含类型过滤function
+        api_dependency_graph.print_all_functions();
         api_dependency_graph.filter_functions();
+        // println!("after filter");
         api_dependency_graph.print_all_functions();
         // Resolve all visible generic functions to normal function
         api_dependency_graph.resolve_generic_functions();

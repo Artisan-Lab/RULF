@@ -1,3 +1,5 @@
+use std::f32::consts::E;
+
 use crate::clean::PrimitiveType;
 use crate::fuzz_target::api_util::get_type_name_from_did;
 use crate::fuzz_target::fuzzable_type::FuzzableType;
@@ -6,7 +8,6 @@ use rustc_hir::def::CtorKind;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum _AflHelpers {
-    _NoHelper,
     _U8,
     _I8,
     _U16,
@@ -26,7 +27,7 @@ pub(crate) enum _AflHelpers {
     _Str,
     _Slice(Box<_AflHelpers>),
     _Tuple(Vec<Box<_AflHelpers>>),
-    _Struct(String, i32, Vec<(String, _AflHelpers)>)
+    _Struct(String, i32, Vec<(String, _AflHelpers)>),
 }
 
 impl _AflHelpers {
@@ -51,7 +52,7 @@ impl _AflHelpers {
                 PrimitiveType::Bool => _AflHelpers::_Bool,
                 PrimitiveType::F32 => _AflHelpers::_F32,
                 PrimitiveType::F64 => _AflHelpers::_F64,
-                _ => _AflHelpers::_NoHelper,
+                _ => unreachable!("unfuzzable primitive: {:?}", primitive_type),
             },
             FuzzableType::RefSlice(inner_fuzzable) => {
                 let inner_afl_helper = _AflHelpers::_new_from_fuzzable(inner_fuzzable);
@@ -69,9 +70,8 @@ impl _AflHelpers {
                     .into_iter()
                     .map(|x| (x.0.to_string(), _AflHelpers::_new_from_fuzzable(&x.1)))
                     .collect();
-                let ret=_AflHelpers::_Struct(name.to_string(), *kind, inner);
+                let ret = _AflHelpers::_Struct(name.to_string(), *kind, inner);
                 ret
-                
             }
         }
     }
@@ -97,7 +97,6 @@ impl _AflHelpers {
             match self {
                 _AflHelpers::_U8
                 | _AflHelpers::_I8
-                | _AflHelpers::_NoHelper
                 | _AflHelpers::_Slice(..)
                 | _AflHelpers::_Str
                 | _AflHelpers::_F32
@@ -159,7 +158,6 @@ impl _AflHelpers {
 
     pub(crate) fn _to_full_function(&self) -> String {
         match self {
-            _AflHelpers::_NoHelper => unreachable!("afl no helper"),
             _AflHelpers::_U8 => _data_to_u8().to_string(),
             _AflHelpers::_I8 => _data_to_i8().to_string(),
             _AflHelpers::_U16 => _data_to_u16().to_string(),
@@ -185,7 +183,6 @@ impl _AflHelpers {
 
     pub(crate) fn _type_name(&self) -> String {
         match self {
-            _AflHelpers::_NoHelper => unreachable!("afl no helper"),
             _AflHelpers::_U8 => "u8".to_string(),
             _AflHelpers::_I8 => "i8".to_string(),
             _AflHelpers::_U16 => "u16".to_string(),
@@ -218,7 +215,7 @@ impl _AflHelpers {
                 type_name.push_str(")");
                 return type_name;
             }
-            _AflHelpers::_Struct(name, _, _ ) => name.to_string(),
+            _AflHelpers::_Struct(name, _, _) => name.to_string(),
         }
     }
 
@@ -300,9 +297,6 @@ impl _AflHelpers {
         origin_fuzzable_type: &FuzzableType,
     ) -> String {
         match self {
-            _AflHelpers::_NoHelper => {
-                format!("No helper")
-            }
             _ => {
                 let rhs = self._generate_param_initial_rhs(
                     fixed_start_index,
@@ -403,56 +397,84 @@ impl _AflHelpers {
                 }
             }
             _AflHelpers::_Struct(name, kind, inner) => {
-                // println!("{:?}",self);
-                let mut res=String::new();
-                let mut item_string=Vec::<String>::new();
-                
-                res.push_str(&name);
-                match kind{
-                    0 => { //Fn
-                        for inner_item in inner.iter(){
-                            item_string.push(format!("{}",inner_item.1._generate_param_initial_rhs(
-                                fixed_start_index,
-                                dynamic_start_index,
-                                dynamic_param_index,
-                                total_dynamic_param_numbers,
-                                dynamic_param_length,
-                                origin_fuzzable_type,
-                            )));
+                if let FuzzableType::Struct(_, kind, inner_fuzzables) = origin_fuzzable_type {
+                    // println!("{:?}",self);
+                    let mut res = String::new();
+                    let mut item_string = Vec::<String>::new();
+
+                    res.push_str(&name);
+                    match kind {
+                        0 => {
+                            //Fn
+                            let mut inner_fixed_start_index = fixed_start_index;
+                            let mut inner_dynamic_param_index = dynamic_param_index;
+
+                            for i in 0..inner.len() {
+                                let inner_item = &inner[i];
+                                let inner_fuzzable = &inner_fuzzables[i].1;
+                                item_string.push(format!(
+                                    "{}",
+                                    inner_item.1._generate_param_initial_rhs(
+                                        inner_fixed_start_index,
+                                        dynamic_start_index,
+                                        inner_dynamic_param_index,
+                                        total_dynamic_param_numbers,
+                                        dynamic_param_length,
+                                        inner_fuzzable,
+                                    )
+                                ));
+                                inner_fixed_start_index =
+                                    inner_fixed_start_index + inner_fuzzable._fixed_part_length();
+                                inner_dynamic_param_index = inner_dynamic_param_index
+                                    + inner_fuzzable._dynamic_length_param_number();
+                            }
+
+                            res.push('(');
+                            res.push_str(&item_string.join(", "));
+                            res.push(')');
                         }
-                        res.push('(');
-                        res.push_str(&item_string.join(", "));
-                        res.push(')');
-                    }
-                    1 => { //Const
-                        res.push('{');
-                        res.push('}');
-                    }
-                    2 => { //Fictive
-                        for inner_item in inner.iter(){
-                            item_string.push(format!("{}: {}",inner_item.0, inner_item.1._generate_param_initial_rhs(
-                                fixed_start_index,
-                                dynamic_start_index,
-                                dynamic_param_index,
-                                total_dynamic_param_numbers,
-                                dynamic_param_length,
-                                origin_fuzzable_type,
-                            )));
+                        1 => {
+                            //Const
+                            res.push('{');
+                            res.push('}');
                         }
-                        res.push('{');
-                        res.push_str(&item_string.join(", "));
-                        res.push('}');
+                        2 => {
+                            //Fictive
+                            let mut inner_fixed_start_index = fixed_start_index;
+                            let mut inner_dynamic_param_index = dynamic_param_index;
+                            for i in 0..inner.len() {
+                                let inner_item = &inner[i];
+                                let inner_fuzzable = &inner_fuzzables[i].1;
+                                item_string.push(format!(
+                                    "{}: {}",
+                                    inner_item.0,
+                                    inner_item.1._generate_param_initial_rhs(
+                                        inner_fixed_start_index,
+                                        dynamic_start_index,
+                                        inner_dynamic_param_index,
+                                        total_dynamic_param_numbers,
+                                        dynamic_param_length,
+                                        inner_fuzzable,
+                                    )
+                                ));
+                                inner_fixed_start_index =
+                                    inner_fixed_start_index + inner_fuzzable._fixed_part_length();
+                                inner_dynamic_param_index = inner_dynamic_param_index
+                                    + inner_fuzzable._dynamic_length_param_number();
+                            }
+                            res.push('{');
+                            res.push_str(&item_string.join(", "));
+                            res.push('}');
+                        }
+                        _ => {
+                            unreachable!();
+                        }
                     }
-                    _ => {
-                        unreachable!();
-                    }
+                    return res;
+                } else {
+                    unreachable!();
                 }
 
-                res
-            }
-
-            _AflHelpers::_NoHelper => {
-                format!("No helper")
             }
         }
     }

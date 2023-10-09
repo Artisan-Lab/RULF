@@ -62,6 +62,28 @@ pub(crate) struct TraitImplMap {
 
 fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
     match _type_name(trait_, Some(cache)).as_str() {
+        "core::hash::Hash" => {
+            // Hash is implemented for [T], String, ix, ux
+            match _type_name(type_, Some(cache)).as_str() {
+                "std::string::String" => return true,
+                _ => {}
+            }
+            match type_ {
+                Type::Slice(ref inner) => {
+                    return is_impl_in_std(inner,trait_,cache);
+                }
+                Type::Primitive(primitive) => {
+                    match primitive{
+                         PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::I128
+                        |PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::U128
+                        |PrimitiveType::Str => return true,
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            false
+        }
         "std::io::Write::Write" | "std::io::Write" => {
             println!("[Weapon] Detect io::Write");
             match _type_name(type_, Some(cache)).as_str() {
@@ -131,7 +153,7 @@ impl TraitImplMap {
         let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<ImplId> {
             for trait_impl in trait_impls {
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
-                // TODO: should we consider blanket impl? 
+                // TODO: should we consider blanket impl?
                 /* if trait_impl.generic_map.generic_defs.len() > 0 {
                     // ignore blanket impl
                     continue;
@@ -190,7 +212,8 @@ impl TraitImplMap {
             let trait_ = Type::Path { path: trait_.clone() };
 
             if is_impl_in_std(&type_, &trait_, cache) {
-                //TODO: Merge into extract id for better acc
+                //TODO: Merge into extract_trait_id for better acc
+                res.insert(ImplId::Unknown);
                 continue;
             }
 
@@ -203,21 +226,6 @@ impl TraitImplMap {
             return None;
         }
 
-        /* for trait_ in bounds.iter() {
-
-            // workaround to ignore Sized, assuming all candidates are not DST.
-            if _type_name(&trait_, None) == "Sized" {
-                continue;
-            }
-
-            if let Some(impl_id) = extract_trait_id(type_, &trait_) {
-                res.insert(impl_id);
-            } else {
-                println!("[TraitImpl] Check trait {} fail", _type_name(&trait_, None));
-                return None;
-            }
-        } */
-        //println!("get!");
         Some(res)
     }
 }

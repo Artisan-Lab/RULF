@@ -1,13 +1,14 @@
-use rustc_data_structures::fx::FxHashSet;
-use crate::fuzz_target::api_util::_type_name;
+use crate::clean;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_util;
+use crate::fuzz_target::api_util::{is_unsupported_fuzzable,_type_name};
+use crate::fuzz_target::api_util::scan_type_with;
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzzable_type::{self, FuzzableType};
 use crate::fuzz_target::impl_util::FullNameMap;
+use rustc_data_structures::fx::FxHashSet;
 use rustc_hir::{self, Mutability};
-
-use crate::clean;
+use crate::clean::Type;
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum ApiUnsafety {
@@ -15,13 +16,15 @@ pub(crate) enum ApiUnsafety {
     Normal,
 }
 
-//#[derive(Clone, Debug)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ApiFunction {
-    pub(crate) full_name: String, //函数名，要来比较是否相等
-    pub(crate) inputs: Vec<clean::Type>,
-    pub(crate) output: Option<clean::Type>,
-    pub(crate) _trait_full_path: Option<String>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
+    //pub(crate) full_name: String, //函数名，要来比较是否相等
+    pub(crate) name: String,
+    pub(crate) full_path: String,
+    pub(crate) inputs: Vec<Type>,
+    pub(crate) output: Option<Type>,
+    pub(crate) self_: Option<Type>,
+    pub(crate) trait_: Option<Type>, //Trait的全限定路径,因为使用trait::fun来调用函数的时候，需要将trait的全路径引入
     pub(crate) _unsafe_tag: ApiUnsafety,
     pub(crate) local: bool,
     pub(crate) mono: bool,
@@ -44,6 +47,14 @@ impl ApiUnsafety {
 }
 
 impl ApiFunction {
+    pub(crate) fn full_name(&self, cache: &Cache) -> String{
+        match (&self.self_, &self.trait_){
+            (None,None) => format!("{}",self.full_path),
+            (Some(self_), None) => format!("{}::{}",_type_name(&self_,Some(cache)),self.name),
+            (None, Some(trait_)) => format!("{}::{}",_type_name(&trait_,Some(cache)),self.name),
+            (Some(self_),Some(trait_)) => format!("<{} as {}>::{}",_type_name(&self_,Some(cache)),_type_name(&trait_,Some(cache)),self.name)
+        }
+    }
     pub(crate) fn is_mono(&self) -> bool {
         self.mono
     }
@@ -93,7 +104,30 @@ impl ApiFunction {
         return false;
     }
 
-    pub(crate) fn is_defined_on_prelude_type(&self, prelude_types: &FxHashSet<String>) -> bool {
+    pub(crate) fn is_unsupported(&self) -> bool {
+        let mut success = true;
+        let mut check = |type_: &Type| -> bool {
+            match type_ {
+                Type::Generic(..) | Type::DynTrait { .. } | Type::QPath { .. } => {
+                    success = false;
+                }
+                _ => {}
+            }
+            success
+        };
+
+        for input in self.inputs.iter() {
+            scan_type_with(input, &mut check);
+        }
+
+        if let Some(ref output) = self.output {
+            scan_type_with(output, &mut check);
+        }
+
+        success
+    }
+
+   /*  pub(crate) fn is_defined_on_prelude_type(&self, prelude_types: &FxHashSet<String>) -> bool {
         let function_name_contains_prelude_type =
             prelude_types.iter().any(|prelude_type| self.full_name.starts_with(prelude_type));
         let trait_contains_prelude_type = if let Some(ref trait_name) = self._trait_full_path {
@@ -102,7 +136,7 @@ impl ApiFunction {
             false
         };
         !function_name_contains_prelude_type & !trait_contains_prelude_type
-    }
+    } */
 
     pub(crate) fn _is_start_function(&self, full_name_map: &FullNameMap, cache: &Cache) -> bool {
         let input_types = &self.inputs;
@@ -125,7 +159,7 @@ impl ApiFunction {
 
     pub(crate) fn _pretty_print(&self, cache: &Cache) -> String {
         let mut fn_line =
-            format!("fn {}{}(", self.full_name, if self.is_mono() { "#mono" } else { "" });
+            format!("fn {}{}(", self.full_name(cache), if self.is_mono() { "#mono" } else { "" });
         let input_len = self.inputs.len();
         for i in 0..input_len {
             let input_type = &self.inputs[i];
@@ -149,7 +183,10 @@ impl ApiFunction {
         cache: &Cache,
     ) -> bool {
         for input_ty_ in &self.inputs {
-            let fuzzable_call_type =
+            if is_unsupported_fuzzable(input_ty_,full_name_map,cache){
+                return true;
+            }
+            /* let fuzzable_call_type =
                 fuzzable_type::fuzzable_call_type(input_ty_, full_name_map, cache);
 
             if !fuzzable_call_type.is_fuzzable() {
@@ -160,7 +197,7 @@ impl ApiFunction {
                 fuzzable_call_type.generate_fuzzable_type_and_call_type();
 
             if !fuzzable_type.is_fuzzable() {
-                println!("input fail#0: {}", _type_name(input_ty_,Some(cache)));
+                println!("input fail#0: {}", _type_name(input_ty_, Some(cache)));
                 return true;
             }
 
@@ -172,7 +209,7 @@ impl ApiFunction {
             if !call_type.is_compatible() {
                 println!("input fail#2");
                 return true;
-            }
+            } */
         }
         return false;
     }

@@ -6,6 +6,8 @@ use crate::clean::{self, ItemKind, Struct};
 use crate::clean::{
     GenericArg, GenericArgs, GenericBound, Generics, Impl, ImplKind, Item, Lifetime, Path, Type,
 };
+use crate::fuzz_target::api_util::is_support_type;
+use crate::fuzz_target::api_util::get_type_name_from_did;
 use crate::error::Error;
 use crate::formats;
 use crate::formats::cache::Cache;
@@ -13,11 +15,12 @@ use crate::formats::item_type::ItemType;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_function::ApiUnsafety;
 use crate::fuzz_target::api_graph::ApiGraph;
-use crate::fuzz_target::api_util::{_type_name,replace_type_lifetime};
 use crate::fuzz_target::api_util::is_external_type;
-use crate::fuzz_target::api_util::print_path_segment;
+use crate::fuzz_target::api_util::is_generic_type;
+use crate::fuzz_target::api_util::print_path_segment_with_args;
 use crate::fuzz_target::api_util::replace_type_with;
-use crate::fuzz_target::api_util::{self, is_param_self_type, replace_self_type, replace_lifetime};
+use crate::fuzz_target::api_util::{self, replace_lifetime,is_unsupported_fuzzable};
+use crate::fuzz_target::api_util::{_type_name, replace_type_lifetime};
 use crate::fuzz_target::fuzzable_type::fuzzable_call_type;
 use crate::fuzz_target::generic_function::GenericFunction;
 use crate::fuzz_target::generic_param_map::GenericParamMap;
@@ -49,6 +52,16 @@ impl FullNameMap {
             None => None,
             Some((full_name, _)) => Some(full_name),
         }
+    }
+}
+
+fn is_prelude_api(name:&str) -> bool{
+    match name{
+        | "fn <std::vec::Vec::<u8, std::alloc::Global> as core::convert::From::<&str>>::from(&str) -> std::vec::Vec::<u8, std::alloc::Global>"
+        | "fn std::collections::hash_map::DefaultHasher::new() -> std::collections::hash_map::DefaultHasher"
+        | "fn <std::string::String as core::convert::From::<&str>>::from(&str) -> std::string::String"
+        => true,
+        _ => false
     }
 }
 
@@ -102,9 +115,9 @@ pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
         }
 
         //只添加可以在full_name_map中找到对应的did的type API
-        if available_type_set.get(&did).is_none() {
+        /* if available_type_set.get(&did).is_none() {
             continue;
-        }
+        } */
         for impl_ in impls {
             //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
             analyse_impl(impl_, &mut api_graph);
@@ -114,6 +127,22 @@ pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
 
 fn is_prelude_trait(trait_: &Path) -> bool {
     return false;
+}
+
+fn is_ignored_trait(trait_full_name: &str) -> bool{
+    if trait_full_name.starts_with("core::iter::traits::"){
+        return true;
+    }
+    if trait_full_name.starts_with("core::fmt::"){
+        return true;
+    }
+    match trait_full_name{
+          "core::fmt::Debug" 
+        | "core::fmt::Display"
+        | "core::clone::Clone" 
+        | "core::ops::drop::Drop" => true,
+        _ => false
+    }
 }
 
 fn extract_trait_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) {
@@ -211,51 +240,55 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
     println!("type_def_id: {:?}", impl_for_def_id);
     println!("trait_def_id: {:?}", impl_.trait_.as_ref().map(|tr| tr.def_id()));
     println!("impl_def_id: {:?}", impl_did);
+    println!("is_local_impl: {}", impl_did.is_local());
 
+    // filter some Impl
     if impl_for_def_id.is_none() {
         println!("ignore this impl for pure generic");
         return;
     }
+    println!("is_external_type: {}", is_external_type(impl_for_def_id.unwrap(), api_graph.cache()));
+    println!("type_name: {:?}", get_type_name_from_did(impl_for_def_id.unwrap(), api_graph.cache()));
 
-    if is_trait_impl && !is_crate_trait_impl {
-        println!("ignore this external trait");
+    // if it is a internal type and it is not a internal implement
+    if !is_external_type(impl_for_def_id.unwrap(), api_graph.cache()) && !impl_did.is_local() {
+        println!("ignore this impl for external impl");
         return;
     }
-    // only analyse local trait for any type, and external trait for local type
-    // ignore external trait impl for external type
-    if is_external_type(impl_for_def_id.unwrap(), api_graph.cache()) {
-        /* if !is_trait_impl {
-            println!("ignore this impl");
-            return;
-        } */
-        // if trait neither prelude nor crate trait
-        if is_trait_impl
-            && !is_prelude_trait(&impl_.trait_.as_ref().unwrap())
-            && !is_crate_trait_impl
-        {
-            println!("ignore this trait impl");
+
+    if let Some(ref full_name) = trait_full_name{
+        if is_ignored_trait(full_name){
+            println!("ignore this impl for ignore trait");
             return;
         }
+
     }
 
-    if fuzzable_call_type(&impl_.for_, &api_graph.full_name_map, api_graph.cache()).is_fuzzable() {
-        let mut ty=impl_.for_.clone();
-        replace_type_lifetime(&mut ty);
-        api_graph.type_context.borrow_mut().add_canonical_types(&ty, api_graph.cache());
+    let mut self_type=impl_.for_.clone();
+    replace_type_lifetime(&mut self_type);
+
+    if is_support_type(&self_type) && !is_generic_type(&self_type){
+        api_graph.type_context.borrow_mut().add_trait_type(&self_type);
+    }
+
+    if fuzzable_call_type(&self_type, &api_graph.full_name_map, api_graph.cache()).is_fuzzable() && !is_unsupported_fuzzable(&self_type, &api_graph.full_name_map, api_graph.cache()) {
+        println!("{} is fuzzable", _type_name(&self_type, Some(api_graph.cache())));
+        api_graph.type_context.borrow_mut().add_canonical_types(&self_type, api_graph.cache());
     } else {
-        println!("{} is not fuzzable", _type_name(&impl_.for_, Some(api_graph.cache())));
+        println!("{} is not fuzzable", _type_name(&self_type, Some(api_graph.cache())));
     }
 
     let mut assoc_items = FxHashMap::<String, Type>::default();
     for item in inner_items {
         if let ItemKind::AssocTypeItem(ref typedef, _) = *item.kind {
             let name = item.name.unwrap().to_string();
-            match typedef.item_type {
+            assoc_items.insert(name, typedef.type_.clone());
+            /* match typedef.item_type {
                 Some(ref ty) => {
                     assoc_items.insert(name, ty.clone());
                 }
-                None => unreachable!(),
-            }
+                None => unreachable!("unknown"),
+            } */
         }
     }
 
@@ -269,7 +302,7 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         if let Some(name) = item.name {
             implemented.insert(name);
         }
-        analyse_impl_inner_item(api_graph, impl_, item, &assoc_items);
+        analyse_impl_inner_item(api_graph, impl_, item, &assoc_items, impl_did.is_local());
     }
     if is_trait_impl {
         let trait_ =
@@ -278,7 +311,7 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
             if let Some(ref name) = item.name {
                 if implemented.get(name).is_none() {
                     println!("[Impl] add default impl: {}", name.as_str());
-                    analyse_impl_inner_item(api_graph, impl_, item, &assoc_items);
+                    analyse_impl_inner_item(api_graph, impl_, item, &assoc_items, impl_did.is_local() && is_crate_trait_impl);
                 }
             }
         }
@@ -291,6 +324,7 @@ pub(crate) fn analyse_impl_inner_item(
     impl_: &Impl,
     item: &Item,
     assoc_items: &FxHashMap<String, Type>,
+    is_local: bool
 ) {
     let full_name_map = &api_graph.full_name_map;
     let is_trait_impl = impl_.trait_.is_some();
@@ -302,27 +336,13 @@ pub(crate) fn analyse_impl_inner_item(
         .as_ref()
         .and_then(|trait_| full_name_map.get_full_name(trait_.def_id()).map(|x| x.clone()));
 
-    /* let trait_full_name = match &impl_.trait_ {
-        None => None,
-        Some(trait_) => {
-            //println!("{:?}", trait_);
-            let trait_ty_def_id = trait_.def_id();
-            let trait_full_name = full_name_map.get_full_name(trait_ty_def_id);
-            if let Some(trait_name) = trait_full_name { Some(trait_name.clone()) } else { None }
-        }
-    }; */
-    let type_full_name = if let Some(def_id) = impl_for_def_id {
-        Some(api_graph.get_full_path_from_def_id(def_id))
-    } else {
-        None
-    };
+    let type_full_name = get_type_name_from_did(impl_for_def_id.unwrap(),api_graph.cache());
+
     match &*item.kind {
         ItemKind::FunctionItem(_function) => {
             unreachable!("function in impl statement");
         }
         ItemKind::MethodItem(function, _) => {
-            statistic::inc("FUNCTIONS");
-
             if (is_trait_impl) {
                 if (matches!(impl_.kind, clean::ImplKind::Normal)) {
                     statistic::inc("TRAIT_IMPLS");
@@ -341,128 +361,75 @@ pub(crate) fn analyse_impl_inner_item(
             let clean::FnDecl { inputs, output, .. } = &function.decl;
             let mut inputs = api_util::extract_input_types(&inputs);
             let mut output = api_util::extract_output_type(&output);
-            let mut contains_self_type = false;
             let input_len = inputs.len();
-            /* let mut replace_assoc_item = |type_: &Type| -> Option<Type> {
-                match type_ {
-                    Type::QPath(qpathdata) => {
-                        let name = print_path_segment(None, &qpathdata.assoc, None);
-                        Some(
-                            assoc_items
-                                .get(&name)
-                                .expect(&format!("can not find {} from {:?}", name, assoc_items))
-                                .clone(),
-                        )
-                    }
-                    _ => None,
+            let mut self_type=impl_.for_.clone();
+            replace_type_lifetime(&mut self_type);
+            let mut replace_self = |type_: &mut Type| -> bool {
+                if type_.is_self_type() {
+                    *type_ = self_type.clone();
+                    return false;
                 }
-            }; */
+                true
+            };
             
-
+            // let mut contains_self_type = false;
             for ty_ in inputs.iter_mut() {
-                if is_param_self_type(ty_) {
+                replace_type_with(ty_, &mut replace_self);
+                /* if is_param_self_type(ty_) {
                     contains_self_type = true;
-                    let raplaced_ty = replace_self_type(ty_, &impl_.for_);
-                    *ty_ = raplaced_ty;
-                }
-                
-                // *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
+                } */
             }
             //println!("after replace, input = {:?}", inputs);
-            let mut contains_self_output = false;
+            // let mut contains_self_output = false;
             if let Some(ref mut ty_) = output {
-                if is_param_self_type(&ty_) {
-                    let replaced_type = replace_self_type(&ty_, &impl_.for_);
+                replace_type_with(ty_, &mut replace_self);
+                /* if is_param_self_type(&ty_) {
                     contains_self_output = true;
-                    *ty_ = replaced_type
-                }
-
-                // *ty_ = replace_type_with(ty_, &mut replace_assoc_item);
+                } */
             }
 
             let mut method_name = String::new();
-            //使用全限定名称：type::f
-            //如果函数输入参数中含有self type，则使用trait name（也可以使用type name）
-            //如果函数输入参数中不含有self type，则使用type name
-            let method_type_name = if contains_self_type {
-                if let Some(ref trait_name) = trait_full_name {
-                    trait_name.clone()
-                } else if let Some(ref type_name) = type_full_name {
-                    type_name.clone()
-                } else {
-                    //println!("trait not in current crate.");
-                    //println!("type not in current crate.");
-                    return;
-                }
-            } else {
-                if let Some(ref type_name) = type_full_name {
-                    type_name.clone()
-                } else {
-                    //println!("type not in current crate.");
-                    return;
-                }
-            };
-            method_name.push_str(method_type_name.as_str());
-            method_name.push_str("::");
-            method_name.push_str(item.name.as_ref().unwrap().as_str());
-            //println!("method name in impl:{:?}", method_name);
+
 
             let api_unsafety = ApiUnsafety::_get_unsafety_from_fnheader(
                 &item.fn_header(api_graph.tcx().clone()).unwrap(),
             );
 
-            let local = match impl_for_def_id {
-                Some(did) => !is_external_type(did, api_graph.cache()),
-                None => is_crate_trait_impl, // if type is generic, judge by trait
-            };
-
-            //生成api function
-            //如果是实现了trait的话，需要把trait的全路径也包括进去
-            /* match &impl_.trait_ {
-                None => None,
-                Some(_) => {
-                    if let Some(ref real_trait_name) = trait_full_name {
-                        Some(real_trait_name.clone())
-                    } else {
-                        //println!("Trait not found in current crate.");
-                        return;
-                    }
-                }
-            }; */
+            // this different from method_name for re-export item
 
             let api_function = ApiFunction {
-                full_name: method_name,
+                name: item.name.as_ref().unwrap().to_string(),
+                full_path: type_full_name.unwrap(),
+                trait_:  impl_.trait_.clone().map(|path|{ let mut ty=Type::Path{path}; replace_type_lifetime(&mut ty); ty}),
+                self_: Some(self_type.clone()),
                 inputs,
                 output,
-                _trait_full_path: trait_full_name,
                 _unsafe_tag: api_unsafety,
                 mono: false,
-                local,
+                local: is_local,
             };
 
-            let type_generics = if let Some(ref did) = impl_for_def_id {
-                api_graph.type_generics.get(did).map(|x| x.clone()).unwrap_or_default()
-            } else {
-                Generics::default()
-            };
-
-            if !function.generics.is_empty()
-                || !impl_.generics.is_empty()
-                || (contains_self_type && !type_generics.is_empty())
-            {
+            // if this is a external type, only accept specific constructor function
+            if !is_local && is_external_type(impl_for_def_id.unwrap(),api_graph.cache()){
+                print!("{:?} ",api_function._pretty_print(api_graph.cache()));
+                if !is_prelude_api(&api_function._pretty_print(api_graph.cache())){
+                    print!("is filtered.\n");
+                    return;
+                } else {
+                    print!("is added.\n");
+                }
+            }
+            
+            if !function.generics.is_empty() || !impl_.generics.is_empty() {
                 // function is a generic function
                 let mut generic_function = GenericFunction::from(api_function);
                 generic_function.add_generics(&function.generics);
                 generic_function.add_generics(&impl_.generics);
-                // generic_function.add_generics(&type_generics);
-                // generic_function.resolve_bounded_symbol();
-                // if there is no generic, regard it as a normal function
+                generic_function.set_self_type(&self_type);
+                
                 if generic_function.generic_map.is_empty() {
                     api_graph.add_api_function(generic_function.api_function);
                 } else {
-                    if generic_function.api_function.is_local() {
-                        statistic::inc("GENERIC_FUNCTIONS");
-                    }
                     api_graph.generic_functions.push(generic_function);
                 }
             } else {
@@ -506,15 +473,3 @@ pub(crate) fn analyse_type(item: &Item, api_graph: &mut ApiGraph<'_>) {
         }
     }
 }
-/*
-pub(crate) fn analyse_trait(api_graph: &mut ApiGraph<'_>) {
-    let cache = api_graph.cache();
-    for (did, trait_) in cache.traits.iter() {
-        println!("trait!: {did:?} {trait_:?}");
-        for item in trait_.items.iter() {
-            println!("{:?}", item);
-            println!("{:?}", item.kind);
-        }
-    }
-}
- */

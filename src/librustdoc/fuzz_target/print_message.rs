@@ -5,14 +5,14 @@ use crate::fuzz_target::api_graph::ApiGraph;
 use crate::fuzz_target::api_graph::ApiType;
 
 //print generated sequences
-pub(crate) fn _print_pretty_sequences(graph: &ApiGraph<'_>) {
+pub(crate) fn _print_pretty_sequences(api_graph: &ApiGraph<'_>) {
     println!("sequences:");
-    for api_sequence in &graph.api_sequences {
+    for api_sequence in &api_graph.api_sequences {
         let mut one_sequence = String::new();
         for api_call in &api_sequence.functions {
             let (api_type, index) = &api_call.func;
-            let func = &graph.api_functions[*index];
-            let func_name = func.full_name.clone();
+            let func = &api_graph.api_functions[*index];
+            let func_name = func.full_name(api_graph.cache());
             one_sequence.push_str(func_name.as_str());
             one_sequence.push_str(" ");
         }
@@ -43,12 +43,12 @@ pub(crate) fn _print_pretty_dependencies(graph: &ApiGraph<'_>) {
         let mut res = String::new();
 
         let output_fun = &graph.api_functions[*output_index];
-        res.push_str(output_fun.full_name.as_str());
+        res.push_str(&output_fun.full_name(graph.cache()));
 
         res.push_str(" ");
 
         let input_fun = &graph.api_functions[*input_index];
-        res.push_str(input_fun.full_name.as_str());
+        res.push_str(&input_fun.full_name(graph.cache()));
 
         res.push_str(" ");
         res.push_str(dependency.input_param_index.to_string().as_str());

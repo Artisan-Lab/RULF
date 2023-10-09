@@ -5,11 +5,12 @@ use std::sync::Mutex;
 
 pub static mut STATISTIC_MAP: Lazy<Mutex<FxHashMap<String, usize>>> = Lazy::new(|| {
     let mut map = FxHashMap::<String, usize>::default();
-    map.insert("FUNCTIONS".to_string(), 0);
-    map.insert("GENERIC_FUNCTIONS".to_string(), 0);
+    map.insert("API".to_string(), 0);
+    map.insert("GENERIC_API".to_string(), 0);
     map.insert("TRAIT_IMPLS".to_string(), 0);
     map.insert("BLANKET_IMPLS".to_string(), 0);
-    map.insert("DEGENERIC".to_string(), 0);
+    map.insert("COVERED GENERIC".to_string(), 0);
+    map.insert("COVERED API".to_string(),0);
     map.insert("MONO_FUNS".to_string(), 0);
     map.insert("ITERS".to_string(), 0);
     map.insert("CANDIDATES".to_string(), 0);
@@ -46,8 +47,14 @@ pub fn print_summary() {
         }
         println!("======  advance  ======");
         let mono_funs = *STATISTIC_MAP.lock().unwrap().get("MONO_FUNS").unwrap();
-        let degeneric = *STATISTIC_MAP.lock().unwrap().get("DEGENERIC").unwrap();
-        println!("MONO_PER_FUNCS: {}", mono_funs as f32 / degeneric as f32);
+        let num_covered_generic = *STATISTIC_MAP.lock().unwrap().get("COVERED GENERIC").unwrap();
+        let num_api = *STATISTIC_MAP.lock().unwrap().get("API").unwrap();
+        let num_generic = *STATISTIC_MAP.lock().unwrap().get("GENERIC_API").unwrap();
+        let num_covered_api = *STATISTIC_MAP.lock().unwrap().get("COVERED API").unwrap();
+        println!("MONO_PER_FUNCS: {}", mono_funs as f32 / num_covered_generic as f32);
+        println!("GENERIC COVERAGE: {}", num_covered_generic as f32 / num_generic as f32);
+        println!("API COVERAGE: {}", num_covered_api as f32 / num_api as f32);
+
         println!("=======================");
     }
 

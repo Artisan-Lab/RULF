@@ -2,50 +2,45 @@ use crate::clean::{self, GenericBound, WherePredicate};
 use crate::clean::{GenericParamDefKind, Generics};
 use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
-use crate::fuzz_target::api_util::{print_path,_type_name};
+use crate::fuzz_target::api_util::{replace_lifetime,print_fact};
+use crate::fuzz_target::api_util::{_type_name, print_path};
+use crate::fuzz_target::api_util::{replace_type_with, scan_type_with};
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::{api_function::ApiFunction, api_util};
-use crate::fuzz_target::api_util::replace_lifetime;
 use itertools::Itertools;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_hir::def_id::DefId;
 use rustc_span::symbol::Symbol;
-
-use super::api_util::replace_type_with;
 
 //impl From<FxHashSet<Def>>
 #[derive(Clone)]
 pub(crate) struct GenericFunction {
     pub(crate) api_function: ApiFunction,
     pub(crate) generic_map: GenericParamMap,
-    pub(crate) bounded_symbols: FxHashSet<String>,
     impl_count: i32, // number of impl declaration
 }
 
 impl From<ApiFunction> for GenericFunction {
     fn from(mut api_function: ApiFunction) -> Self {
         replace_lifetime(&mut api_function);
-        let mut gf = GenericFunction {
-            api_function,
-            generic_map: GenericParamMap::new(),
-            bounded_symbols: FxHashSet::default(),
-            impl_count: 0,
-        };
+        let mut gf =
+            GenericFunction { api_function, generic_map: GenericParamMap::new(), impl_count: 0 };
         gf.resolve_argument_type();
         gf
     }
 }
 
-fn print_fact(facts: &Vec<Path>, cache:Option<&Cache>) -> String {
-    facts.iter().map(|path| print_path(path, cache)).join(" + ")
-}
 
 impl GenericFunction {
     pub(crate) fn get_full_signature(&self, cache: &Cache) -> String {
-        let mut signature = String::from("[G] fn ");
+        let mut signature = String::new();
+        if !self.is_solvable(){
+            signature.push_str("*");
+        }
+        signature.push_str("fn ");
         let mut inputs = Vec::<String>::new();
-        signature.push_str(&self.api_function.full_name);
+        signature.push_str(&self.api_function.full_name(cache));
         for ty in self.api_function.inputs.iter() {
             inputs.push(api_util::_type_name(ty, Some(cache)));
         }
@@ -64,15 +59,11 @@ impl GenericFunction {
         println!("{}", self.get_full_signature(cache));
         println!("Where:");
         for (name, fact) in self.generic_map.iter() {
-            println!("{}: {}, ", name, print_fact(fact,Some(cache)));
+            println!("{}: {}, ", name, print_fact(fact, Some(cache)));
         }
         println!("Type Pred:");
         for (type_, fact) in self.generic_map.type_pred.iter() {
             println!("{}: {}", _type_name(type_, Some(cache)), print_fact(fact, Some(cache)));
-        }
-        print!("bounded Params: ");
-        for sym in &self.bounded_symbols {
-            print!("{}, ", sym.as_str());
         }
         print!("\n");
         /* println!("=====\n");
@@ -81,46 +72,60 @@ impl GenericFunction {
         println!("=====\n"); */
     }
 
+    pub(crate) fn set_self_type(&mut self, self_type:&Type){
+        self.generic_map.set_self_type(self_type);
+    }
+
     pub(crate) fn add_generics(&mut self, generics: &Generics) {
         self.generic_map.add_generics(generics);
+    }
+
+    pub(crate) fn is_solvable(&self) -> bool {
+        let mut have_unknown_generic = false;
+        let mut check = |type_: &Type| -> bool {
+            if let Type::Generic(sym) = type_ {
+                for defname in self.generic_map.generic_defs.iter() {
+                    if defname == sym.as_str() {
+                        return false;
+                    }
+                }
+                println!("unknown generic: {:?}", sym);
+                have_unknown_generic = true;
+                return false;
+            }
+            true
+        };
+
+        for input in self.api_function.inputs.iter() {
+            scan_type_with(input, &mut check);
+        }
+
+        if let Some(ref output) = self.api_function.output {
+            scan_type_with(output, &mut check);
+        }
+
+        if have_unknown_generic {
+            return false;
+        }
+
+        return self.generic_map.is_solvable();
     }
 
     fn resolve_argument_type(&mut self) {
         self.resolve_impl_trait();
     }
 
-    /* pub(crate) fn resolve_bounded_symbol(&mut self) {
-        // println!("resolve bounded symbol: {}",self.api_function._pretty_print());
-        for (key, bounds) in self.generic_map.iter() {
-            if !bounds.is_empty() {
-                self.bounded_symbols.insert(key.to_owned());
-            }
-        }
-
-        let mut find_generic = |type_: &Type| -> Option<Type> {
-            match type_ {
-                Type::Generic(sym) => {
-                    self.bounded_symbols.insert(sym.to_string());
-                }
-                _ => {}
-            }
-            None
-        };
-
-        for (type_, bounds) in self.generic_map.type_pred.iter() {
-            // println!("{:?} : {:?}",type_,bounds);
-            replace_type_with(type_, &mut find_generic);
-            for bound in bounds.iter() {
-                replace_type_with(&Type::Path { path: bound.clone() }, &mut find_generic);
-            }
-        }
-        // println!("{:?}",self.bounded_symbols);
-    } */
-
     fn resolve_impl_trait(&mut self) {
         // replace impl
         let mut input_vec = self.api_function.inputs.clone();
         //println!("before replace: {:?}\n", input_vec);
+
+        /* let mut replace=|type_:&mut Type| -> bool{
+            if let Type::ImplTrait(..) = ty {
+                *type_ = Type::Generic(Symbol::intern(&sym))
+            }
+        } */
+
         for type_ in &mut input_vec {
             *type_ = self.replace_impl(type_);
         }
@@ -133,7 +138,7 @@ impl GenericFunction {
     }
 
     fn add_new_impl_generic(&mut self, bounds: &[GenericBound]) -> String {
-        let generic_param_name = format!("impl_trait_{}", self.impl_count);
+        let generic_param_name = format!("ImplTrait{}", self.impl_count);
         self.impl_count += 1;
         self.generic_map.add_generic_bounds(&generic_param_name, bounds);
         generic_param_name
