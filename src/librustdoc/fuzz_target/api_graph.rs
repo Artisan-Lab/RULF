@@ -51,16 +51,6 @@ lazy_static! {
     };
 }
 
-lazy_static! {
-    static ref CAN_COVER_NODES: FxHashMap<&'static str, usize> = {
-        let mut m = FxHashMap::default();
-        m.insert("regex", 96);
-        m.insert("serde_json", 41);
-        m.insert("clap", 66);
-        m
-    };
-}
-
 fn add_func_input_to_set(type_set: &mut FxHashSet<Type>, func: &ApiFunction) {
     for input in func.inputs.iter() {
         type_set.insert(input.clone());
@@ -97,7 +87,7 @@ pub(crate) struct TypeContext {
 impl TypeContext {
     pub(crate) fn new() -> TypeContext {
         let mut tc = TypeContext {
-            trait_type: FxHashSet::default(), 
+            trait_type: FxHashSet::default(),
             type_candidates: FxHashMap::<Type, usize>::default(),
             type_sorted: Vec::new(),
             functions: Vec::new(),
@@ -106,7 +96,7 @@ impl TypeContext {
         tc
     }
 
-    pub(crate) fn add_trait_type(&mut self,type_:&Type) {
+    pub(crate) fn add_trait_type(&mut self, type_: &Type) {
         self.trait_type.insert(type_.clone());
     }
 
@@ -179,7 +169,8 @@ impl TypeContext {
 
         match type_ {
             Type::Path { ref path } => {
-                let name = get_type_name_from_did(path.def_id(), cache).unwrap();
+                let name = get_type_name_from_did(path.def_id(), cache)
+                    .expect(&format!("cannot find did for: {:?}", type_));
                 // let name = path.segments.last().unwrap().name.to_string();
                 let inner = if name == "core::option::Option" {
                     take_type_from_path(path, 0)
@@ -242,8 +233,7 @@ pub(crate) struct ApiGraph<'tcx> {
     pub(crate) api_dependencies: Vec<ApiDependency>,
     pub(crate) api_sequences: Vec<ApiSequence>,
     pub(crate) trait_impl_map: TraitImplMap, // type defid => {(trait path, generics, impl id)}
-    pub(crate) type_generics: FxHashMap<DefId, Generics>,
-    pub(crate) full_name_map: FullNameMap,  //did to full_name
+    pub(crate) full_name_map: FullNameMap,   //did to full_name
     pub(crate) mod_visibility: ModVisibity, //the visibility of mods，to fix the problem of `pub(crate) use`
     pub(crate) generic_functions: Vec<GenericFunction>,
     pub(crate) functions_with_unsupported_fuzzable_types: FxHashSet<String>,
@@ -298,7 +288,6 @@ impl<'tcx> ApiGraph<'tcx> {
             unreachable_num: Vec::new(),
             reserve: Vec::new(),
             type_context: Rc::new(RefCell::new(TypeContext::new())),
-            type_generics: FxHashMap::default(),
             trait_impl_map: TraitImplMap::new(),
             full_name_map: FullNameMap::new(),
             mod_visibility: ModVisibity::new(&_crate_name),
@@ -342,12 +331,6 @@ impl<'tcx> ApiGraph<'tcx> {
 
     pub(crate) fn print_type_candidates(&self) {
         self.type_context.borrow().print_all_candidates(self.cache());
-    }
-
-    pub(crate) fn print_type_generics(&self) {
-        for (did, generics) in self.type_generics.iter() {
-            println!("type generics: {:?} => {:?}", did, generics);
-        }
     }
 
     pub(crate) fn print_type_trait_impls(&self) {
@@ -509,32 +492,7 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    pub(crate) fn resolve_generic_functions(&mut self) {
-        // init available struct
-        let mut solvers = Vec::new();
-        let num_function = self.generic_functions.len();
-
-        //
-        for function in &self.api_functions {
-            if function.is_local() {
-                statistic::inc("API");
-            }
-        }
-
-        for function in &self.generic_functions {
-            if function.api_function.is_local() {
-                statistic::inc("API");
-                statistic::inc("GENERIC_API");
-            }
-        }
-
-        for function in self.generic_functions.iter() {
-            println!("[ApiGraph] Resolve this function");
-            function.pretty_print(&self.cx.cache);
-            solvers.push(GenericSolver::new(Rc::clone(&self.type_context), function.clone()));
-        }
-
-        // reachable solution search
+    pub fn search_reachable_solutions(&mut self, solvers: &mut Vec<GenericSolver>) {
         let mut num_iter = 0;
         loop {
             statistic::inc("ITERS");
@@ -575,12 +533,13 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
         println!("===== !all reachable func =====");
+    }
 
+    pub fn prune_by_diversity(&mut self, solvers: &mut Vec<GenericSolver>) {
         let mut diverse_types = FxHashMap::<Type, bool>::default();
 
-        // diverse pruning
-        for i in 0..num_function {
-            solvers[i].init_diverse_set(&mut diverse_types, self.cache());
+        for solver in solvers.iter_mut() {
+            solver.init_diverse_set(&mut diverse_types, self.cache());
         }
 
         loop {
@@ -598,6 +557,40 @@ impl<'tcx> ApiGraph<'tcx> {
                 break;
             }
         }
+
+        for solver in solvers.iter_mut() {
+            solver.reserve_least_one();
+        }
+    }
+
+    pub(crate) fn resolve_generic_functions(&mut self) {
+        // init available struct
+        let mut solvers = Vec::new();
+        let num_function = self.generic_functions.len();
+
+        // init solvers and do statistic
+        for function in &self.api_functions {
+            if function.is_local() {
+                statistic::inc("API");
+            }
+        }
+
+        for function in &self.generic_functions {
+            if function.api_function.is_local() {
+                statistic::inc("API");
+                statistic::inc("GENERIC_API");
+            }
+        }
+
+        for function in self.generic_functions.iter() {
+            println!("[ApiGraph] Resolve this function");
+            function.pretty_print(&self.cx.cache);
+            solvers.push(GenericSolver::new(Rc::clone(&self.type_context), function.clone()));
+        }
+
+        // reachable solution search
+        self.search_reachable_solutions(&mut solvers);
+        self.prune_by_diversity(&mut solvers);
 
         println!("unsolve generic function:");
         for i in 0..num_function {
@@ -710,12 +703,14 @@ impl<'tcx> ApiGraph<'tcx> {
             if api_func_name.as_str().starts_with(invisible_mod.as_str()) {
                 return true;
             }
-            if let Some(ref trait_) = api_func.trait_{
-                if self.get_full_path_from_def_id(trait_.def_id(self.cache()).unwrap()).starts_with(invisible_mod) {
+            if let Some(ref trait_) = api_func.trait_ {
+                if self
+                    .get_full_path_from_def_id(trait_.def_id(self.cache()).unwrap())
+                    .starts_with(invisible_mod)
+                {
                     return true;
                 }
             }
-
         }
         return false;
     }
@@ -891,15 +886,6 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
 
-        if CAN_COVER_NODES.contains_key(self._crate_name.as_str()) {
-            let to_cover_nodes = CAN_COVER_NODES.get(self._crate_name.as_str()).unwrap().clone();
-            if visited_nodes == to_cover_nodes {
-                return true;
-            } else {
-                return false;
-            }
-        }
-
         if visited_nodes == self.api_functions_visited.len() {
             return true;
         } else {
@@ -1015,7 +1001,7 @@ impl<'tcx> ApiGraph<'tcx> {
                     if let Some(new_sequence) =
                         self.is_fun_satisfied(&api_type, api_func_index, sequence)
                     {
-                        let covered_nodes = new_sequence._get_contained_api_functions();
+                        let covered_nodes = new_sequence.get_contained_api_functions();
                         for covered_node in &covered_nodes {
                             if !already_covered_nodes.contains(covered_node) {
                                 already_covered_nodes.insert(*covered_node);
@@ -1158,7 +1144,7 @@ impl<'tcx> ApiGraph<'tcx> {
                         let output_type = ApiType::BareFunction;
                         let input_type = ApiType::BareFunction;
                         let candidate_sequence = &self.api_sequences[*candidate_sequence_index];
-                        let output_index = candidate_sequence._last_api_func_index().unwrap();
+                        let output_index = candidate_sequence.last_api_func_index().unwrap();
 
                         if let Some(_) = self.check_dependency(
                             &output_type,
@@ -1172,7 +1158,7 @@ impl<'tcx> ApiGraph<'tcx> {
                             tmp_dependent_index = *candidate_sequence_index as i32;
 
                             //prefer sequence with fuzzable inputs
-                            if !candidate_sequence._has_no_fuzzables() {
+                            if !candidate_sequence.has_no_fuzzables() {
                                 break;
                             }
                         }
@@ -1189,7 +1175,7 @@ impl<'tcx> ApiGraph<'tcx> {
                         .into_iter()
                         .map(|index| self.api_sequences[index].clone())
                         .collect();
-                    let merged_sequence = ApiSequence::_merge_sequences(&dependent_sequences);
+                    let merged_sequence = ApiSequence::merge_sequences(&dependent_sequences);
                     let input_type = ApiType::BareFunction;
                     if let Some(generated_sequence) =
                         self.is_fun_satisfied(&input_type, *unvisited_node, &merged_sequence)
@@ -1222,12 +1208,12 @@ impl<'tcx> ApiGraph<'tcx> {
         let mut covered_edges = FxHashSet::default();
 
         for sequence in &self.api_sequences {
-            if sequence._has_no_fuzzables() {
+            if sequence.has_no_fuzzables() {
                 continue;
             }
             totol_sequences_number = totol_sequences_number + 1;
             total_length = total_length + sequence.len();
-            let cover_nodes = sequence._get_contained_api_functions();
+            let cover_nodes = sequence.get_contained_api_functions();
             for cover_node in &cover_nodes {
                 covered_nodes.insert(*cover_node);
             }
@@ -1274,7 +1260,7 @@ impl<'tcx> ApiGraph<'tcx> {
 
         for i in 0..prepared_sequence_number {
             let api_sequence = &self.api_sequences[i];
-            let contains_nodes = api_sequence._get_contained_api_functions();
+            let contains_nodes = api_sequence.get_contained_api_functions();
             for node in contains_nodes {
                 if let Some(v) = node_candidate_sequences.get_mut(&node) {
                     if !v.contains(&i) {
@@ -1305,7 +1291,7 @@ impl<'tcx> ApiGraph<'tcx> {
             let chosen_sequence = &self.api_sequences[chosen_index];
             //println!("{:}",chosen_sequence._to_well_written_function(self, 0, 0));
 
-            let covered_nodes = chosen_sequence._get_contained_api_functions();
+            let covered_nodes = chosen_sequence.get_contained_api_functions();
             to_cover_nodes =
                 to_cover_nodes.into_iter().filter(|node| !covered_nodes.contains(node)).collect();
             chosen_sequence_flag[random_index] = true;
@@ -1340,7 +1326,7 @@ impl<'tcx> ApiGraph<'tcx> {
             res.push(sequence.clone());
             sequence_indexes.remove(chosen_index);
 
-            for covered_node in sequence._get_contained_api_functions() {
+            for covered_node in sequence.get_contained_api_functions() {
                 covered_nodes.insert(covered_node);
             }
 
@@ -1367,12 +1353,12 @@ impl<'tcx> ApiGraph<'tcx> {
 
         for index in 0..total_sequence_size {
             let sequence = &self.api_sequences[index];
-            if sequence._has_no_fuzzables() {
+            if sequence.has_no_fuzzables() {
                 continue;
             }
             res.push(sequence.clone());
 
-            for covered_node in sequence._get_contained_api_functions() {
+            for covered_node in sequence.get_contained_api_functions() {
                 covered_nodes.insert(covered_node);
             }
 
@@ -1411,10 +1397,10 @@ impl<'tcx> ApiGraph<'tcx> {
             //    fixed_covered_nodes.insert(*covered_node);
             //}
             num += 1;
-            if !fixed_sequence._has_no_fuzzables()
+            if !fixed_sequence.has_no_fuzzables()
                 && !fixed_sequence._contains_dead_code_except_last_one(self)
             {
-                let covered_nodes = fixed_sequence._get_contained_api_functions();
+                let covered_nodes = fixed_sequence.get_contained_api_functions();
                 for covered_node in &covered_nodes {
                     fixed_covered_nodes.insert(*covered_node);
                 }
@@ -1434,8 +1420,7 @@ impl<'tcx> ApiGraph<'tcx> {
         println!("There are toatl {} sequences.", total_sequence_number);
         let mut valid_fuzz_sequence_count = 0;
         for sequence in &self.api_sequences {
-            if !sequence._has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self)
-            {
+            if !sequence.has_no_fuzzables() && !sequence._contains_dead_code_except_last_one(self) {
                 valid_fuzz_sequence_count = valid_fuzz_sequence_count + 1;
             }
         }
@@ -1469,7 +1454,7 @@ impl<'tcx> ApiGraph<'tcx> {
                     continue;
                 }
 
-                if api_sequence._has_no_fuzzables()
+                if api_sequence.has_no_fuzzables()
                     || api_sequence._contains_dead_code_except_last_one(self)
                 {
                     continue;
@@ -1485,7 +1470,7 @@ impl<'tcx> ApiGraph<'tcx> {
                     continue;
                 }
 
-                let covered_nodes = api_sequence._get_contained_api_functions();
+                let covered_nodes = api_sequence.get_contained_api_functions();
                 let mut uncovered_nodes_by_former_sequence_count = 0;
                 for covered_node in &covered_nodes {
                     if !already_covered_nodes.contains(covered_node) {
@@ -1555,7 +1540,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 already_covered_monos.insert(mono_no);
             } */
 
-            let covered_nodes = chosen_sequence._get_contained_api_functions();
+            let covered_nodes = chosen_sequence.get_contained_api_functions();
             for cover_node in covered_nodes {
                 already_covered_nodes.insert(cover_node);
             }
@@ -1688,7 +1673,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 let input_params_num = input_params.len();
                 if input_params_num == 0 {
                     //无需输入参数，直接是可满足的
-                    new_sequence._add_fn(api_call, is_mono);
+                    new_sequence.add_fn(api_call, is_mono);
                     return Some(new_sequence);
                 }
 
@@ -1741,7 +1726,7 @@ impl<'tcx> ApiGraph<'tcx> {
 
                     for function_index in 0..functions_in_sequence_len {
                         //如果这个sequence里面的该函数返回值已经被move掉了，那么就跳过，不再能被使用了
-                        if new_sequence._is_moved(function_index)
+                        if new_sequence.is_moved(function_index)
                             || _moved_indexes.contains(&function_index)
                         {
                             continue;
@@ -1753,7 +1738,7 @@ impl<'tcx> ApiGraph<'tcx> {
                         {
                             let dependency_ = self.api_dependencies[dependency_index].clone();
                             //将覆盖到的边加入到新的sequence中去
-                            new_sequence._add_dependency(dependency_index);
+                            new_sequence.add_dependency(dependency_index);
                             //找到了依赖，当前参数是可以被满足的，设置flag并退出循环
                             dependency_flag = true;
                             //如果满足move发生的条件，那么
@@ -1816,9 +1801,9 @@ impl<'tcx> ApiGraph<'tcx> {
                     }
                 }
                 //所有参数都可以找到依赖，那么这个函数就可以加入序列
-                new_sequence._add_fn(api_call, is_mono);
+                new_sequence.add_fn(api_call, is_mono);
                 for move_index in _moved_indexes {
-                    new_sequence._insert_move_index(move_index);
+                    new_sequence.insert_move_index(move_index);
                 }
                 if new_sequence._contains_multi_dynamic_length_fuzzable() {
                     //如果新生成的序列包含多维可变的参数，就不把这个序列加进去

@@ -1,3 +1,4 @@
+use super::generic_param_map::set_union;
 use crate::clean::Type;
 use crate::formats::cache::Cache;
 use crate::fuzz_target::afl_util::{self, _AflHelpers};
@@ -11,7 +12,6 @@ use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::replay_util;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_span::def_id::DefId;
-use super::generic_param_map::set_union;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub(crate) enum ParamType {
@@ -47,11 +47,8 @@ impl ApiCall {
     }
 }
 
-fn map_std_trait(trait_name: &str) -> String {
-    if trait_name == "core::str::traits::FromStr" {
-        return "core::str::FromStr".to_string();
-    }
-    trait_name.to_string()
+fn map_std_output_name(name: &str) -> String {
+    name.replace("std::vec::Vec::<u8, std::alloc::Global>", "std::vec::Vec::<u8>")
 }
 
 //function call sequences
@@ -99,7 +96,7 @@ impl ApiSequence {
         self.mono
     }
 
-    pub(crate) fn _add_dependency(&mut self, dependency: usize) {
+    pub(crate) fn add_dependency(&mut self, dependency: usize) {
         self._covered_dependencies.insert(dependency);
     }
 
@@ -107,7 +104,7 @@ impl ApiSequence {
         self.functions.len()
     }
 
-    pub(crate) fn _has_no_fuzzables(&self) -> bool {
+    pub(crate) fn has_no_fuzzables(&self) -> bool {
         if self.fuzzable_params.len() <= 0 {
             return true;
         } else {
@@ -115,7 +112,7 @@ impl ApiSequence {
         }
     }
 
-    pub(crate) fn _last_api_func_index(&self) -> Option<usize> {
+    pub(crate) fn last_api_func_index(&self) -> Option<usize> {
         if self.len() == 0 {
             None
         } else {
@@ -125,7 +122,7 @@ impl ApiSequence {
         }
     }
 
-    pub(crate) fn _merge_another_sequence(&self, other: &ApiSequence) -> Self {
+    pub(crate) fn merge_another_sequence(&self, other: &ApiSequence) -> Self {
         let mut res = self.clone();
         let first_func_number = res.functions.len();
         let first_fuzzable_number = res.fuzzable_params.len();
@@ -166,7 +163,7 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _merge_sequences(sequences: &Vec<ApiSequence>) -> Self {
+    pub(crate) fn merge_sequences(sequences: &Vec<ApiSequence>) -> Self {
         let sequences_len = sequences.len();
         if sequences_len <= 0 {
             //println!("Should not merge with no sequence");
@@ -175,12 +172,12 @@ impl ApiSequence {
         let mut basic_sequence = sequences.first().unwrap().clone();
         for i in 1..sequences_len {
             let other_sequence = &sequences[i];
-            basic_sequence = basic_sequence._merge_another_sequence(other_sequence);
+            basic_sequence = basic_sequence.merge_another_sequence(other_sequence);
         }
         basic_sequence
     }
 
-    pub(crate) fn _contains_api_function(&self, index: usize) -> bool {
+    pub(crate) fn contains_api_function(&self, index: usize) -> bool {
         for api_call in &self.functions {
             let (_, func_index) = api_call.func;
             if index == func_index {
@@ -190,7 +187,7 @@ impl ApiSequence {
         return false;
     }
 
-    pub(crate) fn _get_contained_api_functions(&self) -> Vec<usize> {
+    pub(crate) fn get_contained_api_functions(&self) -> Vec<usize> {
         let mut res = Vec::new();
         for api_call in &self.functions {
             let (_, func_index) = &api_call.func;
@@ -201,15 +198,15 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _is_moved(&self, index: usize) -> bool {
+    pub(crate) fn is_moved(&self, index: usize) -> bool {
         if self._moved.contains(&index) { true } else { false }
     }
 
-    pub(crate) fn _insert_move_index(&mut self, index: usize) {
+    pub(crate) fn insert_move_index(&mut self, index: usize) {
         self._moved.insert(index);
     }
 
-    pub(crate) fn _add_fn(&mut self, api_call: ApiCall, is_mono: bool) {
+    pub(crate) fn add_fn(&mut self, api_call: ApiCall, is_mono: bool) {
         self.functions.push(api_call);
         self.mono |= is_mono;
     }
@@ -351,43 +348,43 @@ impl ApiSequence {
         _api_graph: &ApiGraph<'_>,
         test_index: usize,
     ) -> String {
-        let mut res = self._to_afl_except_main(_api_graph, test_index);
+        let mut res = self.to_afl_except_main(_api_graph, test_index);
         res = res.replace("#[macro_use]\nextern crate afl;\n", "");
         res.push_str(replay_util::_read_crash_file_data());
         res.push('\n');
-        res.push_str(self._reproduce_main_function(test_index).as_str());
+        res.push_str(self.reproduce_main_function(test_index).as_str());
         res
     }
 
-    pub(crate) fn _to_afl_test_file(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
-        let mut res = self._to_afl_except_main(_api_graph, test_index);
-        res.push_str(self._afl_main_function(test_index).as_str());
+    pub(crate) fn to_afl_test_file(&self, _api_graph: &ApiGraph<'_>, test_index: usize) -> String {
+        let mut res = self.to_afl_except_main(_api_graph, test_index);
+        res.push_str(self.afl_main_function(test_index).as_str());
         res
     }
 
-    pub(crate) fn _to_libfuzzer_test_file(
+    pub(crate) fn to_libfuzzer_test_file(
         &self,
         _api_graph: &ApiGraph<'_>,
         test_index: usize,
     ) -> String {
-        let mut res = self._to_afl_except_main(_api_graph, test_index);
+        let mut res = self.to_afl_except_main(_api_graph, test_index);
         res = res.replace(
             "#[macro_use]\nextern crate afl;\n",
             format!("#![no_main]\n#[macro_use]\nextern crate libfuzzer_sys;\n").as_str(),
         );
-        res.push_str(self._libfuzzer_fuzz_main(test_index).as_str());
+        res.push_str(self.libfuzzer_fuzz_main(test_index).as_str());
         res
     }
 
-    pub(crate) fn _libfuzzer_fuzz_main(&self, test_index: usize) -> String {
+    pub(crate) fn libfuzzer_fuzz_main(&self, test_index: usize) -> String {
         let mut res = String::new();
         res.push_str("fuzz_target!(|data: &[u8]| {\n");
-        res.push_str(self._afl_closure_body(0, test_index).as_str());
+        res.push_str(self.afl_closure_body(0, test_index).as_str());
         res.push_str("});\n");
         res
     }
 
-    pub(crate) fn _to_afl_except_main(
+    pub(crate) fn to_afl_except_main(
         &self,
         _api_graph: &ApiGraph<'_>,
         test_index: usize,
@@ -407,21 +404,21 @@ impl ApiSequence {
         res.push_str("extern crate afl;\n");
         res.push_str(format!("extern crate {};\n", _api_graph._crate_name).as_str());
 
-        let prelude_helper_functions = self._prelude_helper_functions();
+        let prelude_helper_functions = self.prelude_helper_functions();
         if let Some(prelude_functions) = prelude_helper_functions {
             res.push_str(prelude_functions.as_str());
         }
 
-        let afl_helper_functions = self._afl_helper_functions();
+        let afl_helper_functions = self.afl_helper_functions();
         if let Some(afl_functions) = afl_helper_functions {
             res.push_str(afl_functions.as_str());
         }
-        res.push_str(self._to_well_written_function(_api_graph, test_index, 0).as_str());
+        res.push_str(self.to_well_written_function(_api_graph, test_index, 0).as_str());
         res.push('\n');
         res
     }
 
-    pub(crate) fn _prelude_helper_functions(&self) -> Option<String> {
+    pub(crate) fn prelude_helper_functions(&self) -> Option<String> {
         let mut prelude_helpers = FxHashSet::default();
         for api_call in &self.functions {
             let params = &api_call.params;
@@ -443,7 +440,7 @@ impl ApiSequence {
         Some(res)
     }
 
-    pub(crate) fn _afl_helper_functions(&self) -> Option<String> {
+    pub(crate) fn afl_helper_functions(&self) -> Option<String> {
         let afl_helper_functions =
             afl_util::_get_afl_helpers_functions_of_sequence(&self.fuzzable_params);
         match afl_helper_functions {
@@ -458,20 +455,20 @@ impl ApiSequence {
         }
     }
 
-    pub(crate) fn _afl_main_function(&self, test_index: usize) -> String {
+    pub(crate) fn afl_main_function(&self, test_index: usize) -> String {
         let mut res = String::new();
         let indent = _generate_indent(4);
         res.push_str("fn main() {\n");
         res.push_str(indent.as_str());
         res.push_str("fuzz!(|data: &[u8]| {\n");
-        res.push_str(self._afl_closure_body(4, test_index).as_str());
+        res.push_str(self.afl_closure_body(4, test_index).as_str());
         res.push_str(indent.as_str());
         res.push_str("});\n");
         res.push_str("}\n");
         res
     }
 
-    pub(crate) fn _reproduce_main_function(&self, test_index: usize) -> String {
+    pub(crate) fn reproduce_main_function(&self, test_index: usize) -> String {
         format!(
             "fn main() {{
     let _content = _read_data();
@@ -480,11 +477,11 @@ impl ApiSequence {
     println!(\"data len = {{:?}}\", data.len());
 {}
 }}",
-            self._afl_closure_body(0, test_index)
+            self.afl_closure_body(0, test_index)
         )
     }
 
-    pub(crate) fn _afl_closure_body(&self, outer_indent: usize, test_index: usize) -> String {
+    pub(crate) fn afl_closure_body(&self, outer_indent: usize, test_index: usize) -> String {
         let extra_indent = 4;
         let mut res = String::new();
         let indent = _generate_indent(outer_indent + extra_indent);
@@ -565,7 +562,7 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _to_well_written_function(
+    pub(crate) fn to_well_written_function(
         &self,
         api_graph: &ApiGraph<'_>,
         test_index: usize,
@@ -576,10 +573,10 @@ impl ApiSequence {
         let local_param_prefix = "_local";
         let mut res = String::new();
         //生成对trait的引用
-        let using_traits = self._generate_using_traits_string(indent_size, api_graph.cache());
+        let using_traits = self.generate_using_traits_string(indent_size, api_graph.cache());
         res.push_str(using_traits.as_str());
         //生成函数头
-        let function_header = self._generate_function_header_string(
+        let function_header = self.generate_function_header_string(
             api_graph,
             test_index,
             indent_size,
@@ -626,11 +623,7 @@ impl ApiSequence {
         res
     }
 
-    pub(crate) fn _generate_using_traits_string(
-        &self,
-        indent_size: usize,
-        cache: &Cache,
-    ) -> String {
+    pub(crate) fn generate_using_traits_string(&self, indent_size: usize, cache: &Cache) -> String {
         let indent = _generate_indent(indent_size);
         let mut res = String::new();
         //using trait需要去重
@@ -638,7 +631,7 @@ impl ApiSequence {
             res.push_str(indent.as_str());
             res.push_str("use ");
             res.push_str(&get_type_name_from_did(*tid, cache).unwrap());
-            res.push_str(";\n");
+            res.push_str("; // trait\n");
         }
         res.push('\n');
         res
@@ -646,7 +639,7 @@ impl ApiSequence {
 
     //outer_indent:上层的缩进
     //extra_indent:本块需要的额外缩进
-    pub(crate) fn _generate_function_header_string(
+    pub(crate) fn generate_function_header_string(
         &self,
         _api_graph: &ApiGraph<'_>,
         test_index: usize,
@@ -802,6 +795,7 @@ impl ApiSequence {
                         .output
                         .as_ref()
                         .map(|output| api_util::_type_name(output, Some(api_graph.cache())))
+                        .map(|output| map_std_output_name(&output))
                         .unwrap()
                 ));
             }
@@ -809,8 +803,9 @@ impl ApiSequence {
 
             let (api_type, function_index) = &api_call.func;
 
-            let api_function_full_name =
-                &api_graph.api_functions[*function_index].full_name(api_graph.cache());
+            let api_function_full_name = map_std_output_name(
+                &api_graph.api_functions[*function_index].full_name(api_graph.cache()),
+            );
             res.push_str(api_function_full_name.as_str());
 
             res.push('(');

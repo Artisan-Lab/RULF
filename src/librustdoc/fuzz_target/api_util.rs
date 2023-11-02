@@ -65,35 +65,42 @@ pub(crate) fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String
     }
 }
 
-fn map_std_type_name(name: &str) -> String {
-    // println!("[Map] {}",name);
-    if name.starts_with("alloc::") {
-        "std::".to_owned() + &name[7..]
-    } else if name.starts_with("std::io::error::") {
-        "std::io::".to_owned() + &name["std::io::error::".len()..]
-    } else if name.starts_with("std::collections::hash::map::") {
-        "std::collections::hash_map::".to_owned() + &name["std::collections::hash::map::".len()..]
-    } else if name == "core::str::traits::FromStr" {
-        "core::str::FromStr".to_string()
-    } else if name == "core::ops::index::Index"{
-        "core::ops::Index".to_string()
+fn replace_start_string(src: &str, pat: &str, rep: &str) -> String {
+    if src.starts_with(pat) {
+        (rep.to_owned() + &src[pat.len()..]).to_string()
     } else {
-        name.to_string()
+        src.to_string()
     }
 }
 
+fn map_std_type_name(name: &str) -> String {
+    // core, alloc is private namem, replace to std
+    let name = replace_start_string(&name, "core::", "std::");
+    let name = replace_start_string(&name, "alloc::", "std::");
+    // replace std private module
+    let name = replace_start_string(&name, "std::io::error::", "std::io::");
+    let name = replace_start_string(
+        &name,
+        "std::collections::hash::map::",
+        "std::collections::hash_map::",
+    );
+    let name = replace_start_string(&name, "std::str::traits::", "std::str::");
+    let name = replace_start_string(&name, "std::ops::index::", "std::ops::");
+    name
+}
+
 pub(crate) fn is_generic_type(ty: &clean::Type) -> bool {
-    let mut is_generic=false;
-    let mut check=|type_:&Type| -> bool{
-        match(type_){
-            Type::Generic(_) | Type::ImplTrait(_) | Type::QPath(_) =>{
-                is_generic=true;
+    let mut is_generic = false;
+    let mut check = |type_: &Type| -> bool {
+        match (type_) {
+            Type::Generic(_) | Type::ImplTrait(_) | Type::QPath(_) => {
+                is_generic = true;
             }
-            _=>{}
+            _ => {}
         }
         !is_generic
     };
-    scan_type_with(ty,&mut check);
+    scan_type_with(ty, &mut check);
     is_generic
 }
 
@@ -190,7 +197,6 @@ pub(crate) fn print_path_segment_with_args(segment: &PathSegment, cache: Option<
     format!("{}{}", segment.name.as_str(), print_segment_args(segment, cache))
 }
 
-
 pub(crate) fn print_path_segment(segment: &PathSegment) -> String {
     segment.name.to_string()
 }
@@ -205,8 +211,8 @@ pub(crate) fn print_term(term: &types::Term, cache: Option<&Cache>) -> String {
 pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
     if let Some(full_name) = cache.and_then(|cache| get_type_name_from_did(path.def_id(), cache)) {
         return if let Some(segment) = path.segments.last() {
-            let argstr=print_segment_args(segment,cache);
-            if !argstr.is_empty(){
+            let argstr = print_segment_args(segment, cache);
+            if !argstr.is_empty() {
                 full_name + "::" + &print_segment_args(segment, cache)
             } else {
                 full_name
@@ -220,8 +226,8 @@ pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
     if !path.segments.is_empty() {
         for segment in path.segments.iter() {
             res.push(print_path_segment(segment));
-            let argstr=print_segment_args(segment,cache);
-            if !argstr.is_empty(){
+            let argstr = print_segment_args(segment, cache);
+            if !argstr.is_empty() {
                 res.push(argstr);
             }
         }
@@ -1103,7 +1109,7 @@ pub(crate) fn is_support_type(type_: &Type) -> bool {
     } */
     match type_ {
         Type::Primitive(PrimitiveType::Str) => return false,
-        Type::BorrowedRef { lifetime: _, mutability: Mutability::Mut, type_ } => {
+        Type::BorrowedRef { lifetime: _, mutability: _, type_ } | Type::RawPointer(_, type_) => {
             if **type_ == Type::Primitive(PrimitiveType::Str) {
                 return false;
             }
@@ -1118,7 +1124,7 @@ pub(crate) fn is_support_type(type_: &Type) -> bool {
             Type::QPath(..) | Type::DynTrait(..) | Type::BareFunction(..) => {
                 // println!("support=false");
                 support = false;
-            },
+            }
             _ => {}
         }
         support // if we have discovered a unsupport type, stop scaning

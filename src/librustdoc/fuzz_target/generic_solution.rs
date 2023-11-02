@@ -120,7 +120,8 @@ pub(crate) fn check_solution_depth(solution: &Solution, depth: usize) -> bool {
 
 /// pattern type may contain generic args,
 /// however, source type must be concrete
-/// Returns [`None`] if source do not match pattern.
+/// 
+/// Returns [`None`] if source does not match pattern.
 /// Otherwise return the solution
 pub(crate) fn match_type(
     source: &Type,
@@ -236,41 +237,7 @@ pub(crate) fn match_type(
             } else {
                 unreachable!("NO segment? {:?} {:?}",src_path,pat_path)
             }
-            /* for i in 0..src_path.segments.len() {
-                let src_segment = &src_path.segments[i];
-                let pat_segment = &pat_path.segments[i];
-                if src_segment.name.to_string() != pat_segment.name.to_string() {
-                    // println!("[match] unmatch fail#1");
-                    return None;
-                }
-                match (&src_segment.args, &pat_segment.args) {
-                    (
-                        GenericArgs::AngleBracketed { args: src_args, .. },
-                        GenericArgs::AngleBracketed { args: pat_args, .. },
-                    ) => {
-                        if src_args.len() != pat_args.len() {
-                            return None;
-                        }
-                        for j in 0..src_args.len() {
-                            let src_arg = &src_args[j];
-                            let pat_arg = &pat_args[j];
-                            if let (GenericArg::Type(src), GenericArg::Type(pat)) =
-                                (src_arg, pat_arg)
-                            {
-                                let inner_map = match_type(src, pat, generic_defs);
-                                if (!merge_with_inner(inner_map)) {
-                                    // println!("[match] unmatch fail#2");
-                                    return None;
-                                }
-                            } // ignore other variant of GenericArg
-                        }
-                    }
-                    (GenericArgs::Parenthesized { .. }, GenericArgs::Parenthesized { .. }) => {}
-                    _ => {
-                        // println!("[match] unmatch fail#3");
-                        return None;
-                    }
-                } */
+            
         }
         _ => {
             return None;

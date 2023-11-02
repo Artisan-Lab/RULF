@@ -113,7 +113,10 @@ impl GenericSolver {
         trait_impl_map: &TraitImplMap,
     ) {
         // check unsolvable
-        if no >= self.current.len() && !self.is_num_enough(){
+        if self.is_num_enough(){
+            return;
+        }
+        if no >= self.current.len(){
             println!("[Solver] Check Solution: {}", solution_string(&solution));
             if let Some(impl_set) =
                 self.current_function.generic_map.check_solution(&solution, trait_impl_map, cache)
@@ -359,6 +362,19 @@ impl GenericSolver {
                 }
             }
         }
+    }
+
+    /// make sure at least one solution is selected
+    pub(crate) fn reserve_least_one(&mut self) {
+        if self.num_solution()==0{
+            return;
+        }
+        for i in 0..self.num_solution() {
+            if self.reserved[i]{
+                return;
+            }
+        }
+        self.reserved[0]=true;
     }
 
     pub(crate) fn reserve_solutions(&self) -> Vec<ApiFunction> {

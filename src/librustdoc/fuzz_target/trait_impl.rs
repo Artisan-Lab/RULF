@@ -1,7 +1,9 @@
 use crate::clean::types::QPathData;
 use crate::clean::Path;
 use crate::clean::PrimitiveType;
+use crate::clean::Term;
 use crate::clean::Type;
+use crate::clean::TypeBindingKind;
 use crate::clean::Visibility;
 use crate::clean::{GenericArg, GenericArgs};
 use crate::formats::cache::Cache;
@@ -33,6 +35,8 @@ use rustc_hir::{self, Mutability};
 use std::cmp::{max, min};
 use std::{cell::RefCell, rc::Rc};
 
+use super::api_util::print_path_segment;
+
 pub(crate) struct TraitImpl {
     pub(crate) trait_: Path,
     pub(crate) for_: Type,
@@ -52,6 +56,40 @@ impl TraitImpl {
     ) -> TraitImpl {
         TraitImpl { trait_, for_, impl_id, blanket_type, generic_map, assoc_items: Vec::new() }
     }
+
+    fn check_assoc_item_type(&self, name: &str, type_: &Type) -> bool {
+        for assoc_item in self.assoc_items.iter() {
+            if print_path_segment(&assoc_item.0.assoc) == name {
+                if let Some(_) = match_type(&assoc_item.1, type_, &Vec::new()) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }
+        unreachable!("unknown assoc item name: {}", name);
+    }
+
+    pub fn check_assoc_items(&self, trait_: &Path) -> bool {
+        if let Some(bindings) = trait_.bindings() {
+            for binding in bindings.iter() {
+                let name = print_path_segment(&binding.assoc);
+                match binding.kind {
+                    TypeBindingKind::Equality { ref term } => {
+                        if let Term::Type(assoc_ty) = term {
+                            if !self.check_assoc_item_type(&name, assoc_ty) {
+                                return false;
+                            }
+                        }
+                    }
+                    _ => {
+                        unreachable!("generic bounds in binding: {:?}", binding);
+                    }
+                }
+            }
+        }
+        return true;
+    }
 }
 
 static EMPTY_IMPLS: Vec<TraitImpl> = Vec::new();
@@ -60,9 +98,21 @@ pub(crate) struct TraitImplMap {
     pub(crate) inner: FxHashMap<DefId, Vec<TraitImpl>>,
 }
 
+/*
+    Iterator<Item>
+    T::sss :
+*/
+
 fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
     match _type_name(trait_, Some(cache)).as_str() {
-        "core::hash::Hash" => {
+        "std::alloc::Allocator" => {
+            match _type_name(type_, Some(cache)).as_str() {
+                "std::alloc::Global" => return true,
+                _ => {}
+            }
+            false
+        }
+        "std::hash::Hash" => {
             // Hash is implemented for [T], String, ix, ux
             match _type_name(type_, Some(cache)).as_str() {
                 "std::string::String" => return true,
@@ -70,25 +120,31 @@ fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
             }
             match type_ {
                 Type::Slice(ref inner) => {
-                    return is_impl_in_std(inner,trait_,cache);
+                    return is_impl_in_std(inner, trait_, cache);
                 }
-                Type::Primitive(primitive) => {
-                    match primitive{
-                         PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::I128
-                        |PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::U128
-                        |PrimitiveType::Str => return true,
-                        _ => {}
-                    }
-                }
+                Type::Primitive(primitive) => match primitive {
+                    PrimitiveType::I8
+                    | PrimitiveType::I16
+                    | PrimitiveType::I32
+                    | PrimitiveType::I64
+                    | PrimitiveType::I128
+                    | PrimitiveType::U8
+                    | PrimitiveType::U16
+                    | PrimitiveType::U32
+                    | PrimitiveType::U64
+                    | PrimitiveType::U128
+                    | PrimitiveType::Str => return true,
+                    _ => {}
+                },
                 _ => {}
             }
             false
         }
-        "std::io::Write::Write" | "std::io::Write" => {
+        "std::io::Write" => {
             println!("[Weapon] Detect io::Write");
             match _type_name(type_, Some(cache)).as_str() {
                 "&mut [u8]" => return true,
-                "alloc::vec::Vec<u8>" => return true,
+                "std::vec::Vec::<u8, std::alloc::Global>" => return true,
                 _ => {}
             };
             match type_ {
@@ -102,7 +158,7 @@ fn is_impl_in_std(type_: &Type, trait_: &Type, cache: &Cache) -> bool {
             }
             false
         }
-        "std::io::Read::Read" | "std::io::Read" => {
+        "std::io::Read" => {
             println!("[Weapon] Detect io::Read");
             match _type_name(type_, Some(cache)).as_str() {
                 "&[u8]" | "&mut [u8]" => return true,
@@ -150,7 +206,8 @@ impl TraitImplMap {
         let mut res = FxHashSet::default();
         let trait_impls = self.get_type_impls(type_, cache); //trait, generic, impl_id
 
-        let mut extract_trait_id = |type_: &Type, trait_: &Type| -> Option<ImplId> {
+        // check whether type_ have trait_
+        let mut extract_trait_id = |trait_: &Type| -> Option<ImplId> {
             for trait_impl in trait_impls {
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
                 // TODO: should we consider blanket impl?
@@ -161,6 +218,17 @@ impl TraitImplMap {
                 if let Some(sol_for_trait) =
                     match_type(&trait_, &impl_trait, &trait_impl.generic_map.generic_defs)
                 {
+                    // check trait_ associate item
+                    // TODO: Add Associate item check
+                    /* match trait_ {
+                        Type::Path { ref path } => {
+                            if !trait_impl.check_assoc_items(path) {
+                                continue;
+                            }
+                        }
+                        _ => unreachable!(),
+                    }; */
+
                     let for_type = if let Some(ref type_) = trait_impl.blanket_type {
                         type_.clone()
                     } else {
@@ -217,12 +285,16 @@ impl TraitImplMap {
                 continue;
             }
 
-            if let Some(impl_id) = extract_trait_id(&type_, &trait_) {
+            if let Some(impl_id) = extract_trait_id(&trait_) {
                 res.insert(impl_id);
                 continue;
             }
 
-            println!("[TraitImpl] Check trait {} fail", _type_name(&trait_, Some(cache)));
+            println!(
+                "[TraitImpl] Check trait {} for {} fail",
+                _type_name(&trait_, Some(cache)),
+                _type_name(&type_, Some(cache))
+            );
             return None;
         }
 

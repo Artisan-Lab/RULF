@@ -64,7 +64,7 @@ pub(crate) fn _print_generated_test_functions(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_well_written_function(graph, i, 0,));
+        println!("{}", api_sequence.to_well_written_function(graph, i, 0,));
     }
 }
 
@@ -73,7 +73,7 @@ pub(crate) fn _print_generated_afl_file(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_afl_test_file(graph, i));
+        println!("{}", api_sequence.to_afl_test_file(graph, i));
         //break;
     }
 }
@@ -84,6 +84,6 @@ pub(crate) fn _print_generated_libfuzzer_file(graph: &ApiGraph<'_>) {
     let test_size = graph.api_sequences.len();
     for i in 0..test_size {
         let api_sequence = &graph.api_sequences[i];
-        println!("{}", api_sequence._to_libfuzzer_test_file(graph, i));
+        println!("{}", api_sequence.to_libfuzzer_test_file(graph, i));
     }
 }

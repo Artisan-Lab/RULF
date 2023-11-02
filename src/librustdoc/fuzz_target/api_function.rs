@@ -177,6 +177,20 @@ impl ApiFunction {
         fn_line
     }
 
+    pub(crate) fn has_impl_trait(&self) -> bool{
+        for input in self.inputs.iter(){
+            if input.is_impl_trait(){
+                return true;
+            }
+        }
+        if let Some(ref output) = self.output{
+            if output.is_impl_trait(){
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub(crate) fn contains_unsupported_fuzzable_type(
         &self,
         full_name_map: &FullNameMap,
@@ -186,30 +200,6 @@ impl ApiFunction {
             if is_unsupported_fuzzable(input_ty_,full_name_map,cache){
                 return true;
             }
-            /* let fuzzable_call_type =
-                fuzzable_type::fuzzable_call_type(input_ty_, full_name_map, cache);
-
-            if !fuzzable_call_type.is_fuzzable() {
-                continue;
-            }
-
-            let (fuzzable_type, call_type) =
-                fuzzable_call_type.generate_fuzzable_type_and_call_type();
-
-            if !fuzzable_type.is_fuzzable() {
-                println!("input fail#0: {}", _type_name(input_ty_, Some(cache)));
-                return true;
-            }
-
-            if fuzzable_type._is_multiple_dynamic_length() {
-                println!("input fail#1");
-                return true;
-            }
-
-            if !call_type.is_compatible() {
-                println!("input fail#2");
-                return true;
-            } */
         }
         return false;
     }

@@ -2,8 +2,8 @@ use crate::clean::{self, GenericBound, WherePredicate};
 use crate::clean::{GenericParamDefKind, Generics};
 use crate::clean::{Path, Type};
 use crate::formats::cache::Cache;
-use crate::fuzz_target::api_util::{replace_lifetime,print_fact};
 use crate::fuzz_target::api_util::{_type_name, print_path};
+use crate::fuzz_target::api_util::{print_fact, replace_lifetime};
 use crate::fuzz_target::api_util::{replace_type_with, scan_type_with};
 use crate::fuzz_target::generic_param_map::GenericParamMap;
 use crate::fuzz_target::impl_util::FullNameMap;
@@ -31,11 +31,10 @@ impl From<ApiFunction> for GenericFunction {
     }
 }
 
-
 impl GenericFunction {
     pub(crate) fn get_full_signature(&self, cache: &Cache) -> String {
         let mut signature = String::new();
-        if !self.is_solvable(){
+        if !self.is_solvable() {
             signature.push_str("*");
         }
         signature.push_str("fn ");
@@ -72,7 +71,7 @@ impl GenericFunction {
         println!("=====\n"); */
     }
 
-    pub(crate) fn set_self_type(&mut self, self_type:&Type){
+    pub(crate) fn set_self_type(&mut self, self_type: &Type) {
         self.generic_map.set_self_type(self_type);
     }
 
@@ -116,25 +115,27 @@ impl GenericFunction {
     }
 
     fn resolve_impl_trait(&mut self) {
-        // replace impl
         let mut input_vec = self.api_function.inputs.clone();
-        //println!("before replace: {:?}\n", input_vec);
+        let mut output_type = self.api_function.output.clone();
 
-        /* let mut replace=|type_:&mut Type| -> bool{
-            if let Type::ImplTrait(..) = ty {
-                *type_ = Type::Generic(Symbol::intern(&sym))
+        let mut replace_impl = |type_: &mut Type| -> bool {
+            if let Type::ImplTrait(ref bounds) = type_ {
+                let sym = self.add_new_impl_generic(bounds);
+                *type_ = Type::Generic(Symbol::intern(&sym));
+                return false;
             }
-        } */
+            return true;
+        };
+        
+        for type_ in input_vec.iter_mut() {
+            replace_type_with(type_, &mut replace_impl);
+        }
 
-        for type_ in &mut input_vec {
-            *type_ = self.replace_impl(type_);
+        if let Some(ref mut output) = output_type {
+            replace_type_with(output, &mut replace_impl);
         }
-        //println!("after replace: {:?}\n", input_vec);
         self.api_function.inputs = input_vec;
-        let output_type = self.api_function.output.clone();
-        if let Some(type_) = output_type {
-            self.api_function.output = Some(self.replace_impl(&type_));
-        }
+        self.api_function.output = output_type;
     }
 
     fn add_new_impl_generic(&mut self, bounds: &[GenericBound]) -> String {
@@ -142,56 +143,5 @@ impl GenericFunction {
         self.impl_count += 1;
         self.generic_map.add_generic_bounds(&generic_param_name, bounds);
         generic_param_name
-    }
-
-    pub(crate) fn replace_impl(&mut self, ty: &clean::Type) -> clean::Type {
-        if let Type::ImplTrait(bounds) = ty {
-            let sym = self.add_new_impl_generic(&bounds);
-            Type::Generic(Symbol::intern(&sym))
-        } else if let Type::Generic(sym) = ty {
-            ty.clone()
-        } else {
-            let mut new_ty = ty.clone();
-            // If we meet nested type, travel all type
-            match new_ty {
-                clean::Type::Path { ref mut path } => {
-                    for segment in path.segments.iter_mut() {
-                        match segment.args {
-                            clean::GenericArgs::AngleBracketed { ref mut args, .. } => {
-                                for generic_arg in args.iter_mut() {
-                                    if let clean::GenericArg::Type(ref mut inner_ty) = generic_arg {
-                                        *inner_ty = self.replace_impl(inner_ty);
-                                    }
-                                }
-                            }
-                            clean::GenericArgs::Parenthesized {
-                                ref mut inputs,
-                                ref mut output,
-                            } => {
-                                for input_ty in inputs.iter_mut() {
-                                    *input_ty = self.replace_impl(input_ty);
-                                }
-                                if let Some(output_ty) = output {
-                                    **output_ty = self.replace_impl(&output_ty);
-                                }
-                            }
-                        }
-                    }
-                }
-                clean::Type::Tuple(ref mut types) => {
-                    for ty_ in types {
-                        *ty_ = self.replace_impl(ty_);
-                    }
-                }
-                clean::Type::Slice(ref mut type_)
-                | clean::Type::Array(ref mut type_, ..)
-                | clean::Type::RawPointer(_, ref mut type_)
-                | clean::Type::BorrowedRef { ref mut type_, .. } => {
-                    *type_ = Box::new(self.replace_impl(type_));
-                }
-                _ => {}
-            }
-            new_ty
-        }
     }
 }

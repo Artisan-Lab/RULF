@@ -129,11 +129,11 @@ impl FileHelper {
             if sequence_count >= MAX_TEST_FILE_NUMBER {
                 break;
             }
-            let test_file = sequence._to_afl_test_file(api_graph, sequence_count);
+            let test_file = sequence.to_afl_test_file(api_graph, sequence_count);
             test_files.push(test_file);
             let reproduce_file = sequence._to_replay_crash_file(api_graph, sequence_count);
             reproduce_files.push(reproduce_file);
-            let libfuzzer_file = sequence._to_libfuzzer_test_file(api_graph, sequence_count);
+            let libfuzzer_file = sequence.to_libfuzzer_test_file(api_graph, sequence_count);
             libfuzzer_files.push(libfuzzer_file);
             sequence_count = sequence_count + 1;
         }
