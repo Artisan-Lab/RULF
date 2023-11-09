@@ -319,7 +319,6 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
             }
         }
         clean::Type::Generic(s) => {
-            println!("generic type = {:?}", s);
             FuzzableCallType::NoFuzzable
         }
         clean::Type::Primitive(primitive_type) => {
@@ -421,7 +420,7 @@ pub(crate) fn fuzzable_call_type(ty_: &clean::Type, full_name_map: &FullNameMap,
         clean::Type::QPath { .. } => {
             return FuzzableCallType::NoFuzzable;
         }
-        clean::Type::ImplTrait(..) => {
+        clean::Type::ImplTrait(..)| clean::Type::DynTrait(..) => {
             return FuzzableCallType::NoFuzzable;
         }
         clean::Type::Infer => {
