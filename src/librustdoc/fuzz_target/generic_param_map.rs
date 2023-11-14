@@ -1,13 +1,13 @@
 use super::api_util::replace_type_with;
-use super::trait_impl::TraitImplMap;
+use super::trait_impl::{TraitImplMap,TypeTraitCache};
 use crate::clean::types::{GenericArgs, Path, Type};
 use crate::clean::{self, GenericBound, Generics, PolyTrait, WherePredicate};
 use crate::clean::{GenericParamDefKind, Trait};
 use crate::formats::cache::Cache;
+use crate::fuzz_target::api_util::{_type_name, print_fact};
 use crate::fuzz_target::generic_solution::{
     replace_generic_with_solution, solution_string, solution_string_with_param_name, Solution,
 };
-use crate::fuzz_target::api_util::{_type_name,print_fact};
 use crate::fuzz_target::impl_id::ImplId;
 use crate::fuzz_target::{api_function::ApiFunction, api_util, impl_util::FullNameMap};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
@@ -96,7 +96,11 @@ impl GenericParamMap {
         self.inner.get(name).unwrap()
     }
 
-    pub fn set_self_type(&mut self, self_type:&Type){
+    pub fn remove_type_param(&mut self, name: &str) {
+        self.inner.remove(name);
+    }
+
+    pub fn set_self_type(&mut self, self_type: &Type) {
         let mut replace_self = |type_: &mut Type| -> bool {
             if type_.is_self_type() {
                 *type_ = self_type.clone();
@@ -104,20 +108,20 @@ impl GenericParamMap {
             }
             true
         };
-        for (type_, paths) in self.type_pred.iter_mut(){
+        for (type_, paths) in self.type_pred.iter_mut() {
             replace_type_with(type_, &mut replace_self);
-            for path in paths.iter_mut(){
-                let mut ty=Type::Path{path:path.clone()};
+            for path in paths.iter_mut() {
+                let mut ty = Type::Path { path: path.clone() };
                 replace_type_with(&mut ty, &mut replace_self);
-                match ty{
-                    Type::Path{path:pa} => *path = pa,
-                    _ => unreachable!()
+                match ty {
+                    Type::Path { path: pa } => *path = pa,
+                    _ => unreachable!(),
                 };
             }
         }
     }
 
-    pub fn add_generics(&mut self, generics: &Generics) {
+    pub fn add_generics(&mut self, generics: &Generics, ignore: Option<String>) {
         for param in generics.params.iter() {
             match &param.kind {
                 GenericParamDefKind::Type { did, bounds, default, .. } => {
@@ -125,8 +129,18 @@ impl GenericParamMap {
                         // if generic param has default value, we ignore it.
                         continue;
                     }
-                    // println!("{} {:?}",param.name.as_str(), generics);
-                    if !param.name.as_str().starts_with("impl "){
+
+                    if ignore.as_ref().map_or(false,|x| x==param.name.as_str()) {
+                        continue;
+                    } 
+
+                    /* if let Some(ref ignore_name) = ignore {
+                        if ignore_name == param.name.as_str() {
+                            continue;
+                        }
+                    } */
+                    // println!("[add_generic]{} {:?}",param.name.as_str(), generics);
+                    if !param.name.as_str().starts_with("impl ") {
                         self.add_generic_bounds(param.name.as_str(), &bounds);
                     }
                 }
@@ -157,6 +171,7 @@ impl GenericParamMap {
         &self,
         solution: &Solution,
         trait_impl_map: &TraitImplMap,
+        type_trait_cache: &mut TypeTraitCache, 
         cache: &Cache,
     ) -> Option<FxHashSet<ImplId>> {
         assert!(solution.len() == self.generic_defs.len());
@@ -171,12 +186,12 @@ impl GenericParamMap {
             if let Some(impl_set) = trait_impl_map.extract_type_impls_with_bounds(
                 &solution[i],
                 bounds,
+                type_trait_cache,
                 cache,
-                trait_impl_map,
             ) {
                 set_union(&mut visited, &impl_set);
             } else {
-                println!("[GenericParam] Check Pred Fail #1");
+                // println!("[GenericParam] Check Pred Fail #1");
                 return None;
             }
         }
@@ -186,7 +201,11 @@ impl GenericParamMap {
             if matches!(type_, Type::QPath(_)) {
                 continue; // FIXME: We currently ignore associate item
             }
-            println!("[ParamMap] check {}: {}",_type_name(type_,Some(cache)),print_fact(bounds,Some(cache)));
+            /* println!(
+                "[ParamMap] check {}: {}",
+                _type_name(type_, Some(cache)),
+                print_fact(bounds, Some(cache))
+            ); */
             let mut complete_type = type_.clone();
             replace_generic_with_solution(&mut complete_type, solution, &self.generic_defs);
             let mut complete_bounds = Vec::<Path>::new();
@@ -201,12 +220,12 @@ impl GenericParamMap {
             if let Some(impl_set) = trait_impl_map.extract_type_impls_with_bounds(
                 &complete_type,
                 &complete_bounds,
-                cache,
-                trait_impl_map,
+                type_trait_cache,
+                cache
             ) {
                 set_union(&mut visited, &impl_set);
             } else {
-                println!("[GenericParam] Check Pred Fail #2");
+                // println!("[GenericParam] Check Pred Fail #2");
                 return None;
             }
         }
@@ -222,7 +241,7 @@ impl GenericParamMap {
     pub fn add_generic_bounds(&mut self, name: &str, bounds: &[GenericBound]) {
         let v = bounds_to_vec(bounds);
 
-        if self.inner.get(name).is_none(){
+        if self.inner.get(name).is_none() {
             self.inner.insert(name.to_string(), v);
         }
         self.generic_defs.push(name.to_string());

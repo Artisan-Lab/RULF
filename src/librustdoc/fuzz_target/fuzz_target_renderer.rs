@@ -58,17 +58,19 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     self_: None,
                     _unsafe_tag: api_unsafety,
                     mono: false,
-                    local: true, 
+                    local: true,
                 };
                 println!("Add function: {}", api_fun._pretty_print(&self.context.cache));
                 println!("visibility: {:?}", item.visibility);
-                if !func.generics.is_empty() {
-                    let mut generic_function = GenericFunction::from(api_fun);
-                    generic_function.add_generics(&func.generics);
-                    println!("Add to generic");
+
+                let mut generic_function = GenericFunction::from(api_fun);
+                generic_function.add_generics(&func.generics, None);
+                if !generic_function.generic_map.is_empty() {
                     self.api_dependency_graph.borrow_mut().generic_functions.push(generic_function);
                 } else {
-                    self.api_dependency_graph.borrow_mut().add_api_function(api_fun);
+                    self.api_dependency_graph
+                        .borrow_mut()
+                        .add_api_function(generic_function.api_function);
                 }
             }
             ItemKind::MethodItem(_, _) => {
@@ -157,7 +159,7 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         api_dependency_graph.print_type_trait_impls();
         api_dependency_graph.print_type_candidates();
         api_dependency_graph.print_unsupport_function();
-        
+
         //根据mod可见性和预包含类型过滤function
         api_dependency_graph.print_all_functions();
         api_dependency_graph.filter_functions();

@@ -1,6 +1,9 @@
 use crate::clean::Path;
 use crate::clean::{self, types::PrimitiveType, Type};
-use crate::clean::{types, GenericArg, GenericArgs, Lifetime, PathSegment, TypeBinding};
+use crate::clean::{
+    types, GenericArg, GenericArgs, GenericParamDefKind, Generics, Lifetime, PathSegment,
+    TypeBinding,
+};
 use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::call_type::CallType;
@@ -15,8 +18,11 @@ use rustc_hir::def_id::DefId;
 use rustc_hir::{self, Mutability};
 use rustc_span::Symbol;
 use std::cmp::max;
+use std::collections::VecDeque;
+use std::f32::consts::E;
 
 use super::generic_function::GenericFunction;
+use super::statistic::add;
 use super::{api_function, generic_function};
 
 pub(crate) fn extract_input_types(inputs: &clean::Arguments) -> Vec<clean::Type> {
@@ -52,10 +58,22 @@ pub(crate) fn print_fact(facts: &Vec<Path>, cache: Option<&Cache>) -> String {
     }
 } */
 
-pub(crate) fn get_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
-    /* if let Some(ref syms) = cache.exact_paths.get(&did){
-        Some(join_with_double_colon(syms))
-    } else  */
+pub(crate) fn get_type_name_from_did(did: DefId, cache: &Cache) -> String {
+    if let Some(name) = try_type_name_from_did(did, cache) {
+        name
+    } else {
+        unreachable!("[get_type_name_from_did] cannot find name for {:?}", did)
+    }
+    /* if let Some(&(ref syms, item_type)) = cache.external_paths.get(&did) {
+        map_std_type_name(&join_with_double_colon(syms))
+    } else if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
+        join_with_double_colon(syms)
+    } else {
+        unreachable!("[get_type_name_from_did] cannot find name for {:?}", did);
+    } */
+}
+
+pub(crate) fn try_type_name_from_did(did: DefId, cache: &Cache) -> Option<String> {
     if let Some(&(ref syms, item_type)) = cache.external_paths.get(&did) {
         Some(map_std_type_name(&join_with_double_colon(syms)))
     } else if let Some(&(ref syms, item_type)) = cache.paths.get(&did) {
@@ -74,7 +92,7 @@ fn replace_start_string(src: &str, pat: &str, rep: &str) -> String {
 }
 
 fn map_std_type_name(name: &str) -> String {
-    // core, alloc is private namem, replace to std
+    // core, alloc is private name, replace to std
     let name = replace_start_string(&name, "core::", "std::");
     let name = replace_start_string(&name, "alloc::", "std::");
     // replace std private module
@@ -86,6 +104,9 @@ fn map_std_type_name(name: &str) -> String {
     );
     let name = replace_start_string(&name, "std::str::traits::", "std::str::");
     let name = replace_start_string(&name, "std::ops::index::", "std::ops::");
+    let name = replace_start_string(&name, "std::hash::sip::", "std::hash::");
+    let name = replace_start_string(&name, "std::ops::bit::", "std::ops::");
+    
     name
 }
 
@@ -108,8 +129,7 @@ pub(crate) fn _is_end_type(ty: &clean::Type, full_name_map: &FullNameMap, cache:
     match ty {
         clean::Type::Path { .. } => {
             //TODO:need more analyse
-            if prelude_type::_prelude_type_need_special_dealing(ty, full_name_map, cache) {
-                let prelude_type = PreludeType::from_type(ty, full_name_map, cache);
+            if let Some(prelude_type) = PreludeType::from_type(ty, full_name_map, cache) {
                 let final_type = prelude_type._get_final_type();
                 if _is_end_type(&final_type, full_name_map, cache) {
                     return true;
@@ -209,7 +229,7 @@ pub(crate) fn print_term(term: &types::Term, cache: Option<&Cache>) -> String {
 }
 
 pub(crate) fn print_path(path: &Path, cache: Option<&Cache>) -> String {
-    if let Some(full_name) = cache.and_then(|cache| get_type_name_from_did(path.def_id(), cache)) {
+    if let Some(full_name) = cache.and_then(|cache| try_type_name_from_did(path.def_id(), cache)) {
         return if let Some(segment) = path.segments.last() {
             let argstr = print_segment_args(segment, cache);
             if !argstr.is_empty() {
@@ -310,6 +330,74 @@ pub(crate) fn _same_type(
         CallType::_NotCompatible
     }
 }
+/* 
+pub(crate) fn _same_type_new(
+    output_type: &clean::Type,
+    input_type: &clean::Type,
+    full_name_map: &FullNameMap,
+    cache: &Cache,
+) -> CallType {
+    let type_nodes: FxHashMap<Type,FxHashSet<(Type, CallType)>> = FxHashMap::default();
+
+    let mut add_edge = |from:&Type, to:Type, call_type::CallType| {
+        if type_nodes.get(from).is_none(){
+            type_nodes.insert(from,FxHashSet::default());
+        }
+        if let Some(set)=type_nodes.get_mut(from){
+            set.insert((to,call_type));
+        } else {
+            unreachable!();
+        }
+    };
+
+    let mut deque=VecDeque<Type>::new();
+    loop {
+        let mut current_type = deque.front();
+        match current_type {
+            Type::Path { path } => {
+                if let Some(input_prelude_type) = PreludeType::from_type(input_type, full_name_map, cache) {
+                    match input_prelude_type{
+                        PreludeType::PreludeOption(type_) => {
+                            add_edge(&current_type,type_, CallType::_UnwrapOption(CallType::_NotCompatible));
+                        }
+                        PreludeType::PreludeResult { ok_type, err_type } => {
+                            add_edge(&current_type,ok_type, CallType::_UnwrapResult(CallType::_NotCompatible));
+                        }
+                    }
+                }
+            }
+            Type::BorrowedRef { mutability, type_, .. } => match mutability {
+                Mutability::Not| Mutability::Mut => (type_, CallType::_Deref(CallType::_NotCompatible)),
+            },
+            Type::RawPointer(mutability, type_) => match mutability {
+                Mutability::Not| Mutability::Mut => (type_, CallType::_UnsafeDeref(CallType::_NotCompatible)),
+            },
+            Type::
+            _ => {}
+        };
+        type_nodes.entry(type_).and_insert()
+    }
+
+
+    loop {
+        let (type_, call_type) = match type_ {
+            Type::Path { path } => {
+                break;
+            }
+            Type::BorrowedRef { mutability, type_, .. } => match mutability {
+                Mutability::Mut => (type_, CallType::_MutBorrowedRef(CallType::_NotCompatible)),
+                Mutability::Not => (type_, CallType::_BorrowedRef(CallType::_NotCompatible)),
+            },
+            Type::RawPointer(mutability, type_) => match mutability {
+                Mutability::Mut => (type_, CallType::_MutRawPointer(CallType::_NotCompatible, type_.clone())),
+                Mutability::Not => (type_, CallType::_ConstRawPointer(CallType::_NotCompatible, type_.clone())),
+            },
+            Type::
+            _ => {}
+        };
+        type_nodes.entry(type_).and_insert()
+    }
+} */
 
 //hard_mode
 pub(crate) fn _same_type_hard_mode(
@@ -318,11 +406,35 @@ pub(crate) fn _same_type_hard_mode(
     full_name_map: &FullNameMap,
     cache: &Cache,
 ) -> CallType {
+    // Check existence of any call chain from output to input
     //same type, direct call
+    /* println!(
+        "check: {}, {}",
+        _type_name(output_type, Some(cache)),
+        _type_name(input_type, Some(cache))
+    ); */
     if output_type == input_type {
+        // println!("DirectCall");
         return CallType::_DirectCall;
     }
 
+    //考虑输入类型是prelude type的情况，后面就不再考虑
+    if let Some(input_prelude_type) = PreludeType::from_type(input_type, full_name_map, cache) {
+        let final_type = input_prelude_type._get_final_type();
+        let inner_call_type = _same_type_hard_mode(output_type, &final_type, full_name_map, cache);
+        match inner_call_type {
+            CallType::_NotCompatible => {
+                // println!("NotCompatible");
+                return CallType::_NotCompatible;
+            }
+            _ => {
+                // println!("{:?}", input_prelude_type._to_call_type(&inner_call_type));
+                return input_prelude_type._to_call_type(&inner_call_type);
+            }
+        }
+    }
+
+    
     //对输入类型解引用,后面就不在考虑输入类型需要解引用的情况
     match input_type {
         clean::Type::BorrowedRef { mutability, type_, .. } => {
@@ -341,23 +453,23 @@ pub(crate) fn _same_type_hard_mode(
         _ => {}
     }
 
-    //考虑输入类型是prelude type的情况，后面就不再考虑
-    if prelude_type::_prelude_type_need_special_dealing(input_type, full_name_map, cache) {
-        let input_prelude_type = PreludeType::from_type(input_type, full_name_map, cache);
-        let final_type = input_prelude_type._get_final_type();
-        let inner_call_type = _same_type_hard_mode(output_type, &final_type, full_name_map, cache);
+     //处理output type 是 prelude type的情况
+     if let Some(output_prelude_type) = PreludeType::from_type(output_type, full_name_map, cache) {
+        let final_output_type = output_prelude_type._get_final_type();
+        let inner_call_type =
+            _same_type_hard_mode(&final_output_type, input_type, full_name_map, cache);
         match inner_call_type {
             CallType::_NotCompatible => {
                 return CallType::_NotCompatible;
             }
             _ => {
-                return input_prelude_type._to_call_type(&inner_call_type);
+                return output_prelude_type._unwrap_call_type(&inner_call_type);
             }
         }
     }
 
     //对输出类型进行分类讨论
-    match output_type {
+    let callable = match output_type {
         //结构体、枚举、联合
         clean::Type::Path { .. } => {
             _same_type_resolved_path(output_type, input_type, full_name_map, cache)
@@ -393,7 +505,9 @@ pub(crate) fn _same_type_hard_mode(
             CallType::_NotCompatible
         }
         clean::Type::DynTrait(..) => CallType::_NotCompatible,
-    }
+    };
+    // println!("{:?}", callable);``
+    callable
 }
 
 //test if types are the same type
@@ -404,21 +518,7 @@ fn _same_type_resolved_path(
     full_name_map: &FullNameMap,
     cache: &Cache,
 ) -> CallType {
-    //处理output type 是 prelude type的情况
-    if prelude_type::_prelude_type_need_special_dealing(output_type, full_name_map, cache) {
-        let output_prelude_type = PreludeType::from_type(output_type, full_name_map, cache);
-        let final_output_type = output_prelude_type._get_final_type();
-        let inner_call_type =
-            _same_type_hard_mode(&final_output_type, input_type, full_name_map, cache);
-        match inner_call_type {
-            CallType::_NotCompatible => {
-                return CallType::_NotCompatible;
-            }
-            _ => {
-                return output_prelude_type._unwrap_call_type(&inner_call_type);
-            }
-        }
-    }
+   
 
     match input_type {
         clean::Type::Path { .. } => {
@@ -1109,11 +1209,11 @@ pub(crate) fn is_support_type(type_: &Type) -> bool {
     } */
     match type_ {
         Type::Primitive(PrimitiveType::Str) => return false,
-        Type::BorrowedRef { lifetime: _, mutability: _, type_ } | Type::RawPointer(_, type_) => {
+        /* Type::BorrowedRef { lifetime: _, mutability: _, type_ } | Type::RawPointer(_, type_) => {
             if **type_ == Type::Primitive(PrimitiveType::Str) {
                 return false;
             }
-        }
+        } */
         _ => {}
     }
 
@@ -1161,4 +1261,16 @@ pub(crate) fn is_unsupported_fuzzable(
         return true;
     }
     false
+}
+
+pub(crate) fn has_type_parameter(generics: &Generics) -> bool {
+    for param in generics.params.iter() {
+        match &param.kind {
+            GenericParamDefKind::Type { .. } => {
+                return true;
+            }
+            GenericParamDefKind::Const { .. } | GenericParamDefKind::Lifetime { .. } => {}
+        }
+    }
+    return false;
 }

@@ -14,7 +14,7 @@ use crate::formats::cache::Cache;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
-use crate::fuzz_target::api_util::{_type_name, get_type_name_from_did, replace_lifetime};
+use crate::fuzz_target::api_util::{_type_name, get_type_name_from_did, replace_lifetime, _same_type};
 use crate::fuzz_target::call_type::CallType;
 use crate::fuzz_target::fuzz_target_renderer::FuzzTargetContext;
 use crate::fuzz_target::fuzzable_type;
@@ -29,7 +29,7 @@ use crate::fuzz_target::impl_util::FullNameMap;
 use crate::fuzz_target::mod_visibility::ModVisibity;
 use crate::fuzz_target::prelude_type;
 use crate::fuzz_target::statistic;
-use crate::fuzz_target::trait_impl::TraitImpl;
+use crate::fuzz_target::trait_impl::{TraitImpl, TypeTraitCache};
 use crate::html::format::join_with_double_colon;
 use crate::TyCtxt;
 use lazy_static::lazy_static;
@@ -169,8 +169,7 @@ impl TypeContext {
 
         match type_ {
             Type::Path { ref path } => {
-                let name = get_type_name_from_did(path.def_id(), cache)
-                    .expect(&format!("cannot find did for: {:?}", type_));
+                let name = get_type_name_from_did(path.def_id(), cache);
                 // let name = path.segments.last().unwrap().name.to_string();
                 let inner = if name == "core::option::Option" {
                     take_type_from_path(path, 0)
@@ -195,21 +194,29 @@ impl TypeContext {
         type_: &Type,
         full_name_map: &FullNameMap,
         cache: &Cache,
-        // search_in_generic: bool,
     ) -> bool {
         if is_fuzzable_type(type_, full_name_map, cache) {
             return true;
         }
 
         for (reachable_type, num) in self.type_candidates.iter() {
+            /* print!(
+                "Check {} to {} =>",
+                _type_name(reachable_type, Some(cache)),
+                _type_name(type_, Some(cache))
+            ); */
             if _type_name(reachable_type, Some(cache)) == _type_name(type_, Some(cache)) {
+                // print!("True\n");
                 return true;
             }
-            if api_util::_same_type(reachable_type, type_, true, full_name_map, cache)
+
+            if _same_type(reachable_type, type_, true, full_name_map, cache)
                 .is_compatible()
             {
+                // print!("True\n");
                 return true;
             }
+            // print!("False\n");
         }
 
         false
@@ -238,15 +245,8 @@ pub(crate) struct ApiGraph<'tcx> {
     pub(crate) generic_functions: Vec<GenericFunction>,
     pub(crate) functions_with_unsupported_fuzzable_types: FxHashSet<String>,
     pub(crate) type_context: Rc<RefCell<TypeContext>>,
-    pub(crate) cx: Rc<FuzzTargetContext<'tcx>>, //pub(crate) _sequences_of_all_algorithm : FxHashMap<GraphTraverseAlgorithm, Vec<ApiSequence>>
+    pub(crate) cx: Rc<FuzzTargetContext<'tcx>>, 
 }
-
-/* impl fmt::Debug for ApiGraph{
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error>{
-        f.debug_struct("ApiGraph").field("api_functions",&self.api_functions).field("api_functions_visited",self.api_functions_visited)
-        Ok(())
-    }
-} */
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum GraphTraverseAlgorithm {
@@ -384,6 +384,9 @@ impl<'tcx> ApiGraph<'tcx> {
                         "[Reachable]{} is reachable",
                         self.api_functions[i]._pretty_print(self.cache())
                     );
+                    if let Some(ref output) = self.api_functions[i].output {
+                        self.type_context.borrow_mut().add_canonical_types(output, self.cache());
+                    }
                 }
             }
         }
@@ -492,7 +495,7 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    pub fn search_reachable_solutions(&mut self, solvers: &mut Vec<GenericSolver>) {
+    pub fn search_reachable_solutions(&mut self, solvers: &mut Vec<GenericSolver>, type_trait_cache: &mut TypeTraitCache) {
         let mut num_iter = 0;
         loop {
             statistic::inc("ITERS");
@@ -511,7 +514,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 // solvers[i].current_function.pretty_print(&self.cx.cache);
 
                 let last = solvers[i].num_solution();
-                solvers[i].solve(self.cache(), &self.trait_impl_map, &self.full_name_map);
+                solvers[i].solve(&self.cx.cache, &mut self.trait_impl_map, type_trait_cache, &self.full_name_map);
                 if last != solvers[i].num_solution() {
                     update = true;
                 }
@@ -567,6 +570,8 @@ impl<'tcx> ApiGraph<'tcx> {
         // init available struct
         let mut solvers = Vec::new();
         let num_function = self.generic_functions.len();
+        let mut type_trait_cache = TypeTraitCache::new();
+        self.trait_impl_map.init_concrete();
 
         // init solvers and do statistic
         for function in &self.api_functions {
@@ -588,8 +593,9 @@ impl<'tcx> ApiGraph<'tcx> {
             solvers.push(GenericSolver::new(Rc::clone(&self.type_context), function.clone()));
         }
 
-        // reachable solution search
-        self.search_reachable_solutions(&mut solvers);
+        // 1. find all reachable API
+        self.search_reachable_solutions(&mut solvers, &mut type_trait_cache);
+        // 2. reduce the number of API
         self.prune_by_diversity(&mut solvers);
 
         println!("unsolve generic function:");
@@ -603,6 +609,9 @@ impl<'tcx> ApiGraph<'tcx> {
                     statistic::inc("COVERED GENERIC");
                 }
             } else {
+                if !solvers[i].is_solvable(){
+                    print!("[unsolvable]");
+                }
                 self.generic_functions[i].pretty_print(&self.cx.cache);
             }
         }

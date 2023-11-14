@@ -630,7 +630,7 @@ impl ApiSequence {
         for tid in &self.using_traits {
             res.push_str(indent.as_str());
             res.push_str("use ");
-            res.push_str(&get_type_name_from_did(*tid, cache).unwrap());
+            res.push_str(&get_type_name_from_did(*tid, cache));
             res.push_str("; // trait\n");
         }
         res.push('\n');

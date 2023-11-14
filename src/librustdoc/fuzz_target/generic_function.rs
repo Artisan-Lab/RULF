@@ -75,8 +75,8 @@ impl GenericFunction {
         self.generic_map.set_self_type(self_type);
     }
 
-    pub(crate) fn add_generics(&mut self, generics: &Generics) {
-        self.generic_map.add_generics(generics);
+    pub(crate) fn add_generics(&mut self, generics: &Generics, ignore: Option<String>) {
+        self.generic_map.add_generics(generics, ignore);
     }
 
     pub(crate) fn is_solvable(&self) -> bool {

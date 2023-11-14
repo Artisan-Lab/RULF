@@ -19,7 +19,9 @@ use crate::fuzz_target::api_util::is_generic_type;
 use crate::fuzz_target::api_util::is_support_type;
 use crate::fuzz_target::api_util::print_path_segment_with_args;
 use crate::fuzz_target::api_util::replace_type_with;
-use crate::fuzz_target::api_util::{self, is_unsupported_fuzzable, replace_lifetime};
+use crate::fuzz_target::api_util::{
+    self, has_type_parameter, is_unsupported_fuzzable, replace_lifetime,
+};
 use crate::fuzz_target::api_util::{_type_name, replace_type_lifetime};
 use crate::fuzz_target::fuzzable_type::fuzzable_call_type;
 use crate::fuzz_target::generic_function::GenericFunction;
@@ -61,10 +63,22 @@ fn is_prelude_api(name: &str) -> bool {
     match name {
         "fn <std::vec::Vec::<u8, std::alloc::Global> as std::convert::From::<&str>>::from(&str) -> std::vec::Vec::<u8, std::alloc::Global>"
         | "fn std::collections::hash_map::DefaultHasher::new() -> std::collections::hash_map::DefaultHasher"
+        | "fn std::hash::SipHasher::new() -> std::hash::SipHasher"
+        | "fn std::string::String::as_mut_str(&mut std::string::String) -> &mut str"
         | "fn <std::string::String as std::convert::From::<&str>>::from(&str) -> std::string::String" => {
             true
         }
         _ => false,
+    }
+}
+
+fn get_ignore_generic_from_impl(impl_: &Impl) -> Option<String> {
+    match &impl_.kind {
+        ImplKind::Blanket(ref type_) => match **type_ {
+            Type::Generic(ref sym) => Some(sym.to_string()),
+            _ => unreachable!(),
+        },
+        _ => None,
     }
 }
 
@@ -94,11 +108,9 @@ pub(crate) fn extract_full_name_from_cache(
 
 pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
     let impls = api_graph.cache().impls.clone();
-    // TODO: ??
-    let mut available_type_set = FxHashSet::<DefId>::default();
 
-    let paths = &api_graph.cache().paths;
-    for (did, (syms, item_type)) in paths {
+    /*let paths = &api_graph.cache().paths;
+     for (did, (syms, item_type)) in paths {
         available_type_set.insert(*did);
     }
 
@@ -108,7 +120,7 @@ pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
         if prelude_type::is_preluded_type(&full_name) {
             available_type_set.insert(*did);
         }
-    }
+    } */
 
     //首先提取所有type的impl
     for (did, impls) in impls.iter() {
@@ -116,11 +128,9 @@ pub(crate) fn analyse_impls(mut api_graph: &mut ApiGraph<'_>) {
         for impl_ in impls {
             extract_trait_impl(impl_, &mut api_graph);
         }
+    }
 
-        //只添加可以在full_name_map中找到对应的did的type API
-        /* if available_type_set.get(&did).is_none() {
-            continue;
-        } */
+    for (did, impls) in impls.iter() {
         for impl_ in impls {
             //println!("full_name = {:?}", full_name_map._get_full_name(did).unwrap());
             analyse_impl(impl_, &mut api_graph);
@@ -133,7 +143,7 @@ fn is_prelude_trait(trait_: &Path) -> bool {
 }
 
 fn is_ignored_trait(trait_full_name: &str) -> bool {
-    if trait_full_name.starts_with("core::iter::traits::"){
+    if trait_full_name.starts_with("core::iter::traits::") {
         return true;
     }
     if trait_full_name.starts_with("core::fmt::") {
@@ -143,7 +153,7 @@ fn is_ignored_trait(trait_full_name: &str) -> bool {
         "core::fmt::Debug"
         | "core::fmt::Display"
         | "core::clone::Clone"
-        | "core::ops::drop::Drop"  => true,
+        | "core::ops::drop::Drop" => true,
         _ => false,
     }
 }
@@ -162,7 +172,7 @@ fn extract_trait_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) {
         // api_graph.add_type(ty_did, impl_for.clone());
         if let Some(ref trait_path) = impl_.trait_ {
             let mut generic_map = GenericParamMap::new();
-            generic_map.add_generics(&impl_.generics);
+            generic_map.add_generics(&impl_.generics, None);
             let trait_impl = TraitImpl::new(
                 trait_path.clone(),
                 impl_.for_.clone(),
@@ -236,8 +246,8 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
             .as_str()
     );
     println!("impl for: {:?}", impl_.for_);
+    println!("impl kind: {:?}", impl_.kind);
     println!("is trait(local): {}({})", is_trait_impl, is_crate_trait_impl);
-    println!("trait kind: {:?}", impl_.kind);
     println!("trait_full_name: {:?}", trait_full_name);
     println!("type_full_name: {:?}", type_full_name);
     println!("type_def_id: {:?}", impl_for_def_id);
@@ -400,7 +410,10 @@ pub(crate) fn analyse_impl_inner_item(
                 if let Type::QPath(qpathdata) = type_ {
                     if qpathdata.self_type.is_self_type() {
                         let name = print_path_segment(&qpathdata.assoc);
-                        *type_ = assoc_items.get(&name).expect(&format!("{} is unfounded",name)).clone();
+                        *type_ = assoc_items
+                            .get(&name)
+                            .expect(&format!("{} is unfounded", name))
+                            .clone();
                     }
                     return false;
                 }
@@ -429,7 +442,7 @@ pub(crate) fn analyse_impl_inner_item(
 
             let api_function = ApiFunction {
                 name: item.name.as_ref().unwrap().to_string(),
-                full_path: type_full_name.unwrap(),
+                full_path: type_full_name,
                 trait_: impl_.trait_.clone().map(|path| {
                     let mut ty = Type::Path { path };
                     replace_type_lifetime(&mut ty);
@@ -454,20 +467,16 @@ pub(crate) fn analyse_impl_inner_item(
                 }
             }
 
-            if !function.generics.is_empty() || !impl_.generics.is_empty() || api_function.has_impl_trait(){
-                // function is a generic function
-                let mut generic_function = GenericFunction::from(api_function);
-                generic_function.add_generics(&function.generics);
-                generic_function.add_generics(&impl_.generics);
-                generic_function.set_self_type(&self_type);
+            let mut generic_function = GenericFunction::from(api_function);
+            generic_function.add_generics(&function.generics, None);
 
-                if generic_function.generic_map.is_empty() {
-                    api_graph.add_api_function(generic_function.api_function);
-                } else {
-                    api_graph.generic_functions.push(generic_function);
-                }
+            generic_function.add_generics(&impl_.generics, get_ignore_generic_from_impl(impl_));
+            generic_function.set_self_type(&self_type);
+            // if API has any type parameter declaration, it is a generic API
+            if generic_function.generic_map.is_empty() {
+                api_graph.add_api_function(generic_function.api_function);
             } else {
-                api_graph.add_api_function(api_function);
+                api_graph.generic_functions.push(generic_function);
             }
         }
         _ => {

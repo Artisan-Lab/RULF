@@ -128,7 +128,7 @@ pub(crate) fn match_type(
     pattern: &Type,
     generic_defs: &Vec<String>,
 ) -> Option<Solution> {
-    // print!("[match] compare {} {}\n", _type_name(source, None), _type_name(pattern, None));
+    // print!("[match] compare {} - {}, {:?}\n", _type_name(source, None), _type_name(pattern, None), generic_defs);
     let mut map = default_solution(generic_defs.len());
     let mut merge_with_inner = |inner: Option<Vec<Type>>| -> bool {
         if let Some(inner_map) = inner {
@@ -251,19 +251,21 @@ pub(crate) fn match_call_type(
     pattern: &Type,
     generic_defs: &Vec<String>,
     cache: &Cache,
-) -> Option<Solution> {
+) -> Option<Solution> { 
     // try direct match
     let res = match_type(source, pattern, generic_defs);
     if res.is_some() {
         return res;
     }
 
+    // We have canonical source, so we don't need try to unwrap source
+    
     let mut unwrap_pattern = pattern.clone();
 
     loop {
         unwrap_pattern = match unwrap_pattern {
             Type::Path { ref path } => {
-                let name = get_type_name_from_did(path.def_id(), cache).unwrap();
+                let name = get_type_name_from_did(path.def_id(), cache);
                 // let name = path.segments.last().unwrap().name.to_string();
                 if name == "core::option::Option" {
                     take_type_from_path(path, 0)
