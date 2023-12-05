@@ -1464,18 +1464,25 @@ impl<'tcx> ApiGraph<'tcx> {
                 }
 
                 if api_sequence.has_no_fuzzables()
-                    || api_sequence._contains_dead_code_except_last_one(self)
                 {
+                    // println!("Has no fuzzables {}", j);
+                    continue;
+                }
+
+                if api_sequence._contains_dead_code_except_last_one(self){
+                    // println!("contain dead code {}", j);
                     continue;
                 }
 
                 if try_to_find_dynamic_length_flag && api_sequence._is_fuzzables_fixed_length() {
                     //优先寻找fuzzable部分具有动态长度的情况
+                    // println!("try_to_find_dynamic_length_flag1, {}",j);
                     continue;
                 }
 
                 if !try_to_find_dynamic_length_flag && !api_sequence._is_fuzzables_fixed_length() {
                     //再寻找fuzzable部分具有静态长度的情况
+                    // println!("try_to_find_dynamic_length_flag2, {}",j);
                     continue;
                 }
 
@@ -1489,6 +1496,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 }
 
                 if uncovered_nodes_by_former_sequence_count < current_max_covered_nodes {
+                    // println!("smaller than max1, {}", j);
                     continue;
                 }
                 let covered_edges = &api_sequence._covered_dependencies;
@@ -1502,6 +1510,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 if uncovered_nodes_by_former_sequence_count == current_max_covered_nodes
                     && uncovered_edges_by_former_sequence_count < current_max_covered_edges
                 {
+                    // println!("smaller than max2, {}",j);
                     continue;
                 }
                 let sequence_len = api_sequence.len();
@@ -1520,7 +1529,7 @@ impl<'tcx> ApiGraph<'tcx> {
             }
 
             if try_to_find_dynamic_length_flag && current_max_covered_nodes <= 0 {
-                //println!("sequences with dynamic length can not cover more nodes");
+                println!("sequences with dynamic length can not cover more nodes");
                 try_to_find_dynamic_length_flag = false;
                 continue;
             }
@@ -1529,7 +1538,7 @@ impl<'tcx> ApiGraph<'tcx> {
                 && current_max_covered_edges <= 0
                 && current_max_covered_nodes <= 0
             {
-                //println!("can't cover more edges or nodes");
+                println!("can't cover more edges or nodes");
                 break;
             }
             already_chosen_sequences.insert(current_chosen_sequence_index);

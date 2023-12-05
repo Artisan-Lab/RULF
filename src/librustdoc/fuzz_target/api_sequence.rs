@@ -48,7 +48,8 @@ impl ApiCall {
 }
 
 fn map_std_output_name(name: &str) -> String {
-    name.replace("std::vec::Vec::<u8, std::alloc::Global>", "std::vec::Vec::<u8>")
+    name.to_string()
+    //name.replace("std::vec::Vec::<u8, std::alloc::Global>", "std::vec::Vec::<u8>")
 }
 
 //function call sequences
@@ -64,7 +65,7 @@ pub(crate) struct ApiSequence {
     pub(crate) _function_mut_tag: FxHashSet<usize>, //表示哪些function的返回值需要带上mut标记
     pub(crate) _covered_dependencies: FxHashSet<usize>, //表示用到了哪些dependency,即边覆盖率
     pub(crate) mono: bool,                          // have any mono function in sequence
-                                                    // pub(crate) return_mark: Vec<Option<Type>>,
+                                                    // pub(crate) dependencies: FxHashSet<String>,  // third party dependencies
 }
 
 impl ApiSequence {
@@ -349,7 +350,7 @@ impl ApiSequence {
         test_index: usize,
     ) -> String {
         let mut res = self.to_afl_except_main(_api_graph, test_index);
-        res = res.replace("#[macro_use]\nextern crate afl;\n", "");
+        res = res.replace("#[macro_use]\nuse afl;\n", "");
         res.push_str(replay_util::_read_crash_file_data());
         res.push('\n');
         res.push_str(self.reproduce_main_function(test_index).as_str());
@@ -399,10 +400,16 @@ impl ApiSequence {
                 res.push_str(feature_gate_line.as_str());
             }
         }
+        // add std nightly feature 
+        res.push_str("#![feature(allocator_api)]\n\n");
 
+        // add afl macro
         res.push_str("#[macro_use]\n");
         res.push_str("extern crate afl;\n");
-        res.push_str(format!("extern crate {};\n", _api_graph._crate_name).as_str());
+        // add dependency
+
+        // add target library crate
+        // res.push_str(format!("extern crate {};\n", _api_graph._crate_name).as_str());
 
         let prelude_helper_functions = self.prelude_helper_functions();
         if let Some(prelude_functions) = prelude_helper_functions {
@@ -562,6 +569,35 @@ impl ApiSequence {
         res
     }
 
+    /* pub(crate) fn to_arbitrary_struct_string(&self, outer_indent: usize, test_index: usize) -> String {
+        let indent = _generate_indent(outer_indent + extra_indent);
+        let res = String::new();
+        res.push_str("#[derive(Arbitrary)\n");
+        res.push_str("struct Structured{\n");
+        let fuzzable_param_number = self.fuzzable_params.len();
+        for i in 0..fuzzable_param_number {
+            let type_=self.fuzzable_params[i];
+            res+=&format!("_param{}: ",i);
+            
+        }
+        res.push_str("}\n");
+        res.push_str("let mut unstructured = Unstructured::new(data);\n");
+        res.push_str("if let Ok(structured) = Structured::arbitrary(&mut unstructured){\n");
+
+        let mut test_function_call =
+            format!("{indent}test_function{test_index}(", indent = indent, test_index = test_index);
+        for i in 0..fuzzable_param_number {
+            if i != 0 {
+                test_function_call.push_str(" ,");
+            }
+            test_function_call.push_str(format!("structured._param{}", i).as_str());
+        }
+        test_function_call.push_str(");\n");
+        res.push_str(test_function_call.as_str());
+        res.push_str("}\n");
+        res
+    } */
+
     pub(crate) fn to_well_written_function(
         &self,
         api_graph: &ApiGraph<'_>,
@@ -574,7 +610,7 @@ impl ApiSequence {
         let mut res = String::new();
         //生成对trait的引用
         let using_traits = self.generate_using_traits_string(indent_size, api_graph.cache());
-        res.push_str(using_traits.as_str());
+        //res.push_str(using_traits.as_str()); // As we use full qualified path, we don't need to import trait
         //生成函数头
         let function_header = self.generate_function_header_string(
             api_graph,

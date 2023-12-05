@@ -119,6 +119,7 @@ impl GenericSolver {
         if self.is_num_enough() || !self.solvable {
             return;
         }
+        
         if no >= self.current.len() {
             println!("[Solver] Check Solution: {}", solution_string(&solution));
             if let Some(impl_set) =
@@ -148,12 +149,12 @@ impl GenericSolver {
         }
 
         if let Type::Infer = solution[no] {
-            for ty in trait_impl_map.concrete_iter(){
+            /* for ty in trait_impl_map.concrete_iter(){
                 solution[no] = ty.clone();
                 self.dfs(solution, no + 1, cache, trait_impl_map, type_trait_cache);
-            }
-            // self.solvable = false;
-            // println!("[Solver] mark function as unsolvable");
+            } */
+            self.solvable = false;
+            println!("[Solver] mark function as unsolvable");
             return;
         }
 

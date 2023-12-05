@@ -7,6 +7,7 @@ use crate::fuzz_target::api_graph::ApiType;
 //print generated sequences
 pub(crate) fn _print_pretty_sequences(api_graph: &ApiGraph<'_>) {
     println!("sequences:");
+    let mut count=0;
     for api_sequence in &api_graph.api_sequences {
         let mut one_sequence = String::new();
         for api_call in &api_sequence.functions {
@@ -16,7 +17,8 @@ pub(crate) fn _print_pretty_sequences(api_graph: &ApiGraph<'_>) {
             one_sequence.push_str(func_name.as_str());
             one_sequence.push_str(" ");
         }
-        println!("{:?}", one_sequence);
+        println!("{}: {:?}", count,one_sequence);
+        count+=1;
     }
 }
 

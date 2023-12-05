@@ -183,8 +183,13 @@ pub fn fuzz_target_generator_main() {
         _ => Err(ErrorGuaranteed::unchecked_claim_error_was_emitted()),
     });
 
+    if exit_code==0{
+        println!("Fuzz Target Generator exits successfully.");
+    } else {
+        println!("Fuzz Target Generator exits with errorcode {}.", exit_code);
+    }
     println!(
-        "Fuzz Target Generator exits successfully. Total time cost: {:?} ms",
+        "Total time cost: {:?} ms",
         start.elapsed().as_millis()
     );
 

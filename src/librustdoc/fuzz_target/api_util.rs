@@ -102,10 +102,31 @@ fn map_std_type_name(name: &str) -> String {
         "std::collections::hash::map::",
         "std::collections::hash_map::",
     );
+    let name = replace_start_string(
+        &name,
+        "std::collections::hash::set::",
+        "std::collections::hash_set::",
+    );
     let name = replace_start_string(&name, "std::str::traits::", "std::str::");
     let name = replace_start_string(&name, "std::ops::index::", "std::ops::");
     let name = replace_start_string(&name, "std::hash::sip::", "std::hash::");
     let name = replace_start_string(&name, "std::ops::bit::", "std::ops::");
+    let name = replace_start_string(&name, "std::ops::deref::", "std::ops::");
+    let name = replace_start_string(&name, "std::net::socket_addr::", "std::net::");
+    let name = replace_start_string(&name, "std::net::ip_addr::", "std::net::");
+    let name = replace_start_string(&name, "std::num::nonzero::", "std::num::");
+    let name = replace_start_string(&name, "std::ffi::os_str::", "std::ffi::");
+    let name = replace_start_string(&name, "std::ffi::c_str::", "std::ffi::");
+    
+    // private module name workaround for experiment library
+    let name = replace_start_string(&name, "prost::error::", "prost::");
+    let name = replace_start_string(&name, "toml_datetime::datetime::", "toml_datetime::");
+    let name = replace_start_string(&name, "serde::de::ignored_any::", "serde::de::");
+    let name = replace_start_string(&name, "axum_core::response::into_response::", "axum_core::response::");
+    let name = replace_start_string(&name, "libc::unix::", "libc::");
+    let name = replace_start_string(&name, "bytes::bytes_mut::", "bytes::");
+    let name = replace_start_string(&name, "serde_yaml::error::", "serde_yaml::");
+    let name = replace_start_string(&name, "serde_yaml::number::", "serde_yaml::");
     
     name
 }

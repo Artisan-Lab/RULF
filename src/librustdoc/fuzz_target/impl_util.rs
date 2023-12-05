@@ -466,12 +466,13 @@ pub(crate) fn analyse_impl_inner_item(
                     print!("is added.\n");
                 }
             }
-
+            if api_function._unsafe_tag._is_unsafe(){
+                statistic::inc("UNSAFE");
+            }
             let mut generic_function = GenericFunction::from(api_function);
             generic_function.add_generics(&function.generics, None);
-
             generic_function.add_generics(&impl_.generics, get_ignore_generic_from_impl(impl_));
-            generic_function.set_self_type(&self_type);
+            generic_function.set_self_type(&self_type);            
             // if API has any type parameter declaration, it is a generic API
             if generic_function.generic_map.is_empty() {
                 api_graph.add_api_function(generic_function.api_function);
@@ -503,7 +504,7 @@ pub(crate) fn analyse_type(item: &Item, api_graph: &mut ApiGraph<'_>) {
             }
 
             for field in struct_.fields.iter() {
-                if let Visibility::Restricted(_) = field.visibility {
+                if !field.visibility.is_public() {
                     return;
                 }
             }

@@ -17,6 +17,7 @@ pub static mut STATISTIC_MAP: Lazy<Mutex<FxHashMap<String, usize>>> = Lazy::new(
     map.insert("UNSOLVABLE".to_string(), 0);
     map.insert("RESERVE".to_string(), 0);
     map.insert("PRUNE_ITERS".to_string(), 0);
+    map.insert("UNSAFE".to_string(), 0);
     map.into()
 });
 

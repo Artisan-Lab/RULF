@@ -241,20 +241,18 @@ impl TraitImplMap {
 
         // check whether type_ have implement of this trait_
         let mut extract_trait_id = |trait_: &Type| -> Option<ImplId> {
-            if let Some(id) = type_trait_cache.get(type_, trait_) {
+            if let Some(id) = type_trait_cache.get(type_, trait_) { // is type_ implement trait_?
                 return *id;
             }
 
-            type_trait_cache.set(type_.clone(), trait_.clone(), None);
+            // if recursively check happened this can stop dead loop by returning None
+            type_trait_cache.set(type_.clone(), trait_.clone(), None); 
 
+            // check all impls for type_
             for trait_impl in trait_impls {
                 // println!("Check trait impl {:?}", trait_impl);
                 let impl_trait = Type::Path { path: trait_impl.trait_.clone() };
-                // TODO: should we consider blanket impl?
-                /* if trait_impl.generic_map.generic_defs.len() > 0 {
-                    // ignore blanket impl
-                    continue;
-                } */
+                
                 if let Some(sol_for_trait) =
                     match_type(&trait_, &impl_trait, &trait_impl.generic_map.generic_defs)
                 {

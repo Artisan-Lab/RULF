@@ -62,7 +62,9 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                 };
                 println!("Add function: {}", api_fun._pretty_print(&self.context.cache));
                 println!("visibility: {:?}", item.visibility);
-
+                if api_fun._unsafe_tag._is_unsafe(){
+                    statistic::inc("UNSAFE");
+                }
                 let mut generic_function = GenericFunction::from(api_fun);
                 generic_function.add_generics(&func.generics, None);
                 if !generic_function.generic_map.is_empty() {
