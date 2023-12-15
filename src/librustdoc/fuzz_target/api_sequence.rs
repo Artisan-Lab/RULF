@@ -401,6 +401,7 @@ impl ApiSequence {
             }
         }
         // add std nightly feature 
+        res.push_str("#![feature(int_log)]\n");
         res.push_str("#![feature(allocator_api)]\n\n");
 
         // add afl macro

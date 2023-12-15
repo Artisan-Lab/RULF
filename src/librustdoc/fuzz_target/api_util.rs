@@ -112,6 +112,7 @@ fn map_std_type_name(name: &str) -> String {
     let name = replace_start_string(&name, "std::hash::sip::", "std::hash::");
     let name = replace_start_string(&name, "std::ops::bit::", "std::ops::");
     let name = replace_start_string(&name, "std::ops::deref::", "std::ops::");
+    let name = replace_start_string(&name, "std::ops::arith::", "std::ops::");
     let name = replace_start_string(&name, "std::net::socket_addr::", "std::net::");
     let name = replace_start_string(&name, "std::net::ip_addr::", "std::net::");
     let name = replace_start_string(&name, "std::num::nonzero::", "std::num::");

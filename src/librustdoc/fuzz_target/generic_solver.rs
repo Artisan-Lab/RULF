@@ -129,6 +129,7 @@ impl GenericSolver {
                 let func = self.make_function_with(&solution);
                 println!("[Solver] find mono function: {}", func._pretty_print(cache));
                 println!("[Solver] mono solution: {:?}", solution);
+                println!("[Solver] impls={:?}", impl_set);
                 if let Some(ref output) = func.output {
                     let depth = type_depth(output);
                     println!("[Solver] output depth = {}", depth);
@@ -299,19 +300,8 @@ impl GenericSolver {
             let impl_set = &self.solutions[i].2;
             if let Some(ref output) = self.solutions[i].1.output {
                 if any_type_match(diverse_types, output, full_name_map, cache, true) {
-                    println!(
-                        "[Propagate] reserve solution:{} ({:?})",
-                        self.solutions[i].1._pretty_print(cache),
-                        impl_set
-                    );
-                    self.reserved[i] = true;
+                    self.reserve(i,diverse_types,cache);
                     success = true;
-                    for input in self.solutions[i].1.inputs.iter() {
-                        if diverse_types.get(input).is_none() {
-                            diverse_types.insert(input.clone(), false);
-                        }
-                    }
-                    set_union(&mut self.diverse_set, impl_set);
                 }
             }
         }
@@ -355,24 +345,30 @@ impl GenericSolver {
                 break;
             }
 
-            println!(
-                "[Solver] reserve mono: {}, {:?}, all={:?}",
-                &self.solutions[max_id].1._pretty_print(cache),
-                self.solutions[max_id].2,
-                self.diverse_set
-            );
-            set_union(&mut self.diverse_set, &self.solutions[max_id].2);
-            self.reserved[max_id] = true;
-            for input in self.solutions[max_id].1.inputs.iter() {
-                if diverse_types.get(input).is_none() {
-                    diverse_types.insert(input.clone(), false);
-                }
+            self.reserve(max_id, diverse_types, cache);
+        }
+
+        self.reserve_least_one(diverse_types, cache);
+    }
+
+    pub(crate) fn reserve(&mut self, no:usize, diverse_types:&mut FxHashMap<Type, bool>, cache: &Cache){
+        println!(
+            "[Solver] reserve mono: {}, {:?}, all={:?}",
+            &self.solutions[no].1._pretty_print(cache),
+            self.solutions[no].2,
+            self.diverse_set
+        );
+        set_union(&mut self.diverse_set, &self.solutions[no].2);
+        self.reserved[no] = true;
+        for input in self.solutions[no].1.inputs.iter() {
+            if diverse_types.get(input).is_none() {
+                diverse_types.insert(input.clone(), false);
             }
         }
     }
 
     /// make sure at least one solution is selected
-    pub(crate) fn reserve_least_one(&mut self) {
+    pub(crate) fn reserve_least_one(&mut self, diverse_types:&mut FxHashMap<Type, bool>, cache: &Cache) {
         if self.num_solution() == 0 {
             return;
         }
@@ -381,7 +377,7 @@ impl GenericSolver {
                 return;
             }
         }
-        self.reserved[0] = true;
+        self.reserve(0, diverse_types, cache);
     }
 
     pub(crate) fn reserve_solutions(&self) -> Vec<ApiFunction> {

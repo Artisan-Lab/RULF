@@ -51,10 +51,19 @@ lazy_static! {
     };
 }
 
-fn add_func_input_to_set(type_set: &mut FxHashSet<Type>, func: &ApiFunction) {
+/* fn add_func_input_to_set(type_set: &mut FxHashSet<Type>, func: &ApiFunction) {
     for input in func.inputs.iter() {
         type_set.insert(input.clone());
     }
+} */
+
+
+fn print_diverse_types(diverse_types:&FxHashMap::<Type, bool>){
+    println!("===== diverse types =====");
+    for (ty,visit) in diverse_types.iter(){
+        println!("{}: {}",_type_name(ty,None), visit);
+    }
+    println!("===== !diverse types =====");
 }
 
 pub(crate) fn any_type_match(
@@ -440,7 +449,7 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
-    pub(crate) fn update_reserve(&mut self, diverse_types: &mut FxHashMap<Type, bool>) {
+    pub(crate) fn update_reserve(&mut self, diverse_types: &mut FxHashMap<Type, bool>){
         let mut que = VecDeque::<usize>::new();
         for i in 0..self.api_functions.len() {
             if self.reserve[i] || !self.reachable[i] {
@@ -538,12 +547,15 @@ impl<'tcx> ApiGraph<'tcx> {
         println!("===== !all reachable func =====");
     }
 
+
     pub fn prune_by_diversity(&mut self, solvers: &mut Vec<GenericSolver>) {
         let mut diverse_types = FxHashMap::<Type, bool>::default();
 
         for solver in solvers.iter_mut() {
             solver.init_diverse_set(&mut diverse_types, self.cache());
         }
+
+        print_diverse_types(&diverse_types);
 
         loop {
             self.update_reserve(&mut diverse_types);
@@ -554,16 +566,16 @@ impl<'tcx> ApiGraph<'tcx> {
                 update |=
                     solver.propagate_reserve(&mut diverse_types, &self.full_name_map, self.cache());
             }
-
+            print_diverse_types(&diverse_types);
             // early terminate
             if !update {
                 break;
             }
         }
 
-        for solver in solvers.iter_mut() {
+        /* for solver in solvers.iter_mut() {
             solver.reserve_least_one();
-        }
+        } */
     }
 
     pub(crate) fn resolve_generic_functions(&mut self) {
