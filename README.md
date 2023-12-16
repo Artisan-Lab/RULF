@@ -1,18 +1,19 @@
-# Fuzz Driver Synthesis for Rust Generic APIs
+# RULF+: Fuzz Driver Synthesis for Rust Generic APIs
 
 ### Introduction 
 
-This is the protrtype repository of RULF+. RULF+ is a tool aims to automatically synthesize fuzz drivers for generic APIs in Rust. 
+This is the protrtype repository of RULF+. RULF+ is a tool aims to automatically synthesize fuzz drivers for generic APIs in Rust. RULF+ can generate multiple monomorphic APIs for a single generic API, to reach a comprehensive and diversity test for the generic API. Thus, RULF+ have the capability of finding the elusive bugs hidden in generic APIs, even it hide in a specific monomorphic API.
 
+### Warning
+
+We are in the process of reformating code, and the present version may encounter build issues when you following the instructions below. We will finish the document and release the docker build environment as soon as possible.
+
+### Workflow
 
 The recommended workflow to use this tool to fuzz a library is as follows: 
 1. clone the source and build this tool
 2. select a library for fuzzing, the use this tool to generate targets for the selected library.
 3. fuzz the library with [afl.rs](https://github.com/rust-fuzz/afl.rs). We provide a command line script to partly automate the process. 
-
-### Warning
-
-We are in the process of organizing the pertinent code, and the present version may encounter build issues when you following the instructions below. We will finish the document and release the docker build environment as soon as possible.
 
 ### How to use our tool with Docker
 The recommend way to use and develop our tool is through docker.
