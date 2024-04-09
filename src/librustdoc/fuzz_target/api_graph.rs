@@ -11,6 +11,8 @@ use crate::clean::Type;
 use crate::clean::Visibility;
 use crate::clean::{GenericArg, Lifetime};
 use crate::formats::cache::Cache;
+use crate::fuzz_target::api_util::is_external_type;
+use crate::fuzz_target::api_util::scan_type_with;
 use crate::fuzz_target::api_function::ApiFunction;
 use crate::fuzz_target::api_sequence::{ApiCall, ApiSequence, ParamType};
 use crate::fuzz_target::api_util;
@@ -307,6 +309,112 @@ impl<'tcx> ApiGraph<'tcx> {
         }
     }
 
+    pub(crate) fn count_for_uncover_reason(&mut self){
+        let is_prelude=|did:DefId|->bool{
+            let name=get_type_name_from_did(did,&self.cx.cache);
+            match name.as_str(){
+                "std::vec::Vec"|
+                "std::collections::hash_map::DefaultHasher"|
+                "std::string::String"|
+                "std::result::Result"|
+                "std::option::Option"
+                 => true,
+                _ => false
+            }
+        };
+
+        let is_prelude_trait=|did:DefId|->bool{
+            // return false;
+            // ignore the usually use trait
+            let name=get_type_name_from_did(did,&self.cx.cache);
+            // Can not handle higher-order type and iterator
+            if name.starts_with("std::ops::function::")
+            || name.starts_with("std::iter::traits::iterator::Iterator::"){
+                return false;
+            }
+
+            if name.starts_with("std"){
+                return true;
+            }
+            /* if name.starts_with("std::io::Write") 
+            || name.starts_with("std::io::Read")
+            || name.starts_with("std::hash::Hasher")
+            || name.starts_with("std::convert::AsRef")
+            || name.starts_with("std::convert::Into")
+            || name.starts_with("std::marker::")
+            {
+                return true;
+            } */
+            false
+        };
+
+
+        let mut uncover=0;
+        for i in 0..self.generic_functions.len(){
+            let func=&self.generic_functions[i];
+            
+            let mut flag=false;
+            let mut scan_type=|ty:&Type|{
+                println!("check {}",_type_name(ty,Some(&self.cx.cache)));
+                match ty{
+                    Type::Path{path} => {
+                        let did=path.def_id();
+                        if is_external_type(did,&self.cx.cache) && !is_prelude(did){
+                            flag=true;
+                            println!("third-party type: {}", get_type_name_from_did(did,&self.cx.cache));
+                            return false;
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            };
+
+
+            // check third-party input
+            for input in func.api_function.inputs.iter(){
+                scan_type_with(input,&mut scan_type);
+            }
+
+            
+            for (ty, _) in func.generic_map.type_pred.iter(){
+                scan_type_with(ty, &mut scan_type);
+            }
+
+            let mut scan_trait=|ty:&Type|{
+                match ty{
+                    Type::Path{path} => {
+                        let did=path.def_id();
+                        if is_external_type(did,&self.cx.cache) && !is_prelude_trait(did){
+                            flag=true;
+                            println!("third-party trait: {}", get_type_name_from_did(did,&self.cx.cache));
+                            return false;
+                        }
+                    }
+                    _ => {}
+                }
+                true
+            };
+            // check third-party traits
+            for (_,vec_path) in func.generic_map.iter(){
+                for path in vec_path.iter(){
+                    scan_type_with(&Type::Path{path:path.clone()}, &mut scan_trait);
+                }
+            }
+
+            for (_ ,vec_path) in func.generic_map.type_pred.iter(){
+                for path in vec_path.iter(){
+                    scan_type_with(&Type::Path{path:path.clone()}, &mut scan_trait);
+                }
+            }
+
+            if flag{
+                uncover+=1;
+            }
+        }
+        println!("{}",uncover);
+    }
+
     pub fn print_unsupport_function(&self) {
         println!("unsupport function:");
         for name in self.functions_with_unsupported_fuzzable_types.iter() {
@@ -542,13 +650,16 @@ impl<'tcx> ApiGraph<'tcx> {
                 if self.api_functions[i].is_local() {
                     statistic::inc("COVERED API");
                 }
+                if self.api_functions[i].rpg_local{
+                    statistic::inc("RPG_COVERED_API");
+                }
             }
         }
         println!("===== !all reachable func =====");
     }
 
 
-    pub fn prune_by_diversity(&mut self, solvers: &mut Vec<GenericSolver>) {
+    pub fn prune_by_similarity(&mut self, solvers: &mut Vec<GenericSolver>) {
         let mut diverse_types = FxHashMap::<Type, bool>::default();
 
         for solver in solvers.iter_mut() {
@@ -572,10 +683,6 @@ impl<'tcx> ApiGraph<'tcx> {
                 break;
             }
         }
-
-        /* for solver in solvers.iter_mut() {
-            solver.reserve_least_one();
-        } */
     }
 
     pub(crate) fn resolve_generic_functions(&mut self) {
@@ -590,12 +697,19 @@ impl<'tcx> ApiGraph<'tcx> {
             if function.is_local() {
                 statistic::inc("API");
             }
+            if function.rpg_local{
+                statistic::inc("RPG_API");
+            }
         }
 
         for function in &self.generic_functions {
             if function.api_function.is_local() {
                 statistic::inc("API");
                 statistic::inc("GENERIC_API");
+            }
+            if function.api_function.rpg_local{
+                statistic::inc("RPG_API");
+                statistic::inc("RPG_GENERIC");
             }
         }
 
@@ -608,7 +722,7 @@ impl<'tcx> ApiGraph<'tcx> {
         // 1. find all reachable API
         self.search_reachable_solutions(&mut solvers, &mut type_trait_cache);
         // 2. reduce the number of API
-        self.prune_by_diversity(&mut solvers);
+        self.prune_by_similarity(&mut solvers);
 
         println!("unsolve generic function:");
         for i in 0..num_function {
@@ -619,6 +733,10 @@ impl<'tcx> ApiGraph<'tcx> {
                 if self.generic_functions[i].api_function.is_local() {
                     statistic::inc("COVERED API");
                     statistic::inc("COVERED GENERIC");
+                }
+                if self.generic_functions[i].api_function.rpg_local{
+                    statistic::inc("RPG_COVERED_GENERIC");
+                    statistic::inc("RPG_COVERED_API");
                 }
             } else {
                 if !solvers[i].is_solvable(){
@@ -734,6 +852,35 @@ impl<'tcx> ApiGraph<'tcx> {
             }
         }
         return false;
+    }
+
+    pub(crate) fn print_rpg_api(&self){
+        println!("======= rpg api =======");
+        let mut cnt = 0;
+        let mut apis = 0;
+        let mut generics = 0;
+        for function in self.api_functions.iter() {
+            if function.rpg_local {
+                println!("#{}#{}", cnt, function._pretty_print(self.cache()));
+                cnt += 1;
+                apis += 1;
+            }
+        }
+        cnt=0;
+        for function in self.generic_functions.iter() {
+            if function.api_function.rpg_local {
+                apis += 1;
+                generics += 1;
+                print!("#{}#", cnt);
+                cnt += 1;
+                function.pretty_print(&self.cx.cache);
+            }
+        }
+        
+        println!("num of normal functions: {}", apis);
+        println!("num of generic functions: {}", generics);
+        println!("======= !all functions =======\n");
+    
     }
 
     pub(crate) fn print_all_functions(&self) {
@@ -1471,9 +1618,9 @@ impl<'tcx> ApiGraph<'tcx> {
                 }
                 let api_sequence = &self.api_sequences[j];
 
-                if !api_sequence.has_mono() {
-                    continue;
-                }
+                // if !api_sequence.has_mono() {
+                //     continue;
+                // }
 
                 if api_sequence.has_no_fuzzables()
                 {

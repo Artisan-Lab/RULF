@@ -28,6 +28,7 @@ pub(crate) struct ApiFunction {
     pub(crate) _unsafe_tag: ApiUnsafety,
     pub(crate) local: bool,
     pub(crate) mono: bool,
+    pub(crate) rpg_local: bool, // for comparison with RPG, only trait and struct is local the API will be viewed as local
 }
 
 impl ApiUnsafety {
@@ -55,6 +56,7 @@ impl ApiFunction {
             (Some(self_),Some(trait_)) => format!("<{} as {}>::{}",_type_name(&self_,Some(cache)),_type_name(&trait_,Some(cache)),self.name)
         }
     }
+
     pub(crate) fn is_mono(&self) -> bool {
         self.mono
     }

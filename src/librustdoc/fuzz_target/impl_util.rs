@@ -322,7 +322,7 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
         if let Some(name) = item.name {
             implemented.insert(name);
         }
-        analyse_impl_inner_item(api_graph, impl_, item, &assoc_items, impl_did.is_local());
+        analyse_impl_inner_item(api_graph, impl_, item, &assoc_items, impl_did.is_local(),false);
     }
     if is_trait_impl {
         let trait_ =
@@ -345,6 +345,7 @@ pub(crate) fn analyse_impl(impl_: &formats::Impl, api_graph: &mut ApiGraph<'_>) 
                         item,
                         &assoc_items,
                         trait_.def_id.is_local(),
+                        true,
                     );
                     // analyse_impl_inner_item(api_graph, impl_, item, &assoc_items, impl_did.is_local() && is_crate_trait_impl);
                 }
@@ -360,6 +361,7 @@ pub(crate) fn analyse_impl_inner_item(
     item: &Item,
     assoc_items: &FxHashMap<String, Type>,
     is_local_impl: bool,
+    is_default: bool
 ) {
     let full_name_map = &api_graph.full_name_map;
     let is_trait_impl = impl_.trait_.is_some();
@@ -454,6 +456,7 @@ pub(crate) fn analyse_impl_inner_item(
                 _unsafe_tag: api_unsafety,
                 mono: false,
                 local: is_local_impl,
+                rpg_local: impl_for_def_id.map_or(false, |did| did.is_local()) && impl_.trait_.as_ref().map_or(true, |path| path.def_id().is_local()) && !is_default
             };
 
             // if this is a external implement, only accept specific constructor function

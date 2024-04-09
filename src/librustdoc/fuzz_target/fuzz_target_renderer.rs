@@ -59,6 +59,7 @@ impl<'tcx> FuzzTargetRenderer<'tcx> {
                     _unsafe_tag: api_unsafety,
                     mono: false,
                     local: true,
+                    rpg_local: true
                 };
                 println!("Add function: {}", api_fun._pretty_print(&self.context.cache));
                 println!("visibility: {:?}", item.visibility);
@@ -163,14 +164,18 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         api_dependency_graph.print_unsupport_function();
 
         //根据mod可见性和预包含类型过滤function
-        api_dependency_graph.print_all_functions();
+        // api_dependency_graph.print_all_functions();
         api_dependency_graph.filter_functions();
         // println!("after filter");
-        api_dependency_graph.print_all_functions();
+        // api_dependency_graph.print_all_functions();
+        // api_dependency_graph.print_rpg_api();
+        // api_dependency_graph.count_for_uncover_reason();
+
         // Resolve all visible generic functions to normal function
         api_dependency_graph.resolve_generic_functions();
         statistic::print_summary();
         //寻找所有依赖，并且构建序列
+        return Ok(());
         api_dependency_graph.find_all_dependencies();
 
         let random_strategy = false;

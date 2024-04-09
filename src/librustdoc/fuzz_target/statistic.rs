@@ -18,6 +18,10 @@ pub static mut STATISTIC_MAP: Lazy<Mutex<FxHashMap<String, usize>>> = Lazy::new(
     map.insert("RESERVE".to_string(), 0);
     map.insert("PRUNE_ITERS".to_string(), 0);
     map.insert("UNSAFE".to_string(), 0);
+    map.insert("RPG_GENERIC".to_string(), 0);
+    map.insert("RPG_API".to_string(), 0);
+    map.insert("RPG_COVERED_GENERIC".to_string(), 0);
+    map.insert("RPG_COVERED_API".to_string(), 0);
     map.into()
 });
 
