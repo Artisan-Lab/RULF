@@ -175,7 +175,6 @@ impl<'tcx> renderer::FormatRenderer<'tcx> for FuzzTargetRenderer<'tcx> {
         api_dependency_graph.resolve_generic_functions();
         statistic::print_summary();
         //寻找所有依赖，并且构建序列
-        return Ok(());
         api_dependency_graph.find_all_dependencies();
 
         let random_strategy = false;

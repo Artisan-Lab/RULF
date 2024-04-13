@@ -1,0 +1,142 @@
+#!/bin/env python3
+import os
+import re
+import argparse
+import subprocess
+from pathlib import Path
+from time import perf_counter
+import toml
+
+def panic(message):
+    print("Error!")
+    print(message)
+    exit()
+
+def run_process(cmd, show=False): 
+    print(f"Running: {cmd}")
+    if show:
+        process = subprocess.Popen(cmd, shell=True)
+        process.communicate()
+    else:
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = process.communicate()
+        out, err = out.decode(), err.decode()
+        if process.returncode!=0:
+            print(f"RuMono failed when executing command.\nstdout:\n{out}\nstderr:\n{err}");
+        return out, err
+
+def get_info_from_rustdoc_string(rustdoc_str):
+    args=rustdoc_str.split(" ")
+    crate_name_ind=-1
+    crate_version_ind=-1
+    for i,arg in enumerate(args):
+        if arg=="--crate-name":
+            crate_name_ind=i
+        if arg=="--crate-version":
+            crate_version_ind=i
+    return args[crate_name_ind+1],args[crate_version_ind+1]
+
+def find_str_from_matches(matches,crate):
+    alls=[]
+    for match in matches:
+        name,version=get_info_from_rustdoc_string(match)
+        alls.append(name)
+        if name==crate:
+            match_str=match
+            return match_str
+    print(f"can't find crate: {crate}")
+    print(f"all documented crate: {alls}")
+    exit(1)
+
+def get_current_crate():
+    crate_path=os.getcwd()
+    cargo_path=crate_path+"/Cargo.toml"
+    with open(cargo_path,"r") as f:
+        content=f.read()
+        parsed=toml.loads(content)
+        crate_name=parsed["package"]["name"]
+        crate_version=parsed["package"]["version"]
+    return crate_name,crate_version
+
+def sub_cmd_gen(argument):
+    if argument.dir:
+        os.chdir(argument.dir)
+    
+    print(f"Rumono working on {os.getcwd()}")
+    
+    crate_name, crate_version = get_current_crate()
+    print(f"crate: {crate_name}={crate_version}")
+
+    if argument.crate:
+        crate_name=argument.crate
+    print(f"generate fuzz drivers for: {crate_name}")
+
+    # clean project
+    run_process("cargo clean")
+
+    # generate command
+    out,err = run_process("cargo doc -v")
+    # print(out,err)
+
+    matches = re.findall(r"Running `rustdoc(.+?)`", err, re.S)
+    
+    match_str=find_str_from_matches(matches,crate_name)
+    name,ver=get_info_from_rustdoc_string(match_str)
+
+    cmd = "fuzz-target-generator" + match_str 
+    #+ " --document-private-items --document-hidden-items -Z unstable-options" # Experimental Argument
+
+    gen_script_path=os.getcwd()+"/rumono-gen.sh"
+    
+    open(gen_script_path,"w").write(cmd)
+    print(f"save running script for {name}={ver} in {gen_script_path}")
+    print(f"generate fuzz drivers")
+
+    # run command
+    run_process(f"sh {gen_script_path} > rumono.log 2> rumono.errlog")
+    with open("rumono.log", "r") as f:
+        content = f.read()
+        statistic = re.findall(r"(====== statistic ======.+?)=======================", content, re.S)[0]
+    # show result
+    print(statistic)
+
+def sub_cmd_build(argument):
+    crate_name,_=get_current_crate()
+    if argument.crate:
+        crate_name=argument.crate
+    num_input=argument.num_input
+    print(f"Build for: {crate_name}")
+    run_process(f"afl_scripts -f {num_input}", show=True)
+    run_process(f"afl_scripts -b {crate_name}", show=True)
+
+def sub_cmd_fuzz(argument):
+    run_process(f"afl_scripts -fuzz", show=True)
+
+
+# define parser
+parser = argparse.ArgumentParser()
+# define subparser 
+subparsers = parser.add_subparsers()
+
+# 
+gen_parser = subparsers.add_parser("gen",help="generate fuzz driver")
+gen_parser.add_argument("--dir",   help="specify the library directory", type=str)
+gen_parser.add_argument("--crate", help="specify the crate name", type=str)
+gen_parser.set_defaults(func=sub_cmd_gen)
+
+build_parser = subparsers.add_parser("build",help="build target from fuzz_driver")
+build_parser.add_argument("--dir",   help="specify the library directory", type=str)
+build_parser.add_argument("--num-input",   help="specify the library directory", type=int,default=500)
+build_parser.add_argument("--crate", help="specify the crate name", type=str)
+build_parser.set_defaults(func=sub_cmd_build)
+
+fuzz_parser = subparsers.add_parser("fuzz",help="build target from fuzz_driver")
+fuzz_parser.add_argument("--dir",   help="specify the library directory", type=str)
+fuzz_parser.set_defaults(func=sub_cmd_fuzz)
+
+args = parser.parse_args()  # 处理输入的参数
+if not hasattr(args, 'func'):
+    # 无参数时跳转到-h
+    args = parser.parse_args(['-h'])
+else:
+    args.func(args)  # 跳转到对应的函数
