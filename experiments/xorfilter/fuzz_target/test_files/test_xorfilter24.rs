@@ -1,0 +1,27 @@
+#![feature(int_log)]
+#![feature(allocator_api)]
+
+#[macro_use]
+extern crate afl;
+fn _to_slice<T>(data:&[u8], start_index: usize, end_index: usize)->&[T] {
+    let data_slice = &data[start_index..end_index];
+    let (_, shorts, _) = unsafe {data_slice.align_to::<T>()};
+    shorts
+}
+
+fn test_function24(_param0 :&[u64]) {
+    let _local0 = <xorfilter::BuildHasherDefault as std::default::Default>::default();
+    let mut _local1: xorfilter::Xor8::<xorfilter::BuildHasherDefault> = xorfilter::Xor8::<xorfilter::BuildHasherDefault>::with_hasher(_local0);
+    let _local2_param0_helper1 = &mut (_local1);
+    let _: xorfilter::Result::<()> = xorfilter::Xor8::<xorfilter::BuildHasherDefault>::build_keys(_local2_param0_helper1, _param0);
+}
+
+fn main() {
+    fuzz!(|data: &[u8]| {
+        //actual body emit
+        if data.len() < 8 {return;}
+        let dynamic_length = (data.len() - 0) / 1;
+        let _param0 = _to_slice::<u64>(data, 0 + 0 * dynamic_length, data.len());
+        test_function24(_param0);
+    });
+}

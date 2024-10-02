@@ -1,0 +1,61 @@
+#[macro_use]
+extern crate afl;
+extern crate serde_json;
+fn _unwrap_result<T, E>(_res: Result<T, E>) -> T {
+    match _res {
+        Ok(_t) => _t,
+        Err(_) => {
+            use std::process;
+            process::exit(0);
+        },
+    }
+}
+
+fn _to_i64(data:&[u8], index:usize)->i64 {
+    let data0 = _to_i32(data, index) as i64;
+    let data1 = _to_i32(data, index+4) as i64;
+    data0 << 32 | data1
+}
+
+fn _to_i32(data:&[u8], index:usize)->i32 {
+    let data0 = _to_i16(data, index) as i32;
+    let data1 = _to_i16(data, index+2) as i32;
+    data0 << 16 | data1
+}
+
+fn _to_isize(data:&[u8], index:usize)->isize {
+    _to_i64(data, index) as isize
+}
+
+fn _to_i8(data:&[u8], index:usize)->i8 {    
+    data[index] as i8
+}
+
+fn _to_i16(data:&[u8], index:usize)->i16 {
+    let data0 = _to_i8(data, index) as i16;
+    let data1 = _to_i8(data, index+1) as i16;
+    data0 << 8 | data1
+}
+
+use std::cmp::PartialEq; // trait
+use std::convert::From; // trait
+
+fn test_function273(_param0 :i32 ,_param1 :isize) {
+    let _local0 = <serde_json::value::Number as std::convert::From::<i32>>::from(_param0);
+    let _local1: std::result::Result::<serde_json::Value, serde_json::Error> = serde_json::to_value(_local0);
+    let _local2_param0_helper1 = _unwrap_result(_local1);
+    let _local2_param0_helper2 = &(_local2_param0_helper1);
+    let _local2_param0_helper3 = &(_local2_param0_helper2);
+    let _local2_param1_helper1 = &(_param1);
+    let _ = <&serde_json::Value as std::cmp::PartialEq::<isize>>::eq(_local2_param0_helper3, _local2_param1_helper1);
+}
+
+fn main() {
+    fuzz!(|data: &[u8]| {
+        //actual body emit
+        if data.len() != 12 {return;}
+        let _param0 = _to_i32(data, 0);
+        let _param1 = _to_isize(data, 4);
+        test_function273(_param0 ,_param1);
+    });
+}
