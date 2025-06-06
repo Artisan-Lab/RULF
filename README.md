@@ -4,7 +4,7 @@
 This is the repository of RuMono, a tool for synthesizing the fuzz drivers for Rust libraries with support for generic APIs. RuMono aims to automatically synthesize fuzz drivers for every API in your Rust library. RuMono can synthesize valid and comprehensive fuzz drivers by inferring suitable concrete types for generic APIs and synthesize every implementation for generic APIs. Thus, RuMono is capable of detecting inconspicuous bugs within specific monomorphic variants of a generic API. To this end, RuMono employs a two-stage approach, involving reachable monomorphic API search and similarity pruning.
 
 ## Build Steps
-We recommand you run RuMono on a docker environment. We provide a dockerfile for necessary dependencies to run RuMono. You can build running environment by running `docker/docker-build` script. This script will build an image containing the dependencies of RULF.  
+We recommand you run RuMono on a docker environment. We provide a dockerfile for necessary dependencies to run RuMono. You can build running environment by running `docker/docker-build` script. This script will build an image containing the dependencies of RuMono.  
 
 You should use `docker/docker-run` to start a container for running environment. This script will start a docker container and map the current directory to the container. 
 

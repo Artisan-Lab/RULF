@@ -1,18 +1,14 @@
 #! /usr/bin/env bash
 set -e
-set -x
 
+cd "$(cd "$(dirname "$0")" && pwd)"
 readonly VERSION="v0.1"
 readonly DOCKER_IMAGE_NAME="rumono"
-# readonly DOCKER_FILE="docker/Dockerfile"
-
 readonly DOCKER_UID="${UID:-0}"
 readonly DOCKER_GID="$(id -g)"
 # We use default user here, since our code hardcode username
 readonly DOCKER_USER="rumono"
 # readonly DOCKER_USER="${USER:-root}"
-
-echo $DOCKER_GID
 
 docker image build \
     --cache-from="$DOCKER_IMAGE_NAME:$VERSION" \

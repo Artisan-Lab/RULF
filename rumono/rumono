@@ -130,7 +130,7 @@ build_parser.add_argument("--num-input",   help="specify the library directory",
 build_parser.add_argument("--crate", help="specify the crate name", type=str)
 build_parser.set_defaults(func=sub_cmd_build)
 
-fuzz_parser = subparsers.add_parser("fuzz",help="build target from fuzz_driver")
+fuzz_parser = subparsers.add_parser("fuzz",help="start fuzzing")
 fuzz_parser.add_argument("--dir",   help="specify the library directory", type=str)
 fuzz_parser.set_defaults(func=sub_cmd_fuzz)
 

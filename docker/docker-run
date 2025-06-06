@@ -1,8 +1,8 @@
 #! /usr/bin/env bash
-
 set -e
 
 #readonly DOCKER_USER="${USER:-root}"
+readonly RUMONO_DIR="$(cd "$(dirname "$0")"/../ && pwd)"
 readonly DOCKER_USER="rumono"
 readonly PWD=`pwd`
-docker run -it --privileged=true -v ~/RULF:/home/${DOCKER_USER}/RuMono rumono:v0.1
+docker run -it --privileged=true -v ${RUMONO_DIR}:/home/${DOCKER_USER}/RuMono rumono:v0.1

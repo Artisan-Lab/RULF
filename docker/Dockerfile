@@ -65,20 +65,17 @@ ENV PATH="${USER_HOME}/.cargo/bin:${PATH}"
 ENV PATH="${FUZZ_TARGET_GENERATOR_DIR}/build/x86_64-unknown-linux-gnu/stage2/bin:${PATH}"
 ENV PATH="${FUZZ_TARGET_GENERATOR_DIR}/build/x86_64-unknown-linux-gnu/stage2-tools-bin:${PATH}"
 
-RUN (groupadd --gid=${USER_GID} ${USERNAME} || true) \
-  && (useradd --shell=/bin/bash --uid=${USER_UID} --gid=${USER_GID} --create-home ${USERNAME} || true) \
-  && echo "${USERNAME}  ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+# RUN (groupadd --gid=${USER_GID} ${USERNAME} || true) \
+#   && (useradd --shell=/bin/bash --uid=${USER_UID} --gid=${USER_GID} --create-home ${USERNAME} || true) \
+#   && echo "${USERNAME}  ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 #install rustup
+RUN useradd -m -u 0 -o -s /bin/bash ${USERNAME}
 USER ${USERNAME}
 WORKDIR ${USER_HOME}
 
-RUN curl --location https://sh.rustup.rs > /tmp/rustup \
-  && sh /tmp/rustup -y --default-toolchain=none \
-  && rustup --version \
-  && rm /tmp/rustup
-
-
+RUN curl --location https://sh.rustup.rs > /tmp/rustup 
+RUN sh /tmp/rustup -y --default-toolchain=none 
 
 #create a .bashrc
 RUN echo "export PATH=\"${PATH}\"" >> ${USER_HOME}/.bashrc \
@@ -86,11 +83,11 @@ RUN echo "export PATH=\"${PATH}\"" >> ${USER_HOME}/.bashrc \
 
 # change default cargo config
 SHELL ["/bin/bash", "-c"]
-RUN echo $'[source.crates-io] \n\ 
+RUN mkdir -p ${USER_HOME}/.cargo/ && echo $'[source.crates-io] \n\ 
 registry = \"https://github.com/rust-lang/crates.io-index\" \n\ 
 replace-with = \'ustc\' \n\ 
 [source.ustc] \n\ 
-registry = \"git://mirrors.ustc.edu.cn/crates.io-index\"' > ${USER_HOME}/.cargo/config
+registry = \"https://mirrors.ustc.edu.cn/crates.io-index\"' > ${USER_HOME}/.cargo/config
 
 ENV USER="${USERNAME}"
 
